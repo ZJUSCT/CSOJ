@@ -1,0 +1,127 @@
+name: Build and Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Tag version to release"
+        required: true
+  push:
+    paths-ignore:
+      - "docs/**"
+      - "README.md"
+    tags:
+      - "v*"
+
+concurrency:
+  group: "${{ github.workflow }}-${{ github.ref }}"
+  cancel-in-progress: true
+
+env:
+  APP_NAME: CSOJ
+  BUILD_DIR: ./cmd/CSOJ
+
+jobs:
+  build:
+    name: Build Binaries
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        jobs:
+#          - { goos: darwin, goarch: amd64, goamd64: v1, output: amd64-compatible }
+#          - { goos: darwin, goarch: amd64, goamd64: v3, output: amd64 }
+#          - { goos: darwin, goarch: amd64, goamd64: v1, output: amd64-v1 }
+#          - { goos: darwin, goarch: amd64, goamd64: v2, output: amd64-v2 }
+#          - { goos: darwin, goarch: amd64, goamd64: v3, output: amd64-v3 }
+#          - { goos: darwin, goarch: arm64, output: arm64 }
+#
+#          - { goos: linux, goarch: '386', go386: sse2, output: '386' }
+#          - { goos: linux, goarch: '386', go386: softfloat, output: '386-softfloat' }
+          - { goos: linux, goarch: amd64, goamd64: v1, output: amd64-compatible}
+          - { goos: linux, goarch: amd64, goamd64: v3, output: amd64 }
+#          - { goos: linux, goarch: amd64, goamd64: v1, output: amd64-v1 }
+#          - { goos: linux, goarch: amd64, goamd64: v2, output: amd64-v2 }
+#          - { goos: linux, goarch: amd64, goamd64: v3, output: amd64-v3 }
+          - { goos: linux, goarch: arm64, output: arm64 }
+#          - { goos: linux, goarch: arm, goarm: '5', output: armv5 }
+#          - { goos: linux, goarch: arm, goarm: '6', output: armv6 }
+#          - { goos: linux, goarch: arm, goarm: '7', output: armv7 }
+#          - { goos: linux, goarch: mips, gomips: hardfloat, output: mips-hardfloat }
+#          - { goos: linux, goarch: mips, gomips: softfloat, output: mips-softfloat }
+#          - { goos: linux, goarch: mipsle, gomips: hardfloat, output: mipsle-hardfloat }
+#          - { goos: linux, goarch: mipsle, gomips: softfloat, output: mipsle-softfloat }
+#          - { goos: linux, goarch: mips64, output: mips64 }
+#          - { goos: linux, goarch: mips64le, output: mips64le }
+#          - { goos: linux, goarch: riscv64, output: riscv64 }
+#          - { goos: linux, goarch: s390x, output: s390x }
+#          - { goos: linux, goarch: ppc64le, output: ppc64le }
+#
+#          - { goos: windows, goarch: '386', output: '386' }
+          - { goos: windows, goarch: amd64, goamd64: v1, output: amd64-compatible }
+          - { goos: windows, goarch: amd64, goamd64: v3, output: amd64 }
+#          - { goos: windows, goarch: amd64, goamd64: v1, output: amd64-v1 }
+#          - { goos: windows, goarch: amd64, goamd64: v2, output: amd64-v2 }
+#          - { goos: windows, goarch: amd64, goamd64: v3, output: amd64-v3 }
+#          - { goos: windows, goarch: arm64, output: arm64 }
+#
+#          - { goos: freebsd, goarch: '386', output: '386' }
+#          - { goos: freebsd, goarch: amd64, goamd64: v1, output: amd64-compatible }
+#          - { goos: freebsd, goarch: amd64, goamd64: v3, output: amd64 }
+#          - { goos: freebsd, goarch: amd64, goamd64: v1, output: amd64-v1 }
+#          - { goos: freebsd, goarch: amd64, goamd64: v2, output: amd64-v2 }
+#          - { goos: freebsd, goarch: amd64, goamd64: v3, output: amd64-v3 }
+#          - { goos: freebsd, goarch: arm64, output: arm64 }
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.jobs.goversion || '1.25' }}
+
+      - name: Build binary
+        id: build
+        run: |
+          mkdir -p build
+          EXT=""
+          if [ "${{ matrix.jobs.goos }}" = "windows" ]; then
+            EXT=".exe"
+          fi
+
+          VERSION="${{ github.event.inputs.version || github.ref_name }}"
+          FILENAME=${{ env.APP_NAME }}-${{ matrix.jobs.goos }}-${{ matrix.jobs.output }}$EXT
+
+          echo "Building $FILENAME with version $VERSION"
+
+          GOOS=${{ matrix.jobs.goos }} GOARCH=${{ matrix.jobs.goarch }} \
+          GOAMD64=${{ matrix.jobs.goamd64 }} GOARM=${{ matrix.jobs.goarm }} GOMIPS=${{ matrix.jobs.gomips }} \
+          go build -ldflags "-X main.Version=$VERSION" -o build/$FILENAME ${{ env.BUILD_DIR }}
+
+          echo "filename=$FILENAME" >> $GITHUB_OUTPUT
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.build.outputs.filename }}
+          path: build/${{ steps.build.outputs.filename }}
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: build
+          merge-multiple: true
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
