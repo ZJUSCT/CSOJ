@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"time"
 
 	"github.com/ZJUSCT/CSOJ/internal/auth"
 	"github.com/ZJUSCT/CSOJ/internal/config"
@@ -43,6 +44,14 @@ func NewUserRouter(
 
 	authHandler := auth.NewGitLabHandler(cfg, db)
 
+	// Helper map to find the parent contest of a problem
+	problemToContestMap := make(map[string]*judger.Contest)
+	for _, contest := range contests {
+		for _, problemID := range contest.ProblemIDs {
+			problemToContestMap[problemID] = contest
+		}
+	}
+
 	v1 := r.Group("/api/v1")
 	{
 		// Auth
@@ -63,11 +72,22 @@ func NewUserRouter(
 		})
 		v1.GET("/contests/:id", func(c *gin.Context) {
 			contestID := c.Param("id")
-			if contest, ok := contests[contestID]; ok {
-				util.Success(c, contest, "Contest found")
-			} else {
+			contest, ok := contests[contestID]
+			if !ok {
 				util.Error(c, http.StatusNotFound, fmt.Errorf("contest not found"))
+				return
 			}
+
+			now := time.Now()
+			// For contests that haven't started or have already ended, hide the problem list.
+			if now.Before(contest.StartTime) || now.After(contest.EndTime) {
+				// Create a copy to avoid modifying the original map entry
+				contestCopy := *contest
+				contestCopy.ProblemIDs = []string{} // Empty the problem list
+				util.Success(c, contestCopy, "Contest found, but is not currently active")
+				return
+			}
+			util.Success(c, contest, "Contest found")
 		})
 		v1.GET("/contests/:id/leaderboard", func(c *gin.Context) {
 			contestID := c.Param("id")
@@ -80,11 +100,30 @@ func NewUserRouter(
 		})
 		v1.GET("/problems/:id", func(c *gin.Context) {
 			problemID := c.Param("id")
-			if problem, ok := problems[problemID]; ok {
-				util.Success(c, problem, "Problem found")
-			} else {
+			problem, ok := problems[problemID]
+			if !ok {
 				util.Error(c, http.StatusNotFound, fmt.Errorf("problem not found"))
+				return
 			}
+
+			parentContest, ok := problemToContestMap[problemID]
+			if !ok {
+				util.Error(c, http.StatusInternalServerError, fmt.Errorf("internal server error: problem has no parent contest"))
+				return
+			}
+
+			now := time.Now()
+			// Check if the contest and problem are active
+			if now.Before(parentContest.StartTime) {
+				util.Error(c, http.StatusForbidden, fmt.Errorf("contest has not started yet"))
+				return
+			}
+			if now.Before(problem.StartTime) {
+				util.Error(c, http.StatusForbidden, fmt.Errorf("problem has not started yet"))
+				return
+			}
+
+			util.Success(c, problem, "Problem found")
 		})
 
 		// Authenticated routes
@@ -162,6 +201,22 @@ func NewUserRouter(
 				gitlabID := c.GetString("userID")
 				contestID := c.Param("id")
 
+				contest, ok := contests[contestID]
+				if !ok {
+					util.Error(c, http.StatusNotFound, fmt.Errorf("contest not found"))
+					return
+				}
+
+				now := time.Now()
+				if now.Before(contest.StartTime) {
+					util.Error(c, http.StatusForbidden, fmt.Errorf("contest has not started, cannot register"))
+					return
+				}
+				if now.After(contest.EndTime) {
+					util.Error(c, http.StatusForbidden, fmt.Errorf("contest has ended, cannot register"))
+					return
+				}
+
 				user, err := database.GetUserByGitLabID(db, gitlabID)
 				if err != nil {
 					util.Error(c, http.StatusNotFound, err)
@@ -193,6 +248,23 @@ func NewUserRouter(
 				problem, ok := problems[problemID]
 				if !ok {
 					util.Error(c, http.StatusNotFound, fmt.Errorf("problem not found"))
+					return
+				}
+
+				parentContest, ok := problemToContestMap[problemID]
+				if !ok {
+					util.Error(c, http.StatusInternalServerError, fmt.Errorf("internal server error: problem has no parent contest"))
+					return
+				}
+
+				// Check time restrictions for submission
+				now := time.Now()
+				if now.Before(parentContest.StartTime) || now.After(parentContest.EndTime) {
+					util.Error(c, http.StatusForbidden, fmt.Errorf("cannot submit because the contest is not active"))
+					return
+				}
+				if now.Before(problem.StartTime) || now.After(problem.EndTime) {
+					util.Error(c, http.StatusForbidden, fmt.Errorf("cannot submit because the problem is not active"))
 					return
 				}
 

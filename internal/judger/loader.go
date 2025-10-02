@@ -3,16 +3,19 @@ package judger
 import (
 	"os"
 	"path/filepath"
+	"time"
 
 	"go.uber.org/zap"
 	"gopkg.in/yaml.v3"
 )
 
 type Contest struct {
-	ID          string   `yaml:"id" json:"id"`
-	Name        string   `yaml:"name" json:"name"`
-	ProblemIDs  []string `yaml:"problems" json:"problem_ids"`
-	Description string   `json:"description"`
+	ID          string    `yaml:"id" json:"id"`
+	Name        string    `yaml:"name" json:"name"`
+	StartTime   time.Time `yaml:"starttime" json:"starttime"`
+	EndTime     time.Time `yaml:"enstime" json:"enstime"`
+	ProblemIDs  []string  `yaml:"problems" json:"problem_ids"`
+	Description string    `json:"description"`
 }
 
 type UploadLimit struct {
@@ -31,6 +34,8 @@ type WorkflowStep struct {
 type Problem struct {
 	ID          string         `yaml:"id" json:"id"`
 	Name        string         `yaml:"name" json:"name"`
+	StartTime   time.Time      `yaml:"starttime" json:"starttime"`
+	EndTime     time.Time      `yaml:"enstime" json:"enstime"`
 	Cluster     string         `yaml:"cluster" json:"cluster"`
 	CPU         int            `yaml:"cpu" json:"cpu"`
 	Memory      int64          `yaml:"memory" json:"memory"`
