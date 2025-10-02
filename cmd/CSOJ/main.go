@@ -62,6 +62,12 @@ func main() {
 
 	// judger scheduler
 	scheduler := judger.NewScheduler(cfg, db)
+
+	// Requeue pending submissions from the last run
+	if err := judger.RequeuePendingSubmissions(db, scheduler, problems); err != nil {
+		zap.S().Fatalf("failed to requeue pending submissions: %v", err)
+	}
+
 	go scheduler.Run()
 	zap.S().Info("judger scheduler started")
 

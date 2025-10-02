@@ -66,6 +66,33 @@ func NewScheduler(cfg *config.Config, db *gorm.DB) *Scheduler {
 	return scheduler
 }
 
+// RequeuePendingSubmissions loads submissions with 'Queued' status from the DB
+// and adds them back to the scheduler's queue on startup.
+func RequeuePendingSubmissions(db *gorm.DB, s *Scheduler, problems map[string]*Problem) error {
+	var pendingSubs []models.Submission
+	if err := db.Model(&models.Submission{}).Where("status = ?", models.StatusQueued).Order("created_at asc").Find(&pendingSubs).Error; err != nil {
+		return err
+	}
+
+	if len(pendingSubs) == 0 {
+		zap.S().Info("no pending submissions to requeue")
+		return nil
+	}
+
+	zap.S().Infof("requeueing %d pending submissions...", len(pendingSubs))
+	for _, sub := range pendingSubs {
+		submission := sub // Create a new variable to avoid pointer issues with the loop variable
+		problem, ok := problems[submission.ProblemID]
+		if !ok {
+			zap.S().Warnf("problem %s for submission %s not found, skipping requeue", submission.ProblemID, submission.ID)
+			continue
+		}
+		s.Submit(&submission, problem)
+	}
+	zap.S().Info("finished requeueing pending submissions")
+	return nil
+}
+
 func (s *Scheduler) GetClusterStates() map[string]ClusterState {
 	snapshot := make(map[string]ClusterState)
 	for name, cluster := range s.clusters {
