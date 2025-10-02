@@ -3,16 +3,20 @@ package judger
 import (
 	"os"
 	"path/filepath"
+	"time"
 
 	"go.uber.org/zap"
 	"gopkg.in/yaml.v3"
 )
 
 type Contest struct {
-	ID          string   `yaml:"id" json:"id"`
-	Name        string   `yaml:"name" json:"name"`
-	ProblemIDs  []string `yaml:"problems" json:"problem_ids"`
-	Description string   `json:"description"`
+	ID          string    `yaml:"id" json:"id"`
+	Name        string    `yaml:"name" json:"name"`
+	StartTime   time.Time `yaml:"starttime" json:"starttime"`
+	EndTime     time.Time `yaml:"enstime" json:"enstime"`
+	ProblemIDs  []string  `yaml:"problems" json:"problem_ids"`
+	Description string    `json:"description"`
+	BasePath    string    `json:"-"` // Store the base path to find assets
 }
 
 type UploadLimit struct {
@@ -31,12 +35,15 @@ type WorkflowStep struct {
 type Problem struct {
 	ID          string         `yaml:"id" json:"id"`
 	Name        string         `yaml:"name" json:"name"`
+	StartTime   time.Time      `yaml:"starttime" json:"starttime"`
+	EndTime     time.Time      `yaml:"enstime" json:"enstime"`
 	Cluster     string         `yaml:"cluster" json:"cluster"`
 	CPU         int            `yaml:"cpu" json:"cpu"`
 	Memory      int64          `yaml:"memory" json:"memory"`
 	Upload      UploadLimit    `yaml:"upload" json:"upload"`
 	Workflow    []WorkflowStep `yaml:"workflow" json:"workflow"`
 	Description string         `json:"description"`
+	BasePath    string         `json:"-"` // Store the base path to find assets
 }
 
 func LoadAllContestsAndProblems(contestDirs []string) (map[string]*Contest, map[string]*Problem, error) {
@@ -76,6 +83,7 @@ func loadContest(dir string) (*Contest, []*Problem, error) {
 	if err := yaml.Unmarshal(data, &contest); err != nil {
 		return nil, nil, err
 	}
+	contest.BasePath = dir // Set the base path
 
 	// Load contest description
 	desc, _ := os.ReadFile(filepath.Join(dir, "index.md"))
@@ -103,6 +111,7 @@ func loadProblem(dir string) (*Problem, error) {
 	if err := yaml.Unmarshal(data, &problem); err != nil {
 		return nil, err
 	}
+	problem.BasePath = dir // Set the base path
 
 	desc, _ := os.ReadFile(filepath.Join(dir, "index.md"))
 	problem.Description = string(desc)

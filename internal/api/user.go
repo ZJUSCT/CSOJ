@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
+	"time"
 
 	"github.com/ZJUSCT/CSOJ/internal/auth"
 	"github.com/ZJUSCT/CSOJ/internal/config"
@@ -43,6 +45,14 @@ func NewUserRouter(
 
 	authHandler := auth.NewGitLabHandler(cfg, db)
 
+	// Helper map to find the parent contest of a problem
+	problemToContestMap := make(map[string]*judger.Contest)
+	for _, contest := range contests {
+		for _, problemID := range contest.ProblemIDs {
+			problemToContestMap[problemID] = contest
+		}
+	}
+
 	v1 := r.Group("/api/v1")
 	{
 		// Auth
@@ -63,11 +73,22 @@ func NewUserRouter(
 		})
 		v1.GET("/contests/:id", func(c *gin.Context) {
 			contestID := c.Param("id")
-			if contest, ok := contests[contestID]; ok {
-				util.Success(c, contest, "Contest found")
-			} else {
+			contest, ok := contests[contestID]
+			if !ok {
 				util.Error(c, http.StatusNotFound, fmt.Errorf("contest not found"))
+				return
 			}
+
+			now := time.Now()
+			// For contests that haven't started or have already ended, hide the problem list.
+			if now.Before(contest.StartTime) || now.After(contest.EndTime) {
+				// Create a copy to avoid modifying the original map entry
+				contestCopy := *contest
+				contestCopy.ProblemIDs = []string{} // Empty the problem list
+				util.Success(c, contestCopy, "Contest found, but is not currently active")
+				return
+			}
+			util.Success(c, contest, "Contest found")
 		})
 		v1.GET("/contests/:id/leaderboard", func(c *gin.Context) {
 			contestID := c.Param("id")
@@ -80,11 +101,30 @@ func NewUserRouter(
 		})
 		v1.GET("/problems/:id", func(c *gin.Context) {
 			problemID := c.Param("id")
-			if problem, ok := problems[problemID]; ok {
-				util.Success(c, problem, "Problem found")
-			} else {
+			problem, ok := problems[problemID]
+			if !ok {
 				util.Error(c, http.StatusNotFound, fmt.Errorf("problem not found"))
+				return
 			}
+
+			parentContest, ok := problemToContestMap[problemID]
+			if !ok {
+				util.Error(c, http.StatusInternalServerError, fmt.Errorf("internal server error: problem has no parent contest"))
+				return
+			}
+
+			now := time.Now()
+			// Check if the contest and problem are active
+			if now.Before(parentContest.StartTime) {
+				util.Error(c, http.StatusForbidden, fmt.Errorf("contest has not started yet"))
+				return
+			}
+			if now.Before(problem.StartTime) {
+				util.Error(c, http.StatusForbidden, fmt.Errorf("problem has not started yet"))
+				return
+			}
+
+			util.Success(c, problem, "Problem found")
 		})
 
 		// Authenticated routes
@@ -98,6 +138,10 @@ func NewUserRouter(
 				if err != nil {
 					util.Error(c, http.StatusNotFound, err)
 					return
+				}
+				// Prepend API path to avatar filename if it's not a full URL
+				if user.AvatarURL != "" && !strings.HasPrefix(user.AvatarURL, "http") {
+					user.AvatarURL = fmt.Sprintf("/api/v1/assets/avatars/%s", user.AvatarURL)
 				}
 				util.Success(c, user, "ok")
 			})
@@ -149,7 +193,7 @@ func NewUserRouter(
 					return
 				}
 
-				user.AvatarURL = "/avatars/" + avatarFilename // URL path
+				user.AvatarURL = avatarFilename // Store only the filename
 				if err := database.UpdateUser(db, user); err != nil {
 					util.Error(c, http.StatusInternalServerError, err)
 					return
@@ -161,6 +205,22 @@ func NewUserRouter(
 			authed.POST("/contests/:id/register", func(c *gin.Context) {
 				gitlabID := c.GetString("userID")
 				contestID := c.Param("id")
+
+				contest, ok := contests[contestID]
+				if !ok {
+					util.Error(c, http.StatusNotFound, fmt.Errorf("contest not found"))
+					return
+				}
+
+				now := time.Now()
+				if now.Before(contest.StartTime) {
+					util.Error(c, http.StatusForbidden, fmt.Errorf("contest has not started, cannot register"))
+					return
+				}
+				if now.After(contest.EndTime) {
+					util.Error(c, http.StatusForbidden, fmt.Errorf("contest has ended, cannot register"))
+					return
+				}
 
 				user, err := database.GetUserByGitLabID(db, gitlabID)
 				if err != nil {
@@ -193,6 +253,23 @@ func NewUserRouter(
 				problem, ok := problems[problemID]
 				if !ok {
 					util.Error(c, http.StatusNotFound, fmt.Errorf("problem not found"))
+					return
+				}
+
+				parentContest, ok := problemToContestMap[problemID]
+				if !ok {
+					util.Error(c, http.StatusInternalServerError, fmt.Errorf("internal server error: problem has no parent contest"))
+					return
+				}
+
+				// Check time restrictions for submission
+				now := time.Now()
+				if now.Before(parentContest.StartTime) || now.After(parentContest.EndTime) {
+					util.Error(c, http.StatusForbidden, fmt.Errorf("cannot submit because the contest is not active"))
+					return
+				}
+				if now.Before(problem.StartTime) || now.After(problem.EndTime) {
+					util.Error(c, http.StatusForbidden, fmt.Errorf("cannot submit because the problem is not active"))
 					return
 				}
 
@@ -339,6 +416,118 @@ func NewUserRouter(
 				c.Header("Content-Type", "text/plain; charset=utf-8")
 				io.Copy(c.Writer, file)
 			})
+
+			assets := authed.Group("/assets")
+			{
+				assets.GET("/avatars/:filename", func(c *gin.Context) {
+					filename := c.Param("filename")
+					// Basic security: prevent path traversal
+					cleanFilename := filepath.Base(filename)
+					if cleanFilename != filename {
+						util.Error(c, http.StatusBadRequest, "invalid filename")
+						return
+					}
+
+					fullPath := filepath.Join(cfg.Storage.UserAvatar, cleanFilename)
+
+					if _, err := os.Stat(fullPath); os.IsNotExist(err) {
+						util.Error(c, http.StatusNotFound, "avatar not found")
+						return
+					}
+					c.File(fullPath)
+				})
+
+				assets.GET("/contests/:id/*assetpath", func(c *gin.Context) {
+					contestID := c.Param("id")
+					assetPath := c.Param("assetpath")
+
+					contest, ok := contests[contestID]
+					if !ok {
+						util.Error(c, http.StatusNotFound, "contest not found")
+						return
+					}
+
+					// Security: ensure the requested path is within the allowed assets directory
+					baseAssetDir := filepath.Join(contest.BasePath, "index.assets")
+					requestedFile := filepath.Join(baseAssetDir, assetPath)
+
+					safeBase, err := filepath.Abs(baseAssetDir)
+					if err != nil {
+						util.Error(c, http.StatusInternalServerError, "internal server error")
+						return
+					}
+					safeRequested, err := filepath.Abs(requestedFile)
+					if err != nil {
+						util.Error(c, http.StatusInternalServerError, "internal server error")
+						return
+					}
+
+					if !strings.HasPrefix(safeRequested, safeBase) {
+						util.Error(c, http.StatusForbidden, "access denied")
+						return
+					}
+
+					if _, err := os.Stat(safeRequested); os.IsNotExist(err) {
+						util.Error(c, http.StatusNotFound, "asset not found")
+						return
+					}
+					c.File(safeRequested)
+				})
+
+				assets.GET("/problems/:id/*assetpath", func(c *gin.Context) {
+					problemID := c.Param("id")
+					assetPath := c.Param("assetpath")
+
+					problem, ok := problems[problemID]
+					if !ok {
+						util.Error(c, http.StatusNotFound, "problem not found")
+						return
+					}
+
+					// --- Authorization Logic (same as GET /problems/:id) ---
+					parentContest, ok := problemToContestMap[problemID]
+					if !ok {
+						util.Error(c, http.StatusInternalServerError, "internal server error: problem has no parent contest")
+						return
+					}
+					now := time.Now()
+					if now.Before(parentContest.StartTime) {
+						util.Error(c, http.StatusForbidden, "contest has not started yet")
+						return
+					}
+					if now.Before(problem.StartTime) {
+						util.Error(c, http.StatusForbidden, "problem has not started yet")
+						return
+					}
+					// --- End Authorization ---
+
+					// --- Security Logic (same as contest assets) ---
+					baseAssetDir := filepath.Join(problem.BasePath, "index.assets")
+					requestedFile := filepath.Join(baseAssetDir, assetPath)
+
+					safeBase, err := filepath.Abs(baseAssetDir)
+					if err != nil {
+						util.Error(c, http.StatusInternalServerError, "internal server error")
+						return
+					}
+					safeRequested, err := filepath.Abs(requestedFile)
+					if err != nil {
+						util.Error(c, http.StatusInternalServerError, "internal server error")
+						return
+					}
+
+					if !strings.HasPrefix(safeRequested, safeBase) {
+						util.Error(c, http.StatusForbidden, "access denied")
+						return
+					}
+
+					if _, err := os.Stat(safeRequested); os.IsNotExist(err) {
+						util.Error(c, http.StatusNotFound, "asset not found")
+						return
+					}
+					c.File(safeRequested)
+				})
+			}
 		}
 	}
 	return r

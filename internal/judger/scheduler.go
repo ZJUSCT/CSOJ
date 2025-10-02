@@ -104,26 +104,38 @@ func (s *Scheduler) Run() {
 }
 
 func (s *Scheduler) process(job QueuedSubmission) {
-	zap.S().Infof("searching for available node for submission %s", job.Submission.ID)
+	// Refetch from DB to check for interruptions while in queue
+	var currentSub models.Submission
+	if err := s.db.First(&currentSub, "id = ?", job.Submission.ID).Error; err != nil {
+		zap.S().Errorf("failed to refetch submission %s from DB: %v", job.Submission.ID, err)
+		return // Can't proceed, drop the job
+	}
+
+	if currentSub.Status != models.StatusQueued {
+		zap.S().Infof("submission %s is no longer in queued status (%s), skipping processing.", currentSub.ID, currentSub.Status)
+		return // Job was cancelled/interrupted while in queue
+	}
+
+	zap.S().Infof("searching for available node for submission %s", currentSub.ID)
 	node := s.findAvailableNode(job.Problem.Cluster, job.Problem.CPU, job.Problem.Memory)
 
 	if node == nil {
-		zap.S().Warnf("no available node for submission %s, requeueing", job.Submission.ID)
+		zap.S().Warnf("no available node for submission %s, requeueing", currentSub.ID)
 		s.queue <- job // Requeue
 		return
 	}
 
-	zap.S().Infof("node %s assigned to submission %s", node.Name, job.Submission.ID)
+	zap.S().Infof("node %s assigned to submission %s", node.Name, currentSub.ID)
 
-	job.Submission.Node = node.Name
-	job.Submission.Status = models.StatusRunning
-	if err := s.db.Save(job.Submission).Error; err != nil {
+	currentSub.Node = node.Name
+	currentSub.Status = models.StatusRunning
+	if err := s.db.Save(&currentSub).Error; err != nil {
 		zap.S().Errorf("failed to update submission status: %v", err)
 		s.ReleaseResources(job.Problem.Cluster, node.Name, job.Problem.CPU, job.Problem.Memory)
 		return
 	}
 
-	go s.dispatcher.Dispatch(job.Submission, job.Problem, node)
+	go s.dispatcher.Dispatch(&currentSub, job.Problem, node)
 }
 
 func (s *Scheduler) findAvailableNode(clusterName string, requiredCPU int, requiredMemory int64) *NodeState {
