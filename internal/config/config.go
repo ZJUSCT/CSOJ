@@ -1,0 +1,79 @@
+package config
+
+import (
+	"os"
+
+	"gopkg.in/yaml.v3"
+)
+
+type Config struct {
+	Cluster []Cluster `yaml:"cluster"`
+	Contest []string  `yaml:"contest"`
+	Logger  Logger    `yaml:"logger"`
+	Storage Storage   `yaml:"storage"`
+	Auth    Auth      `yaml:"auth"`
+	Listen  string    `yaml:"listen"`
+	Admin   Admin     `yaml:"admin"`
+}
+
+type Cluster struct {
+	Name  string `yaml:"name"`
+	Nodes []Node `yaml:"node"`
+}
+
+type Node struct {
+	Name   string `yaml:"name"`
+	CPU    int    `yaml:"cpu"`
+	Memory int64  `yaml:"memory"`
+	Docker string `yaml:"docker"`
+}
+
+type Logger struct {
+	Level string `yaml:"level"`
+	File  string `yaml:"file"`
+}
+
+type Storage struct {
+	UserAvatar        string `yaml:"user_avatar"`
+	SubmissionContent string `yaml:"submission_content"`
+	Database          string `yaml:"database"`
+	SubmissionLog     string `yaml:"submission_log"`
+}
+
+type Auth struct {
+	JWT    JWT    `yaml:"jwt"`
+	GitLab GitLab `yaml:"gitlab"`
+}
+
+type JWT struct {
+	Secret      string `yaml:"secret"`
+	ExpireHours int    `yaml:"expire_hours"`
+}
+
+type GitLab struct {
+	App          string `yaml:"app"`
+	URL          string `yaml:"url"`
+	ClientID     string `yaml:"client_id"`
+	ClientSecret string `yaml:"client_secret"`
+	RedirectURI  string `yaml:"redirect_uri"`
+}
+
+type Admin struct {
+	Enabled bool   `yaml:"enabled"`
+	Listen  string `yaml:"listen"`
+}
+
+func Load(path string) (*Config, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+
+	var cfg Config
+	err = yaml.Unmarshal(data, &cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	return &cfg, nil
+}
