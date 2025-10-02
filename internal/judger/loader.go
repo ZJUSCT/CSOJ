@@ -16,6 +16,7 @@ type Contest struct {
 	EndTime     time.Time `yaml:"enstime" json:"enstime"`
 	ProblemIDs  []string  `yaml:"problems" json:"problem_ids"`
 	Description string    `json:"description"`
+	BasePath    string    `json:"-"` // Store the base path to find assets
 }
 
 type UploadLimit struct {
@@ -42,6 +43,7 @@ type Problem struct {
 	Upload      UploadLimit    `yaml:"upload" json:"upload"`
 	Workflow    []WorkflowStep `yaml:"workflow" json:"workflow"`
 	Description string         `json:"description"`
+	BasePath    string         `json:"-"` // Store the base path to find assets
 }
 
 func LoadAllContestsAndProblems(contestDirs []string) (map[string]*Contest, map[string]*Problem, error) {
@@ -81,6 +83,7 @@ func loadContest(dir string) (*Contest, []*Problem, error) {
 	if err := yaml.Unmarshal(data, &contest); err != nil {
 		return nil, nil, err
 	}
+	contest.BasePath = dir // Set the base path
 
 	// Load contest description
 	desc, _ := os.ReadFile(filepath.Join(dir, "index.md"))
@@ -108,6 +111,7 @@ func loadProblem(dir string) (*Problem, error) {
 	if err := yaml.Unmarshal(data, &problem); err != nil {
 		return nil, err
 	}
+	problem.BasePath = dir // Set the base path
 
 	desc, _ := os.ReadFile(filepath.Join(dir, "index.md"))
 	problem.Description = string(desc)
