@@ -2,6 +2,7 @@ package database
 
 import (
 	"errors"
+	"time"
 
 	"github.com/ZJUSCT/CSOJ/internal/database/models"
 
@@ -72,6 +73,15 @@ func UpdateSubmission(db *gorm.DB, sub *models.Submission) error {
 
 func UpdateSubmissionValidity(db *gorm.DB, id string, isValid bool) error {
 	return db.Model(&models.Submission{}).Where("id = ?", id).Update("is_valid", isValid).Error
+}
+
+// CountQueuedSubmissionsBefore counts the number of submissions in the queue for a specific cluster that were created before a given time.
+func CountQueuedSubmissionsBefore(db *gorm.DB, cluster string, createdAt time.Time) (int64, error) {
+	var count int64
+	err := db.Model(&models.Submission{}).
+		Where("status = ? AND cluster = ? AND created_at < ?", models.StatusQueued, cluster, createdAt).
+		Count(&count).Error
+	return count, err
 }
 
 // Container CRUD

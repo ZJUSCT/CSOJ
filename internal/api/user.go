@@ -348,6 +348,41 @@ func NewUserRouter(
 				util.Success(c, sub, "ok")
 			})
 
+			authed.GET("/submissions/:id/queue_position", func(c *gin.Context) {
+				subID := c.Param("id")
+				gitlabID := c.GetString("userID")
+
+				user, err := database.GetUserByGitLabID(db, gitlabID)
+				if err != nil {
+					util.Error(c, http.StatusNotFound, err)
+					return
+				}
+
+				sub, err := database.GetSubmission(db, subID)
+				if err != nil {
+					util.Error(c, http.StatusNotFound, err)
+					return
+				}
+
+				if sub.UserID != user.ID {
+					util.Error(c, http.StatusForbidden, fmt.Errorf("you can only view your own submissions"))
+					return
+				}
+
+				if sub.Status != models.StatusQueued {
+					util.Success(c, gin.H{"position": 0}, "Submission is not in queue")
+					return
+				}
+
+				count, err := database.CountQueuedSubmissionsBefore(db, sub.Cluster, sub.CreatedAt)
+				if err != nil {
+					util.Error(c, http.StatusInternalServerError, err)
+					return
+				}
+
+				util.Success(c, gin.H{"position": count}, "Queue position retrieved successfully")
+			})
+
 			authed.GET("/submissions/:subID/containers/:conID/log", func(c *gin.Context) {
 				subID := c.Param("subID")
 				conID := c.Param("conID")
