@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/ZJUSCT/CSOJ/internal/database/models"
+	"gorm.io/gorm/clause"
 
 	"gorm.io/gorm"
 )
@@ -125,7 +126,7 @@ func RegisterForContest(db *gorm.DB, userID, contestID string) error {
 	return nil // may be we can make a participant list to the contest
 }
 
-func UpdateScores(db *gorm.DB, sub *models.Submission, contestID string, newScore int) error {
+func UpdateScoresForNewSubmission(db *gorm.DB, sub *models.Submission, contestID string, newScore int) error {
 	return db.Transaction(func(tx *gorm.DB) error {
 		// 获取当前题目最高分
 		var bestScore models.UserProblemBestScore
@@ -170,6 +171,89 @@ func UpdateScores(db *gorm.DB, sub *models.Submission, contestID string, newScor
 			}
 		}
 		// 如果分数更低，则什么都不做
+		return nil
+	})
+}
+
+// RecalculateScoresForUserProblem recalculates the best score for a given user/problem,
+// and updates the total contest score if necessary. This is typically called after a
+// submission is marked as invalid.
+func RecalculateScoresForUserProblem(db *gorm.DB, userID, problemID, contestID, sourceSubmissionID string) error {
+	return db.Transaction(func(tx *gorm.DB) error {
+		// 1. Get the user's total score before any changes
+		var oldTotalScore int
+		// Find the most recent score history entry for the user in this contest
+		if err := tx.Model(&models.ContestScoreHistory{}).
+			Select("total_score_after_change").
+			Where("user_id = ? AND contest_id = ?", userID, contestID).
+			Order("created_at desc").
+			Limit(1).
+			Scan(&oldTotalScore).Error; err != nil {
+			// If no record found, old score is 0. This is not an error.
+			if !errors.Is(err, gorm.ErrRecordNotFound) {
+				return err
+			}
+			oldTotalScore = 0
+		}
+
+		// Find the new best valid submission for the specific problem
+		var newBestSub models.Submission
+		err := tx.Where("user_id = ? AND problem_id = ? AND is_valid = ?", userID, problemID, true).
+			Order("score desc, created_at desc").
+			First(&newBestSub).Error
+
+		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				// No valid submissions left for this problem, so delete the best score entry.
+				if err := tx.Where("user_id = ? AND contest_id = ? AND problem_id = ?", userID, contestID, problemID).
+					Delete(&models.UserProblemBestScore{}).Error; err != nil {
+					return err
+				}
+			} else {
+				// A different database error occurred.
+				return err
+			}
+		} else {
+			// A new best valid submission was found. Update or create the best score entry.
+			bestScore := models.UserProblemBestScore{
+				UserID:       userID,
+				ContestID:    contestID,
+				ProblemID:    problemID,
+				Score:        newBestSub.Score,
+				SubmissionID: newBestSub.ID,
+			}
+			// Use OnConflict to either create a new record or update the existing one based on the unique index.
+			if err := tx.Clauses(clause.OnConflict{
+				Columns:   []clause.Column{{Name: "user_id"}, {Name: "contest_id"}, {Name: "problem_id"}},
+				DoUpdates: clause.AssignmentColumns([]string{"score", "submission_id"}),
+			}).Create(&bestScore).Error; err != nil {
+				return err
+			}
+		}
+
+		// Recalculate the new total score for the contest
+		var newTotalScore int
+		if err := tx.Model(&models.UserProblemBestScore{}).
+			Select("COALESCE(SUM(score), 0)").
+			Where("user_id = ? AND contest_id = ?", userID, contestID).
+			Scan(&newTotalScore).Error; err != nil {
+			return err
+		}
+
+		// If the total score has changed, create a new history record
+		if newTotalScore != oldTotalScore {
+			history := models.ContestScoreHistory{
+				UserID:                    userID,
+				ContestID:                 contestID,
+				ProblemID:                 problemID, // The problem that triggered the change
+				TotalScoreAfterChange:     newTotalScore,
+				LastEffectiveSubmissionID: sourceSubmissionID, // The submission that was invalidated
+			}
+			if err := tx.Create(&history).Error; err != nil {
+				return err
+			}
+		}
+
 		return nil
 	})
 }

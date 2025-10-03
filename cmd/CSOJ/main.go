@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 
 	"github.com/ZJUSCT/CSOJ/internal/api"
@@ -46,11 +47,19 @@ func main() {
 	}
 	zap.S().Info("database initialized successfully")
 
-	// recover interrupted submissions
-	if err := database.RecoverInterrupted(db); err != nil {
-		zap.S().Errorf("failed to recover interrupted submissions: %v", err)
+	// recovery and cleanup
+	if err := judger.RecoverAndCleanup(db, cfg); err != nil {
+		zap.S().Errorf("failed to recover and cleanup interrupted tasks: %v", err)
 	} else {
-		zap.S().Info("successfully recovered interrupted submissions")
+		zap.S().Info("successfully recovered and cleaned up interrupted tasks")
+	}
+
+	// AppState holds the shared, reloadable state
+	appState := &judger.AppState{
+		RWMutex:             sync.RWMutex{},
+		Contests:            make(map[string]*judger.Contest),
+		Problems:            make(map[string]*judger.Problem),
+		ProblemToContestMap: make(map[string]*judger.Contest),
 	}
 
 	// contests and problems
@@ -58,13 +67,24 @@ func main() {
 	if err != nil {
 		zap.S().Fatalf("failed to load contests and problems: %v", err)
 	}
+	appState.Contests = contests
+	appState.Problems = problems
 	zap.S().Infof("loaded %d contests and %d problems", len(contests), len(problems))
 
+	// Helper map to find the parent contest of a problem
+	problemToContestMap := make(map[string]*judger.Contest)
+	for _, contest := range contests {
+		for _, problemID := range contest.ProblemIDs {
+			problemToContestMap[problemID] = contest
+		}
+	}
+	appState.ProblemToContestMap = problemToContestMap
+
 	// judger scheduler
-	scheduler := judger.NewScheduler(cfg, db)
+	scheduler := judger.NewScheduler(cfg, db, appState)
 
 	// Requeue pending submissions from the last run
-	if err := judger.RequeuePendingSubmissions(db, scheduler, problems); err != nil {
+	if err := judger.RequeuePendingSubmissions(db, scheduler, appState); err != nil {
 		zap.S().Fatalf("failed to requeue pending submissions: %v", err)
 	}
 
@@ -72,8 +92,8 @@ func main() {
 	zap.S().Info("judger scheduler started")
 
 	// API routers
-	userEngine := api.NewUserRouter(cfg, db, scheduler, contests, problems)
-	adminEngine := api.NewAdminRouter(cfg, db, scheduler, contests, problems)
+	userEngine := api.NewUserRouter(cfg, db, scheduler, appState)
+	adminEngine := api.NewAdminRouter(cfg, db, scheduler, appState)
 
 	// start servers
 	go func() {

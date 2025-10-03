@@ -1,7 +1,7 @@
 package pubsub
 
 import (
-	"fmt"
+	"encoding/json"
 	"sync"
 
 	"go.uber.org/zap"
@@ -11,6 +11,11 @@ import (
 type Broker struct {
 	mu          sync.RWMutex
 	subscribers map[string][]chan []byte // topic -> list of subscriber channels
+}
+
+type WsMessage struct {
+	Stream string `json:"stream"`
+	Data   string `json:"data"`
 }
 
 var (
@@ -90,6 +95,10 @@ func (b *Broker) CloseTopic(topic string) {
 
 // Helper to format stream messages
 func FormatMessage(streamType string, data string) []byte {
-	// Simple JSON format for the client to parse
-	return []byte(fmt.Sprintf(`{"stream": "%s", "data": "%s"}`, streamType, data))
+	msg := WsMessage{Stream: streamType, Data: data}
+	bytes, err := json.Marshal(msg)
+	if err != nil {
+		return []byte(`{"stream": "error", "data": "json format error"}`)
+	}
+	return bytes
 }
