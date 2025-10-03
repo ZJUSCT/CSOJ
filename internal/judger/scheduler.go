@@ -2,6 +2,7 @@ package judger
 
 import (
 	"sync"
+	"time"
 
 	"github.com/ZJUSCT/CSOJ/internal/config"
 	"github.com/ZJUSCT/CSOJ/internal/database/models"
@@ -33,12 +34,13 @@ type Scheduler struct {
 	db         *gorm.DB
 	clusters   map[string]*ClusterState
 	contests   map[string]*Contest // for dispatcher to find contestID
-	queue      chan QueuedSubmission
+	queues     map[string]chan QueuedSubmission
 	dispatcher *Dispatcher
 }
 
 func NewScheduler(cfg *config.Config, db *gorm.DB) *Scheduler {
 	clusters := make(map[string]*ClusterState)
+	queues := make(map[string]chan QueuedSubmission)
 	for i := range cfg.Cluster {
 		cluster := cfg.Cluster[i]
 		clusterState := &ClusterState{
@@ -54,13 +56,14 @@ func NewScheduler(cfg *config.Config, db *gorm.DB) *Scheduler {
 			}
 		}
 		clusters[cluster.Name] = clusterState
+		queues[cluster.Name] = make(chan QueuedSubmission, 1024)
 	}
 
 	scheduler := &Scheduler{
 		cfg:      cfg,
 		db:       db,
 		clusters: clusters,
-		queue:    make(chan QueuedSubmission, 1024),
+		queues:   queues,
 	}
 	scheduler.dispatcher = NewDispatcher(cfg, db, scheduler)
 	return scheduler
@@ -117,52 +120,83 @@ func (s *Scheduler) GetClusterStates() map[string]ClusterState {
 }
 
 func (s *Scheduler) Submit(submission *models.Submission, problem *Problem) {
-	s.queue <- QueuedSubmission{Submission: submission, Problem: problem}
-	zap.S().Infof("submission %s for problem %s added to queue", submission.ID, problem.ID)
+	clusterName := problem.Cluster
+	if queue, ok := s.queues[clusterName]; ok {
+		queue <- QueuedSubmission{Submission: submission, Problem: problem}
+		zap.S().Infof("submission %s for problem %s added to queue for cluster '%s'", submission.ID, problem.ID, clusterName)
+	} else {
+		zap.S().Errorf("submission %s for problem %s has an invalid cluster '%s', dropping", submission.ID, problem.ID, clusterName)
+		// Mark submission as failed
+		submission.Status = models.StatusFailed
+		submission.Info = models.JSONMap{"error": "Invalid cluster specified in problem definition"}
+		if err := s.db.Save(submission).Error; err != nil {
+			zap.S().Errorf("failed to update submission %s status to failed: %v", submission.ID, err)
+		}
+	}
 }
 
 func (s *Scheduler) Run() {
 	contests, _, _ := LoadAllContestsAndProblems(s.cfg.Contest)
 	s.dispatcher.scheduler.contests = contests // allow dispatcher to find contestID
 
-	for job := range s.queue {
-		go s.process(job)
+	for clusterName, queue := range s.queues {
+		go s.clusterWorker(clusterName, queue)
 	}
 }
 
-func (s *Scheduler) process(job QueuedSubmission) {
-	// Refetch from DB to check for interruptions while in queue
-	var currentSub models.Submission
-	if err := s.db.First(&currentSub, "id = ?", job.Submission.ID).Error; err != nil {
-		zap.S().Errorf("failed to refetch submission %s from DB: %v", job.Submission.ID, err)
-		return // Can't proceed, drop the job
+func (s *Scheduler) clusterWorker(clusterName string, queue <-chan QueuedSubmission) {
+	zap.S().Infof("starting worker for cluster '%s'", clusterName)
+	for job := range queue {
+		var node *NodeState
+		zap.S().Infof("processing submission %s for cluster '%s'", job.Submission.ID, clusterName)
+
+		// This loop implements the FIFO retry logic.
+		// The worker will be blocked here until resources are available for this job.
+		for {
+			// Refetch from DB to check for interruptions while waiting.
+			var currentSub models.Submission
+			if err := s.db.First(&currentSub, "id = ?", job.Submission.ID).Error; err != nil {
+				zap.S().Errorf("failed to refetch submission %s from DB: %v", job.Submission.ID, err)
+				node = nil // Ensure node is nil to break outer loop
+				break
+			}
+			if currentSub.Status != models.StatusQueued {
+				zap.S().Infof("submission %s is no longer in queued status (%s), skipping processing.", currentSub.ID, currentSub.Status)
+				node = nil // Ensure node is nil to break outer loop
+				break
+			}
+
+			// Use the latest state from the database.
+			job.Submission = &currentSub
+
+			zap.S().Debugf("searching for available node for submission %s in cluster %s", currentSub.ID, clusterName)
+			node = s.findAvailableNode(clusterName, job.Problem.CPU, job.Problem.Memory)
+			if node != nil {
+				break // Found a node, exit the retry loop.
+			}
+
+			// Wait before retrying
+			time.Sleep(1 * time.Second)
+		}
+
+		if node == nil {
+			// This happens if the job was dropped (e.g., DB error or cancelled).
+			// The loop above will have logged the reason.
+			continue
+		}
+
+		zap.S().Infof("node %s assigned to submission %s", node.Name, job.Submission.ID)
+
+		job.Submission.Node = node.Name
+		job.Submission.Status = models.StatusRunning
+		if err := s.db.Save(job.Submission).Error; err != nil {
+			zap.S().Errorf("failed to update submission status for %s: %v", job.Submission.ID, err)
+			s.ReleaseResources(job.Problem.Cluster, node.Name, job.Problem.CPU, job.Problem.Memory)
+			continue
+		}
+
+		go s.dispatcher.Dispatch(job.Submission, job.Problem, node)
 	}
-
-	if currentSub.Status != models.StatusQueued {
-		zap.S().Infof("submission %s is no longer in queued status (%s), skipping processing.", currentSub.ID, currentSub.Status)
-		return // Job was cancelled/interrupted while in queue
-	}
-
-	zap.S().Infof("searching for available node for submission %s", currentSub.ID)
-	node := s.findAvailableNode(job.Problem.Cluster, job.Problem.CPU, job.Problem.Memory)
-
-	if node == nil {
-		zap.S().Warnf("no available node for submission %s, requeueing", currentSub.ID)
-		s.queue <- job // Requeue
-		return
-	}
-
-	zap.S().Infof("node %s assigned to submission %s", node.Name, currentSub.ID)
-
-	currentSub.Node = node.Name
-	currentSub.Status = models.StatusRunning
-	if err := s.db.Save(&currentSub).Error; err != nil {
-		zap.S().Errorf("failed to update submission status: %v", err)
-		s.ReleaseResources(job.Problem.Cluster, node.Name, job.Problem.CPU, job.Problem.Memory)
-		return
-	}
-
-	go s.dispatcher.Dispatch(&currentSub, job.Problem, node)
 }
 
 func (s *Scheduler) findAvailableNode(clusterName string, requiredCPU int, requiredMemory int64) *NodeState {
