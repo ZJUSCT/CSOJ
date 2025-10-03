@@ -13,7 +13,7 @@ type Contest struct {
 	ID          string    `yaml:"id" json:"id"`
 	Name        string    `yaml:"name" json:"name"`
 	StartTime   time.Time `yaml:"starttime" json:"starttime"`
-	EndTime     time.Time `yaml:"enstime" json:"enstime"`
+	EndTime     time.Time `yaml:"endtime" json:"endtime"`
 	ProblemIDs  []string  `yaml:"problems" json:"problem_ids"`
 	Description string    `json:"description"`
 	BasePath    string    `json:"-"` // Store the base path to find assets
@@ -36,7 +36,7 @@ type Problem struct {
 	ID          string         `yaml:"id" json:"id"`
 	Name        string         `yaml:"name" json:"name"`
 	StartTime   time.Time      `yaml:"starttime" json:"starttime"`
-	EndTime     time.Time      `yaml:"enstime" json:"enstime"`
+	EndTime     time.Time      `yaml:"endtime" json:"endtime"`
 	Cluster     string         `yaml:"cluster" json:"cluster"`
 	CPU         int            `yaml:"cpu" json:"cpu"`
 	Memory      int64          `yaml:"memory" json:"memory"`
