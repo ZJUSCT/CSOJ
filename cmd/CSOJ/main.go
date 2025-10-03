@@ -47,11 +47,11 @@ func main() {
 	}
 	zap.S().Info("database initialized successfully")
 
-	// recover interrupted submissions
-	if err := database.RecoverInterrupted(db); err != nil {
-		zap.S().Errorf("failed to recover interrupted submissions: %v", err)
+	// recovery and cleanup
+	if err := judger.RecoverAndCleanup(db, cfg); err != nil {
+		zap.S().Errorf("failed to recover and cleanup interrupted tasks: %v", err)
 	} else {
-		zap.S().Info("successfully recovered interrupted submissions")
+		zap.S().Info("successfully recovered and cleaned up interrupted tasks")
 	}
 
 	// AppState holds the shared, reloadable state
