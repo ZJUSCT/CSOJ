@@ -11,6 +11,14 @@ import (
 	"gorm.io/gorm"
 )
 
+// AppState holds the shared, reloadable state of contests and problems.
+type AppState struct {
+	sync.RWMutex
+	Contests            map[string]*Contest
+	Problems            map[string]*Problem
+	ProblemToContestMap map[string]*Contest
+}
+
 type NodeState struct {
 	sync.Mutex
 	*config.Node
@@ -33,12 +41,12 @@ type Scheduler struct {
 	cfg        *config.Config
 	db         *gorm.DB
 	clusters   map[string]*ClusterState
-	contests   map[string]*Contest // for dispatcher to find contestID
+	appState   *AppState
 	queues     map[string]chan QueuedSubmission
 	dispatcher *Dispatcher
 }
 
-func NewScheduler(cfg *config.Config, db *gorm.DB) *Scheduler {
+func NewScheduler(cfg *config.Config, db *gorm.DB, appState *AppState) *Scheduler {
 	clusters := make(map[string]*ClusterState)
 	queues := make(map[string]chan QueuedSubmission)
 	for i := range cfg.Cluster {
@@ -64,14 +72,15 @@ func NewScheduler(cfg *config.Config, db *gorm.DB) *Scheduler {
 		db:       db,
 		clusters: clusters,
 		queues:   queues,
+		appState: appState,
 	}
-	scheduler.dispatcher = NewDispatcher(cfg, db, scheduler)
+	scheduler.dispatcher = NewDispatcher(cfg, db, scheduler, appState)
 	return scheduler
 }
 
 // RequeuePendingSubmissions loads submissions with 'Queued' status from the DB
 // and adds them back to the scheduler's queue on startup.
-func RequeuePendingSubmissions(db *gorm.DB, s *Scheduler, problems map[string]*Problem) error {
+func RequeuePendingSubmissions(db *gorm.DB, s *Scheduler, appState *AppState) error {
 	var pendingSubs []models.Submission
 	if err := db.Model(&models.Submission{}).Where("status = ?", models.StatusQueued).Order("created_at asc").Find(&pendingSubs).Error; err != nil {
 		return err
@@ -83,9 +92,11 @@ func RequeuePendingSubmissions(db *gorm.DB, s *Scheduler, problems map[string]*P
 	}
 
 	zap.S().Infof("requeueing %d pending submissions...", len(pendingSubs))
+	appState.RLock()
+	defer appState.RUnlock()
 	for _, sub := range pendingSubs {
 		submission := sub // Create a new variable to avoid pointer issues with the loop variable
-		problem, ok := problems[submission.ProblemID]
+		problem, ok := appState.Problems[submission.ProblemID]
 		if !ok {
 			zap.S().Warnf("problem %s for submission %s not found, skipping requeue", submission.ProblemID, submission.ID)
 			continue
@@ -136,9 +147,6 @@ func (s *Scheduler) Submit(submission *models.Submission, problem *Problem) {
 }
 
 func (s *Scheduler) Run() {
-	contests, _, _ := LoadAllContestsAndProblems(s.cfg.Contest)
-	s.dispatcher.scheduler.contests = contests // allow dispatcher to find contestID
-
 	for clusterName, queue := range s.queues {
 		go s.clusterWorker(clusterName, queue)
 	}
@@ -156,7 +164,11 @@ func (s *Scheduler) clusterWorker(clusterName string, queue <-chan QueuedSubmiss
 			// Refetch from DB to check for interruptions while waiting.
 			var currentSub models.Submission
 			if err := s.db.First(&currentSub, "id = ?", job.Submission.ID).Error; err != nil {
-				zap.S().Errorf("failed to refetch submission %s from DB: %v", job.Submission.ID, err)
+				if err == gorm.ErrRecordNotFound {
+					zap.S().Warnf("submission %s was deleted from DB (likely via reload), dropping job.", job.Submission.ID)
+				} else {
+					zap.S().Errorf("failed to refetch submission %s from DB: %v", job.Submission.ID, err)
+				}
 				node = nil // Ensure node is nil to break outer loop
 				break
 			}

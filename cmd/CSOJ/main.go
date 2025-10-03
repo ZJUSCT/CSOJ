@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 
 	"github.com/ZJUSCT/CSOJ/internal/api"
@@ -53,11 +54,21 @@ func main() {
 		zap.S().Info("successfully recovered interrupted submissions")
 	}
 
+	// AppState holds the shared, reloadable state
+	appState := &judger.AppState{
+		RWMutex:             sync.RWMutex{},
+		Contests:            make(map[string]*judger.Contest),
+		Problems:            make(map[string]*judger.Problem),
+		ProblemToContestMap: make(map[string]*judger.Contest),
+	}
+
 	// contests and problems
 	contests, problems, err := judger.LoadAllContestsAndProblems(cfg.Contest)
 	if err != nil {
 		zap.S().Fatalf("failed to load contests and problems: %v", err)
 	}
+	appState.Contests = contests
+	appState.Problems = problems
 	zap.S().Infof("loaded %d contests and %d problems", len(contests), len(problems))
 
 	// Helper map to find the parent contest of a problem
@@ -67,12 +78,13 @@ func main() {
 			problemToContestMap[problemID] = contest
 		}
 	}
+	appState.ProblemToContestMap = problemToContestMap
 
 	// judger scheduler
-	scheduler := judger.NewScheduler(cfg, db)
+	scheduler := judger.NewScheduler(cfg, db, appState)
 
 	// Requeue pending submissions from the last run
-	if err := judger.RequeuePendingSubmissions(db, scheduler, problems); err != nil {
+	if err := judger.RequeuePendingSubmissions(db, scheduler, appState); err != nil {
 		zap.S().Fatalf("failed to requeue pending submissions: %v", err)
 	}
 
@@ -80,8 +92,8 @@ func main() {
 	zap.S().Info("judger scheduler started")
 
 	// API routers
-	userEngine := api.NewUserRouter(cfg, db, scheduler, contests, problems, problemToContestMap)
-	adminEngine := api.NewAdminRouter(cfg, db, scheduler, contests, problems, problemToContestMap)
+	userEngine := api.NewUserRouter(cfg, db, scheduler, appState)
+	adminEngine := api.NewAdminRouter(cfg, db, scheduler, appState)
 
 	// start servers
 	go func() {

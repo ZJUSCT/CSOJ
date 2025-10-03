@@ -22,6 +22,7 @@ type Dispatcher struct {
 	cfg       *config.Config
 	db        *gorm.DB
 	scheduler *Scheduler
+	appState  *AppState
 }
 
 type JudgeResult struct {
@@ -29,11 +30,12 @@ type JudgeResult struct {
 	Info  map[string]interface{} `json:"info"`
 }
 
-func NewDispatcher(cfg *config.Config, db *gorm.DB, scheduler *Scheduler) *Dispatcher {
+func NewDispatcher(cfg *config.Config, db *gorm.DB, scheduler *Scheduler, appState *AppState) *Dispatcher {
 	return &Dispatcher{
 		cfg:       cfg,
 		db:        db,
 		scheduler: scheduler,
+		appState:  appState,
 	}
 }
 
@@ -183,13 +185,12 @@ func (d *Dispatcher) runWorkflowStep(docker *DockerManager, sub *models.Submissi
 }
 
 func (d *Dispatcher) findContestIDForProblem(problemID string) string {
-	for _, contest := range d.scheduler.contests {
-		for _, pid := range contest.ProblemIDs {
-			if pid == problemID {
-				return contest.ID
-			}
-		}
+	d.appState.RLock()
+	defer d.appState.RUnlock()
+	if contest, ok := d.appState.ProblemToContestMap[problemID]; ok {
+		return contest.ID
 	}
+	zap.S().Warnf("could not find parent contest for problem ID %s", problemID)
 	return ""
 }
 

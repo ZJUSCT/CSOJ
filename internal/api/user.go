@@ -38,9 +38,7 @@ func NewUserRouter(
 	cfg *config.Config,
 	db *gorm.DB,
 	scheduler *judger.Scheduler,
-	contests map[string]*judger.Contest,
-	problems map[string]*judger.Problem,
-	problemToContestMap map[string]*judger.Contest) *gin.Engine {
+	appState *judger.AppState) *gin.Engine {
 
 	r := gin.Default()
 
@@ -57,16 +55,21 @@ func NewUserRouter(
 
 		// Websocket for logs with authorization
 		v1.GET("/ws/submissions/:id/logs", func(c *gin.Context) {
-			handleWs(c, cfg, db, problems)
+			handleWs(c, cfg, db, appState)
 		})
 
 		// Publicly accessible info
 		v1.GET("/contests", func(c *gin.Context) {
-			util.Success(c, contests, "Contests loaded")
+			appState.RLock()
+			defer appState.RUnlock()
+			util.Success(c, appState.Contests, "Contests loaded")
 		})
 		v1.GET("/contests/:id", func(c *gin.Context) {
 			contestID := c.Param("id")
-			contest, ok := contests[contestID]
+			appState.RLock()
+			contest, ok := appState.Contests[contestID]
+			appState.RUnlock()
+
 			if !ok {
 				util.Error(c, http.StatusNotFound, fmt.Errorf("contest not found"))
 				return
@@ -94,26 +97,34 @@ func NewUserRouter(
 		})
 		v1.GET("/problems/:id", func(c *gin.Context) {
 			problemID := c.Param("id")
-			problem, ok := problems[problemID]
+			appState.RLock()
+			problem, ok := appState.Problems[problemID]
+			if ok {
+				parentContest, parentOk := appState.ProblemToContestMap[problemID]
+				ok = parentOk
+				if ok {
+					now := time.Now()
+					// Check if the contest and problem are active
+					if now.Before(parentContest.StartTime) {
+						util.Error(c, http.StatusForbidden, fmt.Errorf("contest has not started yet"))
+						appState.RUnlock()
+						return
+					}
+					if now.Before(problem.StartTime) {
+						util.Error(c, http.StatusForbidden, fmt.Errorf("problem has not started yet"))
+						appState.RUnlock()
+						return
+					}
+				} else {
+					util.Error(c, http.StatusInternalServerError, fmt.Errorf("internal server error: problem has no parent contest"))
+					appState.RUnlock()
+					return
+				}
+			}
+			appState.RUnlock()
+
 			if !ok {
 				util.Error(c, http.StatusNotFound, fmt.Errorf("problem not found"))
-				return
-			}
-
-			parentContest, ok := problemToContestMap[problemID]
-			if !ok {
-				util.Error(c, http.StatusInternalServerError, fmt.Errorf("internal server error: problem has no parent contest"))
-				return
-			}
-
-			now := time.Now()
-			// Check if the contest and problem are active
-			if now.Before(parentContest.StartTime) {
-				util.Error(c, http.StatusForbidden, fmt.Errorf("contest has not started yet"))
-				return
-			}
-			if now.Before(problem.StartTime) {
-				util.Error(c, http.StatusForbidden, fmt.Errorf("problem has not started yet"))
 				return
 			}
 
@@ -199,7 +210,10 @@ func NewUserRouter(
 				gitlabID := c.GetString("userID")
 				contestID := c.Param("id")
 
-				contest, ok := contests[contestID]
+				appState.RLock()
+				contest, ok := appState.Contests[contestID]
+				appState.RUnlock()
+
 				if !ok {
 					util.Error(c, http.StatusNotFound, fmt.Errorf("contest not found"))
 					return
@@ -243,14 +257,17 @@ func NewUserRouter(
 					return
 				}
 
-				problem, ok := problems[problemID]
+				appState.RLock()
+				problem, ok := appState.Problems[problemID]
 				if !ok {
+					appState.RUnlock()
 					util.Error(c, http.StatusNotFound, fmt.Errorf("problem not found"))
 					return
 				}
 
-				parentContest, ok := problemToContestMap[problemID]
+				parentContest, ok := appState.ProblemToContestMap[problemID]
 				if !ok {
+					appState.RUnlock()
 					util.Error(c, http.StatusInternalServerError, fmt.Errorf("internal server error: problem has no parent contest"))
 					return
 				}
@@ -258,13 +275,16 @@ func NewUserRouter(
 				// Check time restrictions for submission
 				now := time.Now()
 				if now.Before(parentContest.StartTime) || now.After(parentContest.EndTime) {
+					appState.RUnlock()
 					util.Error(c, http.StatusForbidden, fmt.Errorf("cannot submit because the contest is not active"))
 					return
 				}
 				if now.Before(problem.StartTime) || now.After(problem.EndTime) {
+					appState.RUnlock()
 					util.Error(c, http.StatusForbidden, fmt.Errorf("cannot submit because the problem is not active"))
 					return
 				}
+				appState.RUnlock()
 
 				form, err := c.MultipartForm()
 				if err != nil {
@@ -380,7 +400,9 @@ func NewUserRouter(
 					util.Success(c, nil, "Queued submission interrupted")
 
 				case models.StatusRunning:
-					problem, ok := problems[sub.ProblemID]
+					appState.RLock()
+					problem, ok := appState.Problems[sub.ProblemID]
+					appState.RUnlock()
 					if !ok {
 						util.Error(c, http.StatusInternalServerError, "Problem definition not found for running submission")
 						return
@@ -521,7 +543,9 @@ func NewUserRouter(
 					return
 				}
 
-				problem, ok := problems[sub.ProblemID]
+				appState.RLock()
+				problem, ok := appState.Problems[sub.ProblemID]
+				appState.RUnlock()
 				if !ok {
 					util.Error(c, http.StatusInternalServerError, "problem definition not found")
 					return
@@ -572,7 +596,9 @@ func NewUserRouter(
 					contestID := c.Param("id")
 					assetPath := c.Param("assetpath")
 
-					contest, ok := contests[contestID]
+					appState.RLock()
+					contest, ok := appState.Contests[contestID]
+					appState.RUnlock()
 					if !ok {
 						util.Error(c, http.StatusNotFound, "contest not found")
 						return
@@ -609,27 +635,33 @@ func NewUserRouter(
 					problemID := c.Param("id")
 					assetPath := c.Param("assetpath")
 
-					problem, ok := problems[problemID]
+					appState.RLock()
+					problem, ok := appState.Problems[problemID]
 					if !ok {
+						appState.RUnlock()
 						util.Error(c, http.StatusNotFound, "problem not found")
 						return
 					}
 
 					// --- Authorization Logic (same as GET /problems/:id) ---
-					parentContest, ok := problemToContestMap[problemID]
+					parentContest, ok := appState.ProblemToContestMap[problemID]
 					if !ok {
+						appState.RUnlock()
 						util.Error(c, http.StatusInternalServerError, "internal server error: problem has no parent contest")
 						return
 					}
 					now := time.Now()
 					if now.Before(parentContest.StartTime) {
+						appState.RUnlock()
 						util.Error(c, http.StatusForbidden, "contest has not started yet")
 						return
 					}
 					if now.Before(problem.StartTime) {
+						appState.RUnlock()
 						util.Error(c, http.StatusForbidden, "problem has not started yet")
 						return
 					}
+					appState.RUnlock()
 					// --- End Authorization ---
 
 					// --- Security Logic (same as contest assets) ---
@@ -664,7 +696,7 @@ func NewUserRouter(
 	return r
 }
 
-func handleWs(c *gin.Context, cfg *config.Config, db *gorm.DB, problems map[string]*judger.Problem) {
+func handleWs(c *gin.Context, cfg *config.Config, db *gorm.DB, appState *judger.AppState) {
 	submissionID := c.Param("id")
 	tokenString := c.Query("token")
 
@@ -697,7 +729,9 @@ func handleWs(c *gin.Context, cfg *config.Config, db *gorm.DB, problems map[stri
 		return
 	}
 
-	problem, ok := problems[sub.ProblemID]
+	appState.RLock()
+	problem, ok := appState.Problems[sub.ProblemID]
+	appState.RUnlock()
 	if !ok {
 		c.String(http.StatusInternalServerError, "problem definition not found")
 		return
