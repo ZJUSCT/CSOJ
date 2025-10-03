@@ -39,19 +39,12 @@ func NewUserRouter(
 	db *gorm.DB,
 	scheduler *judger.Scheduler,
 	contests map[string]*judger.Contest,
-	problems map[string]*judger.Problem) *gin.Engine {
+	problems map[string]*judger.Problem,
+	problemToContestMap map[string]*judger.Contest) *gin.Engine {
 
 	r := gin.Default()
 
 	authHandler := auth.NewGitLabHandler(cfg, db)
-
-	// Helper map to find the parent contest of a problem
-	problemToContestMap := make(map[string]*judger.Contest)
-	for _, contest := range contests {
-		for _, problemID := range contest.ProblemIDs {
-			problemToContestMap[problemID] = contest
-		}
-	}
 
 	v1 := r.Group("/api/v1")
 	{

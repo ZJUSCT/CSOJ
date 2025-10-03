@@ -97,7 +97,7 @@ func (d *Dispatcher) Dispatch(sub *models.Submission, prob *Problem, node *NodeS
 		zap.S().Warnf("cannot find contest for problem %s, skipping score update", prob.ID)
 		return
 	}
-	if err := database.UpdateScores(d.db, sub, contestID, sub.Score); err != nil {
+	if err := database.UpdateScoresForNewSubmission(d.db, sub, contestID, sub.Score); err != nil {
 		zap.S().Errorf("failed to update scores for submission %s: %v", sub.ID, err)
 	}
 }

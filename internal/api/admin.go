@@ -34,7 +34,8 @@ func NewAdminRouter(
 	db *gorm.DB,
 	scheduler *judger.Scheduler,
 	contests map[string]*judger.Contest,
-	problems map[string]*judger.Problem) *gin.Engine {
+	problems map[string]*judger.Problem,
+	problemToContestMap map[string]*judger.Contest) *gin.Engine {
 
 	r := gin.Default()
 
@@ -179,11 +180,32 @@ func NewAdminRouter(
 			return
 		}
 
+		// Get submission details BEFORE updating validity
+		sub, err := database.GetSubmission(db, subID)
+		if err != nil {
+			util.Error(c, http.StatusNotFound, err)
+			return
+		}
+
 		if err := database.UpdateSubmissionValidity(db, subID, reqBody.IsValid); err != nil {
 			util.Error(c, http.StatusInternalServerError, err)
 			return
 		}
-		util.Success(c, nil, fmt.Sprintf("Submission marked as %v", reqBody.IsValid))
+
+		// If a submission is marked as invalid, trigger score recalculation
+		if !reqBody.IsValid {
+			contest, ok := problemToContestMap[sub.ProblemID]
+			if !ok {
+				// This should not happen in a consistent system, but handle it
+				zap.S().Errorf("failed to find parent contest for problem %s during score recalculation for submission %s", sub.ProblemID, sub.ID)
+			} else {
+				if err := database.RecalculateScoresForUserProblem(db, sub.UserID, sub.ProblemID, contest.ID, sub.ID); err != nil {
+					util.Error(c, http.StatusInternalServerError, fmt.Errorf("failed to recalculate scores: %w", err))
+					return
+				}
+			}
+		}
+		util.Success(c, nil, fmt.Sprintf("Submission marked as %v and scores updated if necessary", reqBody.IsValid))
 	})
 
 	r.POST("/submissions/:id/interrupt", func(c *gin.Context) {

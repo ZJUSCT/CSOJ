@@ -60,6 +60,14 @@ func main() {
 	}
 	zap.S().Infof("loaded %d contests and %d problems", len(contests), len(problems))
 
+	// Helper map to find the parent contest of a problem
+	problemToContestMap := make(map[string]*judger.Contest)
+	for _, contest := range contests {
+		for _, problemID := range contest.ProblemIDs {
+			problemToContestMap[problemID] = contest
+		}
+	}
+
 	// judger scheduler
 	scheduler := judger.NewScheduler(cfg, db)
 
@@ -72,8 +80,8 @@ func main() {
 	zap.S().Info("judger scheduler started")
 
 	// API routers
-	userEngine := api.NewUserRouter(cfg, db, scheduler, contests, problems)
-	adminEngine := api.NewAdminRouter(cfg, db, scheduler, contests, problems)
+	userEngine := api.NewUserRouter(cfg, db, scheduler, contests, problems, problemToContestMap)
+	adminEngine := api.NewAdminRouter(cfg, db, scheduler, contests, problems, problemToContestMap)
 
 	// start servers
 	go func() {
