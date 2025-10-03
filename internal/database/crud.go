@@ -123,18 +123,7 @@ func GetLeaderboard(db *gorm.DB, contestID string) ([]LeaderboardEntry, error) {
 }
 
 func RegisterForContest(db *gorm.DB, userID, contestID string) error {
-	var count int64
-	db.Model(&models.ContestScoreHistory{}).Where("user_id = ? AND contest_id = ?", userID, contestID).Count(&count)
-	if count > 0 {
-		return errors.New("already registered")
-	}
-
-	history := models.ContestScoreHistory{
-		UserID:                userID,
-		ContestID:             contestID,
-		TotalScoreAfterChange: 0,
-	}
-	return db.Create(&history).Error
+	return nil // may be we can make a participant list to the contest
 }
 
 func UpdateScoresForNewSubmission(db *gorm.DB, sub *models.Submission, contestID string, newScore int) error {
@@ -167,17 +156,13 @@ func UpdateScoresForNewSubmission(db *gorm.DB, sub *models.Submission, contestID
 				return err
 			}
 
-			// 记录分数变化历史
-			history := models.ContestScoreHistory{
-				UserID:                    sub.UserID,
-				ContestID:                 contestID,
-				ProblemID:                 sub.ProblemID,
-				TotalScoreAfterChange:     totalScore.Score,
-				LastEffectiveSubmissionID: sub.ID,
-			}
-			if err := tx.Create(&history).Error; err != nil {
+			// update user total score here
+			if err := tx.Model(&models.User{}).
+				Where("id = ?", sub.UserID).
+				Update("total_score", totalScore.Score).Error; err != nil {
 				return err
 			}
+
 		} else if newScore == bestScore.Score {
 			// 同分提交，只更新提交ID
 			bestScore.SubmissionID = sub.ID

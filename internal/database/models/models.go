@@ -44,6 +44,8 @@ type User struct {
 	Nickname  string `json:"nickname"`
 	Signature string `json:"signature"`
 	AvatarURL string `json:"avatar_url"`
+
+	TotalScore int `json:"total_score"`
 }
 
 type Submission struct {
@@ -53,7 +55,7 @@ type Submission struct {
 
 	ProblemID string `gorm:"index" json:"problem_id"`
 	UserID    string `gorm:"index" json:"user_id"`
-	User      User   `json:"user"`
+	// User      User   `json:"user"` ?
 
 	Status      Status  `gorm:"index" json:"status"`
 	CurrentStep int     `json:"current_step"` // index of the current workflow step
@@ -83,22 +85,12 @@ type Container struct {
 	LogFilePath string    `json:"log_file_path"`
 }
 
-type ContestScoreHistory struct {
-	ID        uint `gorm:"primaryKey"`
-	CreatedAt time.Time
-
-	UserID                    string
-	ContestID                 string
-	ProblemID                 string
-	TotalScoreAfterChange     int
-	LastEffectiveSubmissionID string
-}
-
 type UserProblemBestScore struct {
-	ID           uint   `gorm:"primaryKey"`
-	UserID       string `gorm:"uniqueIndex:idx_user_problem"`
-	ContestID    string `gorm:"uniqueIndex:idx_user_problem"`
-	ProblemID    string `gorm:"uniqueIndex:idx_user_problem"`
-	Score        int
-	SubmissionID string
+	ID                   uint   `gorm:"primaryKey"`
+	UserID               string `gorm:"uniqueIndex:idx_user_problem"`
+	ContestID            string `gorm:"uniqueIndex:idx_user_problem"`
+	ProblemID            string `gorm:"uniqueIndex:idx_user_problem"`
+	Score                int
+	SubmissionID         string
+	SubmissionCreateTime time.Time
 }

@@ -18,7 +18,6 @@ func Init(dsn string) (*gorm.DB, error) {
 		&models.User{},
 		&models.Submission{},
 		&models.Container{},
-		&models.ContestScoreHistory{},
 		&models.UserProblemBestScore{},
 	)
 	if err != nil {
