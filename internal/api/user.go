@@ -348,6 +348,109 @@ func NewUserRouter(
 				util.Success(c, sub, "ok")
 			})
 
+			authed.POST("/submissions/:id/interrupt", func(c *gin.Context) {
+				subID := c.Param("id")
+				gitlabID := c.GetString("userID")
+				user, err := database.GetUserByGitLabID(db, gitlabID)
+				if err != nil {
+					util.Error(c, http.StatusNotFound, err)
+					return
+				}
+
+				sub, err := database.GetSubmission(db, subID)
+				if err != nil {
+					if err == gorm.ErrRecordNotFound {
+						util.Error(c, http.StatusNotFound, "Submission not found")
+						return
+					}
+					util.Error(c, http.StatusInternalServerError, err)
+					return
+				}
+
+				// Authorization check
+				if sub.UserID != user.ID {
+					util.Error(c, http.StatusForbidden, "You can only interrupt your own submissions")
+					return
+				}
+
+				switch sub.Status {
+				case models.StatusQueued:
+					sub.Status = models.StatusFailed
+					sub.Info = models.JSONMap{"error": "Interrupted by user while in queue"}
+					if err := database.UpdateSubmission(db, sub); err != nil {
+						util.Error(c, http.StatusInternalServerError, fmt.Errorf("failed to update submission status: %w", err))
+						return
+					}
+					msg := pubsub.FormatMessage("error", "Submission interrupted by user.")
+					pubsub.GetBroker().Publish(subID, msg)
+					pubsub.GetBroker().CloseTopic(subID)
+					util.Success(c, nil, "Queued submission interrupted")
+
+				case models.StatusRunning:
+					problem, ok := problems[sub.ProblemID]
+					if !ok {
+						util.Error(c, http.StatusInternalServerError, "Problem definition not found for running submission")
+						return
+					}
+
+					var nodeDockerHost string
+					for _, clusterCfg := range cfg.Cluster {
+						if clusterCfg.Name == sub.Cluster {
+							for _, nodeCfg := range clusterCfg.Nodes {
+								if nodeCfg.Name == sub.Node {
+									nodeDockerHost = nodeCfg.Docker
+									break
+								}
+							}
+							break
+						}
+					}
+
+					if nodeDockerHost == "" {
+						zap.S().Errorf("node config '%s'/'%s' not found for sub %s, cannot stop container but will mark as failed", sub.Cluster, sub.Node, sub.ID)
+					} else {
+						docker, err := judger.NewDockerManager(nodeDockerHost)
+						if err != nil {
+							util.Error(c, http.StatusInternalServerError, fmt.Errorf("failed to connect to docker on node %s: %w", sub.Node, err))
+							return
+						}
+						for _, container := range sub.Containers {
+							if container.DockerID != "" {
+								zap.S().Infof("forcefully cleaning up container %s for submission %s", container.DockerID, sub.ID)
+								docker.CleanupContainer(container.DockerID)
+							}
+						}
+					}
+
+					err := db.Transaction(func(tx *gorm.DB) error {
+						if err := tx.Model(&models.Submission{}).Where("id = ?", subID).Updates(map[string]interface{}{
+							"status": models.StatusFailed,
+							"info":   models.JSONMap{"error": "Interrupted by user while running"},
+						}).Error; err != nil {
+							return err
+						}
+						return tx.Model(&models.Container{}).Where("submission_id = ? AND status = ?", subID, models.StatusRunning).Update("status", models.StatusFailed).Error
+					})
+					if err != nil {
+						util.Error(c, http.StatusInternalServerError, fmt.Errorf("failed to update database: %w", err))
+						return
+					}
+
+					scheduler.ReleaseResources(problem.Cluster, sub.Node, problem.CPU, problem.Memory)
+
+					msg := pubsub.FormatMessage("error", "Submission interrupted by user.")
+					pubsub.GetBroker().Publish(subID, msg)
+					pubsub.GetBroker().CloseTopic(subID)
+					util.Success(c, nil, "Running submission interrupted successfully")
+
+				case models.StatusSuccess, models.StatusFailed:
+					util.Error(c, http.StatusBadRequest, "Submission has already finished and cannot be interrupted")
+
+				default:
+					util.Error(c, http.StatusInternalServerError, fmt.Sprintf("Unknown submission status: %s", sub.Status))
+				}
+			})
+
 			authed.GET("/submissions/:id/queue_position", func(c *gin.Context) {
 				subID := c.Param("id")
 				gitlabID := c.GetString("userID")
