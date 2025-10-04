@@ -5,14 +5,29 @@ import (
 	"time"
 
 	"github.com/ZJUSCT/CSOJ/internal/database/models"
-	"gorm.io/gorm/clause"
-
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // User CRUD
 func CreateUser(db *gorm.DB, user *models.User) error {
 	return db.Create(user).Error
+}
+
+func GetUserByID(db *gorm.DB, id string) (*models.User, error) {
+	var user models.User
+	if err := db.Where("id = ?", id).First(&user).Error; err != nil {
+		return nil, err
+	}
+	return &user, nil
+}
+
+func GetUserByUsername(db *gorm.DB, username string) (*models.User, error) {
+	var user models.User
+	if err := db.Where("username = ?", username).First(&user).Error; err != nil {
+		return nil, err
+	}
+	return &user, nil
 }
 
 func GetUserByGitLabID(db *gorm.DB, gitlabID string) (*models.User, error) {

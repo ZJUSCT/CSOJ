@@ -72,12 +72,13 @@ func (h *GitLabHandler) Callback(c *gin.Context) {
 		return
 	}
 
-	user, err := database.GetUserByGitLabID(h.db, fmt.Sprint(gitlabUser.ID))
+	gitlabIDStr := fmt.Sprint(gitlabUser.ID)
+	user, err := database.GetUserByGitLabID(h.db, gitlabIDStr)
 	if err == gorm.ErrRecordNotFound {
 		// User does not exist, create new user
 		newUser := models.User{
 			ID:        uuid.New().String(),
-			GitLabID:  fmt.Sprint(gitlabUser.ID),
+			GitLabID:  &gitlabIDStr,
 			Username:  gitlabUser.Username,
 			Nickname:  gitlabUser.Name,
 			AvatarURL: gitlabUser.Avatar,
@@ -93,7 +94,7 @@ func (h *GitLabHandler) Callback(c *gin.Context) {
 		return
 	}
 
-	jwtToken, err := GenerateJWT(user.GitLabID, h.cfg.Auth.JWT.Secret, h.cfg.Auth.JWT.ExpireHours)
+	jwtToken, err := GenerateJWT(user.ID, h.cfg.Auth.JWT.Secret, h.cfg.Auth.JWT.ExpireHours)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate JWT: " + err.Error()})
 		return

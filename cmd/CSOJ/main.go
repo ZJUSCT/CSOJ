@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -16,7 +17,12 @@ import (
 	"go.uber.org/zap"
 )
 
+var Version = "dev-build"
+
 func main() {
+
+	fmt.Fprintf(os.Stderr, "ZJUSCT CSOJ %s - Fully Containerized Secure Online Judgement\n\n", Version)
+
 	// config
 	var configPath string
 	flag.StringVar(&configPath, "c", "configs/config.yaml", "path to config file")

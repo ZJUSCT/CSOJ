@@ -198,7 +198,7 @@ func NewAdminRouter(
 	})
 
 	// Get container log
-	r.GET("/submissions/:subID/containers/:conID/log", func(c *gin.Context) {
+	r.GET("/submissions/:id/containers/:conID/log", func(c *gin.Context) {
 		con, err := database.GetContainer(db, c.Param("conID"))
 		if err != nil {
 			if err == gorm.ErrRecordNotFound {
