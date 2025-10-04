@@ -40,7 +40,7 @@ func (m *DockerManager) CreateContainer(image, workDir string, cpu int, memory i
 
 	config := &container.Config{
 		Image:           image,
-		WorkingDir:      "/work",
+		WorkingDir:      "/mnt/work",
 		Tty:             false, // Tty must be false to multiplex stdout/stderr
 		OpenStdin:       true,
 		AttachStdin:     true,
@@ -54,7 +54,7 @@ func (m *DockerManager) CreateContainer(image, workDir string, cpu int, memory i
 	}
 
 	hostConfig := &container.HostConfig{
-		Binds: []string{workDir + ":/work"},
+		Binds: []string{workDir + ":/mnt/work"},
 		Resources: container.Resources{
 			NanoCPUs: int64(cpu) * 1e9,
 			Memory:   memory * 1024 * 1024,

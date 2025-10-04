@@ -141,8 +141,8 @@ func (d *Dispatcher) runWorkflowStep(docker *DockerManager, sub *models.Submissi
 
 	if isFirstStep {
 		localWorkDir := filepath.Join(d.cfg.Storage.SubmissionContent, sub.ID)
-		zap.S().Infof("copying files from %s to container %s:/work/", localWorkDir, containerID)
-		if err := docker.CopyToContainer(containerID, localWorkDir, "/work/"); err != nil {
+		zap.S().Infof("copying files from %s to container %s:/mnt/work/", localWorkDir, containerID)
+		if err := docker.CopyToContainer(containerID, localWorkDir, "/mnt/work/"); err != nil {
 			d.failContainer(cont, -1, "failed to copy files")
 			return containerID, "", "", fmt.Errorf("failed to copy files to container: %v", err)
 		}
