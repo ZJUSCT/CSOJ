@@ -593,8 +593,8 @@ func NewUserRouter(
 				util.Success(c, gin.H{"position": count}, "Queue position retrieved successfully")
 			})
 
-			authed.GET("/submissions/:subID/containers/:conID/log", func(c *gin.Context) {
-				subID := c.Param("subID")
+			authed.GET("/submissions/:id/containers/:conID/log", func(c *gin.Context) {
+				subID := c.Param("id")
 				conID := c.Param("conID")
 				userID := c.GetString("userID")
 
