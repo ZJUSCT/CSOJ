@@ -1,13 +1,26 @@
 package database
 
 import (
+	"os"
+	"path/filepath"
+
 	"github.com/ZJUSCT/CSOJ/internal/database/models"
+	"go.uber.org/zap"
 
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
 
 func Init(dsn string) (*gorm.DB, error) {
+	if _, err := os.Stat(dsn); os.IsNotExist(err) {
+		zap.S().Infof("database file not found at '%s', creating directory for it.", dsn)
+		// Ensure the directory for the database file exists.
+		dbDir := filepath.Dir(dsn)
+		if err := os.MkdirAll(dbDir, 0755); err != nil {
+			return nil, err
+		}
+	}
+
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	if err != nil {
 		return nil, err
