@@ -43,6 +43,12 @@ type Storage struct {
 type Auth struct {
 	JWT    JWT    `yaml:"jwt"`
 	GitLab GitLab `yaml:"gitlab"`
+	Local  Local  `yaml:"local"`
+}
+
+// Local defines configuration for username/password authentication.
+type Local struct {
+	Enabled bool `yaml:"enabled"`
 }
 
 type JWT struct {

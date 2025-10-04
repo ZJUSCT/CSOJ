@@ -1,6 +1,7 @@
 package api
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -17,10 +18,9 @@ import (
 	"github.com/ZJUSCT/CSOJ/internal/judger"
 	"github.com/ZJUSCT/CSOJ/internal/pubsub"
 	"github.com/ZJUSCT/CSOJ/internal/util"
-	"github.com/gorilla/websocket"
-
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/gorilla/websocket"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 )
@@ -42,15 +42,107 @@ func NewUserRouter(
 
 	r := gin.Default()
 
-	authHandler := auth.NewGitLabHandler(cfg, db)
+	gitlabAuthHandler := auth.NewGitLabHandler(cfg, db)
 
 	v1 := r.Group("/api/v1")
 	{
 		// Auth
 		authGroup := v1.Group("/auth")
 		{
-			authGroup.GET("/gitlab/login", authHandler.Login)
-			authGroup.GET("/gitlab/callback", authHandler.Callback)
+			// GitLab Auth
+			gitlabGroup := authGroup.Group("/gitlab")
+			gitlabGroup.GET("/login", gitlabAuthHandler.Login)
+			gitlabGroup.GET("/callback", gitlabAuthHandler.Callback)
+
+			// Local Username/Password Auth (if enabled)
+			if cfg.Auth.Local.Enabled {
+				localAuthGroup := authGroup.Group("/local")
+				{
+					localAuthGroup.POST("/register", func(c *gin.Context) {
+						var req struct {
+							Username string `json:"username" binding:"required"`
+							Password string `json:"password" binding:"required"`
+							Nickname string `json:"nickname"`
+						}
+						if err := c.ShouldBindJSON(&req); err != nil {
+							util.Error(c, http.StatusBadRequest, err)
+							return
+						}
+
+						_, err := database.GetUserByUsername(db, req.Username)
+						if !errors.Is(err, gorm.ErrRecordNotFound) {
+							if err == nil {
+								util.Error(c, http.StatusConflict, "username already exists")
+							} else {
+								util.Error(c, http.StatusInternalServerError, "database error")
+							}
+							return
+						}
+
+						hashedPassword, err := auth.HashPassword(req.Password)
+						if err != nil {
+							util.Error(c, http.StatusInternalServerError, "failed to hash password")
+							return
+						}
+
+						newUser := models.User{
+							ID:           uuid.NewString(),
+							Username:     req.Username,
+							PasswordHash: hashedPassword,
+							Nickname:     req.Nickname,
+						}
+						if newUser.Nickname == "" {
+							newUser.Nickname = newUser.Username
+						}
+
+						if err := database.CreateUser(db, &newUser); err != nil {
+							util.Error(c, http.StatusInternalServerError, "failed to create user")
+							return
+						}
+
+						zap.S().Infof("new local user registered: %s", newUser.Username)
+						util.Success(c, gin.H{"id": newUser.ID, "username": newUser.Username}, "User registered successfully")
+					})
+
+					localAuthGroup.POST("/login", func(c *gin.Context) {
+						var req struct {
+							Username string `json:"username" binding:"required"`
+							Password string `json:"password" binding:"required"`
+						}
+						if err := c.ShouldBindJSON(&req); err != nil {
+							util.Error(c, http.StatusBadRequest, err)
+							return
+						}
+
+						user, err := database.GetUserByUsername(db, req.Username)
+						if err != nil {
+							if errors.Is(err, gorm.ErrRecordNotFound) {
+								util.Error(c, http.StatusUnauthorized, "invalid username or password")
+							} else {
+								util.Error(c, http.StatusInternalServerError, "database error")
+							}
+							return
+						}
+
+						if user.PasswordHash == "" {
+							util.Error(c, http.StatusUnauthorized, "user registered via GitLab, please use GitLab login")
+							return
+						}
+
+						if !auth.CheckPasswordHash(req.Password, user.PasswordHash) {
+							util.Error(c, http.StatusUnauthorized, "invalid username or password")
+							return
+						}
+
+						jwtToken, err := auth.GenerateJWT(user.ID, cfg.Auth.JWT.Secret, cfg.Auth.JWT.ExpireHours)
+						if err != nil {
+							util.Error(c, http.StatusInternalServerError, "failed to generate JWT")
+							return
+						}
+						util.Success(c, gin.H{"token": jwtToken}, "Login successful")
+					})
+				}
+			}
 		}
 
 		// Websocket for logs with authorization
@@ -137,8 +229,8 @@ func NewUserRouter(
 		{
 			// User Profile
 			authed.GET("/user/profile", func(c *gin.Context) {
-				gitlabID := c.GetString("userID")
-				user, err := database.GetUserByGitLabID(db, gitlabID)
+				userID := c.GetString("userID")
+				user, err := database.GetUserByID(db, userID)
 				if err != nil {
 					util.Error(c, http.StatusNotFound, err)
 					return
@@ -151,8 +243,8 @@ func NewUserRouter(
 			})
 
 			authed.PATCH("/user/profile", func(c *gin.Context) {
-				gitlabID := c.GetString("userID")
-				user, err := database.GetUserByGitLabID(db, gitlabID)
+				userID := c.GetString("userID")
+				user, err := database.GetUserByID(db, userID)
 				if err != nil {
 					util.Error(c, http.StatusNotFound, err)
 					return
@@ -175,8 +267,8 @@ func NewUserRouter(
 			})
 
 			authed.POST("/user/avatar", func(c *gin.Context) {
-				gitlabID := c.GetString("userID")
-				user, err := database.GetUserByGitLabID(db, gitlabID)
+				userID := c.GetString("userID")
+				user, err := database.GetUserByID(db, userID)
 				if err != nil {
 					util.Error(c, http.StatusNotFound, err)
 					return
@@ -207,7 +299,7 @@ func NewUserRouter(
 
 			// Contest
 			authed.POST("/contests/:id/register", func(c *gin.Context) {
-				gitlabID := c.GetString("userID")
+				userID := c.GetString("userID")
 				contestID := c.Param("id")
 
 				appState.RLock()
@@ -229,7 +321,7 @@ func NewUserRouter(
 					return
 				}
 
-				user, err := database.GetUserByGitLabID(db, gitlabID)
+				user, err := database.GetUserByID(db, userID)
 				if err != nil {
 					util.Error(c, http.StatusNotFound, err)
 					return
@@ -248,10 +340,10 @@ func NewUserRouter(
 
 			// Submissions
 			authed.POST("/problems/:id/submit", func(c *gin.Context) {
-				gitlabID := c.GetString("userID")
+				userID := c.GetString("userID")
 				problemID := c.Param("id")
 
-				user, err := database.GetUserByGitLabID(db, gitlabID)
+				user, err := database.GetUserByID(db, userID)
 				if err != nil {
 					util.Error(c, http.StatusNotFound, err)
 					return
@@ -327,8 +419,8 @@ func NewUserRouter(
 			})
 
 			authed.GET("/submissions", func(c *gin.Context) {
-				gitlabID := c.GetString("userID")
-				user, err := database.GetUserByGitLabID(db, gitlabID)
+				userID := c.GetString("userID")
+				user, err := database.GetUserByID(db, userID)
 				if err != nil {
 					util.Error(c, http.StatusNotFound, err)
 					return
@@ -343,8 +435,8 @@ func NewUserRouter(
 
 			authed.GET("/submissions/:id", func(c *gin.Context) {
 				subID := c.Param("id")
-				gitlabID := c.GetString("userID")
-				user, err := database.GetUserByGitLabID(db, gitlabID)
+				userID := c.GetString("userID")
+				user, err := database.GetUserByID(db, userID)
 				if err != nil {
 					util.Error(c, http.StatusNotFound, err)
 					return
@@ -363,8 +455,8 @@ func NewUserRouter(
 
 			authed.POST("/submissions/:id/interrupt", func(c *gin.Context) {
 				subID := c.Param("id")
-				gitlabID := c.GetString("userID")
-				user, err := database.GetUserByGitLabID(db, gitlabID)
+				userID := c.GetString("userID")
+				user, err := database.GetUserByID(db, userID)
 				if err != nil {
 					util.Error(c, http.StatusNotFound, err)
 					return
@@ -468,9 +560,9 @@ func NewUserRouter(
 
 			authed.GET("/submissions/:id/queue_position", func(c *gin.Context) {
 				subID := c.Param("id")
-				gitlabID := c.GetString("userID")
+				userID := c.GetString("userID")
 
-				user, err := database.GetUserByGitLabID(db, gitlabID)
+				user, err := database.GetUserByID(db, userID)
 				if err != nil {
 					util.Error(c, http.StatusNotFound, err)
 					return
@@ -504,9 +596,9 @@ func NewUserRouter(
 			authed.GET("/submissions/:subID/containers/:conID/log", func(c *gin.Context) {
 				subID := c.Param("subID")
 				conID := c.Param("conID")
-				gitlabID := c.GetString("userID")
+				userID := c.GetString("userID")
 
-				user, err := database.GetUserByGitLabID(db, gitlabID)
+				user, err := database.GetUserByID(db, userID)
 				if err != nil {
 					util.Error(c, http.StatusNotFound, "user not found")
 					return
@@ -710,8 +802,8 @@ func handleWs(c *gin.Context, cfg *config.Config, db *gorm.DB, appState *judger.
 		c.String(http.StatusUnauthorized, "invalid token")
 		return
 	}
-	gitlabID := claims.Subject
-	user, err := database.GetUserByGitLabID(db, gitlabID)
+	userID := claims.Subject
+	user, err := database.GetUserByID(db, userID)
 	if err != nil {
 		c.String(http.StatusNotFound, "user not found")
 		return

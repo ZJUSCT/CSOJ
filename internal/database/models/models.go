@@ -39,11 +39,12 @@ type User struct {
 	UpdatedAt time.Time
 	DeletedAt gorm.DeletedAt `gorm:"index"`
 
-	GitLabID  string `gorm:"uniqueIndex" json:"-"`
-	Username  string `json:"username"`
-	Nickname  string `json:"nickname"`
-	Signature string `json:"signature"`
-	AvatarURL string `json:"avatar_url"`
+	GitLabID     *string `gorm:"uniqueIndex" json:"-"`
+	Username     string  `gorm:"uniqueIndex" json:"username"`
+	PasswordHash string  `json:"-"`
+	Nickname     string  `json:"nickname"`
+	Signature    string  `json:"signature"`
+	AvatarURL    string  `json:"avatar_url"`
 }
 
 type Submission struct {

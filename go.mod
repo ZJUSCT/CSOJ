@@ -9,6 +9,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
 	go.uber.org/zap v1.27.0
+	golang.org/x/crypto v0.41.0
 	golang.org/x/oauth2 v0.31.0
 	gopkg.in/yaml.v3 v3.0.1
 	gorm.io/driver/sqlite v1.6.0
@@ -68,7 +69,6 @@ require (
 	go.uber.org/mock v0.5.0 // indirect
 	go.uber.org/multierr v1.10.0 // indirect
 	golang.org/x/arch v0.20.0 // indirect
-	golang.org/x/crypto v0.41.0 // indirect
 	golang.org/x/mod v0.26.0 // indirect
 	golang.org/x/net v0.43.0 // indirect
 	golang.org/x/sync v0.16.0 // indirect
