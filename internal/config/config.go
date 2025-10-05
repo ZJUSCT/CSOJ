@@ -6,6 +6,10 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+type CORS struct {
+	AllowedOrigins []string `yaml:"allowed_origins"`
+}
+
 type Config struct {
 	Cluster []Cluster `yaml:"cluster"`
 	Contest []string  `yaml:"contest"`
@@ -14,6 +18,7 @@ type Config struct {
 	Auth    Auth      `yaml:"auth"`
 	Listen  string    `yaml:"listen"`
 	Admin   Admin     `yaml:"admin"`
+	CORS    CORS      `yaml:"cors"`
 }
 
 type Cluster struct {

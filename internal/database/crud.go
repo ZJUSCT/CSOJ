@@ -61,7 +61,7 @@ func CreateSubmission(db *gorm.DB, sub *models.Submission) error {
 
 func GetSubmission(db *gorm.DB, id string) (*models.Submission, error) {
 	var sub models.Submission
-	if err := db.Preload("Containers").Where("id = ?", id).First(&sub).Error; err != nil {
+	if err := db.Preload("User").Preload("Containers").Where("id = ?", id).First(&sub).Error; err != nil {
 		return nil, err
 	}
 	return &sub, nil
@@ -69,7 +69,7 @@ func GetSubmission(db *gorm.DB, id string) (*models.Submission, error) {
 
 func GetSubmissionsByUserID(db *gorm.DB, userID string) ([]models.Submission, error) {
 	var subs []models.Submission
-	if err := db.Where("user_id = ?", userID).Order("created_at desc").Find(&subs).Error; err != nil {
+	if err := db.Preload("User").Where("user_id = ?", userID).Order("created_at desc").Find(&subs).Error; err != nil {
 		return nil, err
 	}
 	return subs, nil
@@ -77,7 +77,7 @@ func GetSubmissionsByUserID(db *gorm.DB, userID string) ([]models.Submission, er
 
 func GetAllSubmissions(db *gorm.DB) ([]models.Submission, error) {
 	var subs []models.Submission
-	if err := db.Order("created_at desc").Find(&subs).Error; err != nil {
+	if err := db.Preload("User").Order("created_at desc").Find(&subs).Error; err != nil {
 		return nil, err
 	}
 	return subs, nil
@@ -125,6 +125,13 @@ type LeaderboardEntry struct {
 	TotalScore int    `json:"total_score"`
 }
 
+// UserScoreHistoryPoint represents a single point in a user's score history for a contest.
+type UserScoreHistoryPoint struct {
+	Time      time.Time `json:"time"`
+	Score     int       `json:"score"`
+	ProblemID string    `json:"problem_id"`
+}
+
 func GetLeaderboard(db *gorm.DB, contestID string) ([]LeaderboardEntry, error) {
 	var results []LeaderboardEntry
 	err := db.Table("user_problem_best_scores").
@@ -135,6 +142,31 @@ func GetLeaderboard(db *gorm.DB, contestID string) ([]LeaderboardEntry, error) {
 		Order("total_score desc").
 		Scan(&results).Error
 	return results, err
+}
+
+// GetScoreHistoriesForUsers retrieves the score change history for a given list of users in a specific contest.
+func GetScoreHistoriesForUsers(db *gorm.DB, contestID string, userIDs []string) (map[string][]UserScoreHistoryPoint, error) {
+	var results []models.ContestScoreHistory
+	if err := db.Model(&models.ContestScoreHistory{}).
+		Where("contest_id = ? AND user_id IN ?", contestID, userIDs).
+		Order("created_at asc").
+		Find(&results).Error; err != nil {
+		return nil, err
+	}
+
+	historiesByUser := make(map[string][]UserScoreHistoryPoint)
+	for _, r := range results {
+		// Initialize the slice for a user if it doesn't exist
+		if _, ok := historiesByUser[r.UserID]; !ok {
+			historiesByUser[r.UserID] = make([]UserScoreHistoryPoint, 0)
+		}
+		historiesByUser[r.UserID] = append(historiesByUser[r.UserID], UserScoreHistoryPoint{
+			Time:      r.CreatedAt,
+			Score:     r.TotalScoreAfterChange,
+			ProblemID: r.ProblemID,
+		})
+	}
+	return historiesByUser, nil
 }
 
 func RegisterForContest(db *gorm.DB, userID, contestID string) error {

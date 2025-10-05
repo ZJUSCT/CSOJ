@@ -42,16 +42,17 @@ func NewDispatcher(cfg *config.Config, db *gorm.DB, scheduler *Scheduler, appSta
 func (d *Dispatcher) Dispatch(sub *models.Submission, prob *Problem, node *NodeState) {
 	zap.S().Infof("dispatching submission %s to node %s", sub.ID, node.Name)
 
-	// Ensure resources and pubsub topic are cleaned up
+	// Ensure resources are cleaned up
 	defer func() {
 		d.scheduler.ReleaseResources(prob.Cluster, node.Name, prob.CPU, prob.Memory)
-		pubsub.GetBroker().CloseTopic(sub.ID)
+		// No longer closing submission topic here, it's handled per-container now
 		zap.S().Infof("finished dispatching submission %s", sub.ID)
 	}()
 
 	docker, err := NewDockerManager(node.Docker)
 	if err != nil {
 		d.failSubmission(sub, fmt.Sprintf("failed to create docker client: %v", err))
+		pubsub.GetBroker().CloseTopic(sub.ID) // Close submission topic on early failure
 		return
 	}
 
@@ -73,6 +74,7 @@ func (d *Dispatcher) Dispatch(sub *models.Submission, prob *Problem, node *NodeS
 		}
 		if err != nil {
 			d.failSubmission(sub, fmt.Sprintf("workflow step %d failed: %v\nStderr: %s", i, err, stderr))
+			pubsub.GetBroker().CloseTopic(sub.ID) // Close submission topic on failure
 			return
 		}
 		lastStdout = stdout
@@ -81,6 +83,7 @@ func (d *Dispatcher) Dispatch(sub *models.Submission, prob *Problem, node *NodeS
 	var result JudgeResult
 	if err := json.Unmarshal([]byte(lastStdout), &result); err != nil {
 		d.failSubmission(sub, fmt.Sprintf("failed to parse judge result: %v. Raw output: %s", err, lastStdout))
+		pubsub.GetBroker().CloseTopic(sub.ID) // Close submission topic on failure
 		return
 	}
 
@@ -93,6 +96,7 @@ func (d *Dispatcher) Dispatch(sub *models.Submission, prob *Problem, node *NodeS
 	}
 
 	zap.S().Infof("submission %s finished successfully with score %d", sub.ID, sub.Score)
+	pubsub.GetBroker().CloseTopic(sub.ID) // Close submission topic on success
 
 	contestID := d.findContestIDForProblem(prob.ID)
 	if contestID == "" {
@@ -123,6 +127,8 @@ func (d *Dispatcher) runWorkflowStep(docker *DockerManager, sub *models.Submissi
 		LogFilePath:  logFilePath,
 	}
 	database.CreateContainer(d.db, cont)
+	// Ensure the pubsub topic for this container is closed when the function returns
+	defer pubsub.GetBroker().CloseTopic(cont.ID)
 
 	remoteWorkDir := filepath.Join("/tmp", "submission", sub.ID)
 
@@ -141,8 +147,8 @@ func (d *Dispatcher) runWorkflowStep(docker *DockerManager, sub *models.Submissi
 
 	if isFirstStep {
 		localWorkDir := filepath.Join(d.cfg.Storage.SubmissionContent, sub.ID)
-		zap.S().Infof("copying files from %s to container %s:/work/", localWorkDir, containerID)
-		if err := docker.CopyToContainer(containerID, localWorkDir, "/work/"); err != nil {
+		zap.S().Infof("copying files from %s to container %s:/mnt/work/", localWorkDir, containerID)
+		if err := docker.CopyToContainer(containerID, localWorkDir, "/mnt/work/"); err != nil {
 			d.failContainer(cont, -1, "failed to copy files")
 			return containerID, "", "", fmt.Errorf("failed to copy files to container: %v", err)
 		}
@@ -150,10 +156,10 @@ func (d *Dispatcher) runWorkflowStep(docker *DockerManager, sub *models.Submissi
 
 	var combinedLog bytes.Buffer
 	for _, stepCmd := range flow.Steps {
-		// Callback for real-time streaming
+		// Callback for real-time streaming, publishing to the container's unique topic
 		outputCallback := func(streamType string, data []byte) {
 			msg := pubsub.FormatMessage(streamType, string(data))
-			pubsub.GetBroker().Publish(sub.ID, msg)
+			pubsub.GetBroker().Publish(cont.ID, msg)
 		}
 
 		execResult, err := docker.ExecInContainer(containerID, stepCmd, time.Duration(flow.Timeout)*time.Second, outputCallback)

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bufio"
 	"errors"
 	"fmt"
 	"io"
@@ -41,6 +42,8 @@ func NewUserRouter(
 	appState *judger.AppState) *gin.Engine {
 
 	r := gin.Default()
+
+	r.Use(CORSMiddleware(cfg.CORS))
 
 	gitlabAuthHandler := auth.NewGitLabHandler(cfg, db)
 
@@ -145,9 +148,9 @@ func NewUserRouter(
 			}
 		}
 
-		// Websocket for logs with authorization
-		v1.GET("/ws/submissions/:id/logs", func(c *gin.Context) {
-			handleWs(c, cfg, db, appState)
+		// Websocket for container logs with authorization
+		v1.GET("/ws/submissions/:subID/containers/:conID/logs", func(c *gin.Context) {
+			handleUserContainerWs(c, cfg, db, appState)
 		})
 
 		// Publicly accessible info
@@ -186,6 +189,73 @@ func NewUserRouter(
 				return
 			}
 			util.Success(c, leaderboard, "Leaderboard retrieved")
+		})
+		v1.GET("/contests/:id/trend", func(c *gin.Context) {
+			contestID := c.Param("id")
+			leaderboard, err := database.GetLeaderboard(db, contestID)
+			if err != nil {
+				util.Error(c, http.StatusInternalServerError, err)
+				return
+			}
+
+			// Determine top 10 users (with ties, score > 0)
+			var topUsers []database.LeaderboardEntry
+			topUserIDs := make([]string, 0)
+			tenthScore := -1
+
+			for _, entry := range leaderboard {
+				if entry.TotalScore == 0 {
+					continue
+				}
+
+				if len(topUsers) < 10 {
+					topUsers = append(topUsers, entry)
+					topUserIDs = append(topUserIDs, entry.UserID)
+					if len(topUsers) == 10 {
+						tenthScore = entry.TotalScore
+					}
+				} else if tenthScore != -1 && entry.TotalScore == tenthScore {
+					topUsers = append(topUsers, entry)
+					topUserIDs = append(topUserIDs, entry.UserID)
+				}
+			}
+
+			if len(topUserIDs) == 0 {
+				util.Success(c, make([]interface{}, 0), "Trend data retrieved")
+				return
+			}
+
+			// Get score histories for these users
+			histories, err := database.GetScoreHistoriesForUsers(db, contestID, topUserIDs)
+			if err != nil {
+				util.Error(c, http.StatusInternalServerError, err)
+				return
+			}
+
+			// Response structure
+			type TrendEntry struct {
+				UserID   string                           `json:"user_id"`
+				Username string                           `json:"username"`
+				Nickname string                           `json:"nickname"`
+				History  []database.UserScoreHistoryPoint `json:"history"`
+			}
+
+			trendData := make([]TrendEntry, 0, len(topUsers))
+			for _, user := range topUsers {
+				userHistory, ok := histories[user.UserID]
+				if !ok {
+					userHistory = []database.UserScoreHistoryPoint{}
+				}
+
+				trendData = append(trendData, TrendEntry{
+					UserID:   user.UserID,
+					Username: user.Username,
+					Nickname: user.Nickname,
+					History:  userHistory,
+				})
+			}
+
+			util.Success(c, trendData, "Trend data retrieved")
 		})
 		v1.GET("/problems/:id", func(c *gin.Context) {
 			problemID := c.Param("id")
@@ -788,8 +858,9 @@ func NewUserRouter(
 	return r
 }
 
-func handleWs(c *gin.Context, cfg *config.Config, db *gorm.DB, appState *judger.AppState) {
-	submissionID := c.Param("id")
+func handleUserContainerWs(c *gin.Context, cfg *config.Config, db *gorm.DB, appState *judger.AppState) {
+	submissionID := c.Param("subID")
+	containerID := c.Param("conID")
 	tokenString := c.Query("token")
 
 	if tokenString == "" {
@@ -803,21 +874,33 @@ func handleWs(c *gin.Context, cfg *config.Config, db *gorm.DB, appState *judger.
 		return
 	}
 	userID := claims.Subject
-	user, err := database.GetUserByID(db, userID)
-	if err != nil {
-		c.String(http.StatusNotFound, "user not found")
-		return
-	}
 
+	// --- Authorization Checks ---
 	sub, err := database.GetSubmission(db, submissionID)
 	if err != nil {
 		c.String(http.StatusNotFound, "submission not found")
 		return
 	}
-
-	// Authorization Check : Ownership
-	if sub.UserID != user.ID {
+	if sub.UserID != userID {
 		c.String(http.StatusForbidden, "you can only view your own submissions")
+		return
+	}
+
+	var targetContainer *models.Container
+	var containerIndex = -1
+	sort.Slice(sub.Containers, func(i, j int) bool {
+		return sub.Containers[i].CreatedAt.Before(sub.Containers[j].CreatedAt)
+	})
+	for i, container := range sub.Containers {
+		if container.ID == containerID {
+			targetContainer = &sub.Containers[i]
+			containerIndex = i
+			break
+		}
+	}
+
+	if targetContainer == nil {
+		c.String(http.StatusNotFound, "container not found in this submission")
 		return
 	}
 
@@ -829,16 +912,11 @@ func handleWs(c *gin.Context, cfg *config.Config, db *gorm.DB, appState *judger.
 		return
 	}
 
-	// Authorization Check : `show` flag in problem.yaml
-	for _, step := range problem.Workflow {
-		if !step.Show {
-			c.String(http.StatusForbidden, "live stream is not available for this problem because it contains hidden steps")
-			return
-		}
+	if containerIndex >= len(problem.Workflow) || !problem.Workflow[containerIndex].Show {
+		c.String(http.StatusForbidden, "you are not allowed to view the log for this step")
+		return
 	}
-
-	msgChan, unsubscribe := pubsub.GetBroker().Subscribe(submissionID)
-	defer unsubscribe()
+	// --- End Authorization ---
 
 	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
@@ -847,23 +925,59 @@ func handleWs(c *gin.Context, cfg *config.Config, db *gorm.DB, appState *judger.
 	}
 	defer conn.Close()
 
-	go func() {
-		defer conn.Close()
-		for msg := range msgChan {
-			if err := conn.WriteMessage(websocket.TextMessage, msg); err != nil {
-				zap.S().Warnf("error writing to websocket: %v", err)
+	if targetContainer.Status == models.StatusRunning {
+		// Real-time streaming
+		msgChan, unsubscribe := pubsub.GetBroker().Subscribe(containerID)
+		defer unsubscribe()
+
+		clientClosed := make(chan struct{})
+		go func() {
+			defer close(clientClosed)
+			for msg := range msgChan {
+				if err := conn.WriteMessage(websocket.TextMessage, msg); err != nil {
+					zap.S().Warnf("error writing to websocket: %v", err)
+					return
+				}
+			}
+		}()
+
+		for {
+			if _, _, err := conn.ReadMessage(); err != nil {
+				if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+					zap.S().Infof("websocket unexpected close error: %v", err)
+				}
 				break
 			}
 		}
-	}()
+		<-clientClosed
 
-	for {
-		if _, _, err := conn.ReadMessage(); err != nil {
-			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-				zap.S().Infof("websocket unexpected close error: %v", err)
-			}
-			break
+	} else { // StatusSuccess or StatusFailed: Stream the stored log file
+		if targetContainer.LogFilePath == "" {
+			msg := pubsub.FormatMessage("error", "Log file path not recorded.")
+			conn.WriteMessage(websocket.TextMessage, msg)
+			return
 		}
+
+		file, err := os.Open(targetContainer.LogFilePath)
+		if err != nil {
+			msg := pubsub.FormatMessage("error", "Log file not found on disk.")
+			conn.WriteMessage(websocket.TextMessage, msg)
+			return
+		}
+		defer file.Close()
+
+		scanner := bufio.NewScanner(file)
+		for scanner.Scan() {
+			msg := pubsub.FormatMessage("stdout", scanner.Text())
+			if err := conn.WriteMessage(websocket.TextMessage, msg); err != nil {
+				return // Client disconnected
+			}
+		}
+		if err := scanner.Err(); err != nil {
+			zap.S().Errorf("error reading log file for container %s: %v", containerID, err)
+		}
+		msg := pubsub.FormatMessage("info", "Log stream finished.")
+		conn.WriteMessage(websocket.TextMessage, msg)
 	}
-	zap.S().Infof("websocket connection closed for submission %s", submissionID)
+	zap.S().Infof("websocket connection closed for container %s", containerID)
 }
