@@ -42,6 +42,8 @@ func NewUserRouter(
 
 	r := gin.Default()
 
+	r.Use(CORSMiddleware(cfg.CORS))
+
 	gitlabAuthHandler := auth.NewGitLabHandler(cfg, db)
 
 	v1 := r.Group("/api/v1")

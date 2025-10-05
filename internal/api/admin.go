@@ -37,6 +37,8 @@ func NewAdminRouter(
 
 	r := gin.Default()
 
+	r.Use(CORSMiddleware(cfg.CORS))
+
 	r.GET("/ws/submissions/:id/logs", func(c *gin.Context) {
 		handleAdminWs(c, db)
 	})
@@ -337,8 +339,8 @@ func NewAdminRouter(
 				return
 			}
 			msg := pubsub.FormatMessage("error", "Submission interrupted by admin.")
-			pubsub.GetBroker().Publish(subID, msg)
-			pubsub.GetBroker().CloseTopic(subID)
+			pubsub.GetBroker().Publish(sub.ID, msg)
+			pubsub.GetBroker().CloseTopic(sub.ID)
 			util.Success(c, nil, "Queued submission interrupted")
 
 		case models.StatusRunning:
@@ -396,8 +398,8 @@ func NewAdminRouter(
 			scheduler.ReleaseResources(problem.Cluster, sub.Node, problem.CPU, problem.Memory)
 
 			msg := pubsub.FormatMessage("error", "Submission interrupted by admin.")
-			pubsub.GetBroker().Publish(subID, msg)
-			pubsub.GetBroker().CloseTopic(subID)
+			pubsub.GetBroker().Publish(sub.ID, msg)
+			pubsub.GetBroker().CloseTopic(sub.ID)
 			util.Success(c, nil, "Running submission interrupted successfully")
 
 		case models.StatusSuccess, models.StatusFailed:
