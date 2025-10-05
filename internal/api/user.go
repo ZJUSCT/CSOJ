@@ -187,6 +187,73 @@ func NewUserRouter(
 			}
 			util.Success(c, leaderboard, "Leaderboard retrieved")
 		})
+		v1.GET("/contests/:id/trend", func(c *gin.Context) {
+			contestID := c.Param("id")
+			leaderboard, err := database.GetLeaderboard(db, contestID)
+			if err != nil {
+				util.Error(c, http.StatusInternalServerError, err)
+				return
+			}
+
+			// Determine top 10 users (with ties, score > 0)
+			var topUsers []database.LeaderboardEntry
+			topUserIDs := make([]string, 0)
+			tenthScore := -1
+
+			for _, entry := range leaderboard {
+				if entry.TotalScore == 0 {
+					continue
+				}
+
+				if len(topUsers) < 10 {
+					topUsers = append(topUsers, entry)
+					topUserIDs = append(topUserIDs, entry.UserID)
+					if len(topUsers) == 10 {
+						tenthScore = entry.TotalScore
+					}
+				} else if tenthScore != -1 && entry.TotalScore == tenthScore {
+					topUsers = append(topUsers, entry)
+					topUserIDs = append(topUserIDs, entry.UserID)
+				}
+			}
+
+			if len(topUserIDs) == 0 {
+				util.Success(c, make([]interface{}, 0), "Trend data retrieved")
+				return
+			}
+
+			// Get score histories for these users
+			histories, err := database.GetScoreHistoriesForUsers(db, contestID, topUserIDs)
+			if err != nil {
+				util.Error(c, http.StatusInternalServerError, err)
+				return
+			}
+
+			// Response structure
+			type TrendEntry struct {
+				UserID   string                           `json:"user_id"`
+				Username string                           `json:"username"`
+				Nickname string                           `json:"nickname"`
+				History  []database.UserScoreHistoryPoint `json:"history"`
+			}
+
+			trendData := make([]TrendEntry, 0, len(topUsers))
+			for _, user := range topUsers {
+				userHistory, ok := histories[user.UserID]
+				if !ok {
+					userHistory = []database.UserScoreHistoryPoint{}
+				}
+
+				trendData = append(trendData, TrendEntry{
+					UserID:   user.UserID,
+					Username: user.Username,
+					Nickname: user.Nickname,
+					History:  userHistory,
+				})
+			}
+
+			util.Success(c, trendData, "Trend data retrieved")
+		})
 		v1.GET("/problems/:id", func(c *gin.Context) {
 			problemID := c.Param("id")
 			appState.RLock()
