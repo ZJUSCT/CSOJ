@@ -9,7 +9,8 @@ import (
 	"sync"
 	"syscall"
 
-	"github.com/ZJUSCT/CSOJ/internal/api"
+	"github.com/ZJUSCT/CSOJ/internal/api/admin"
+	"github.com/ZJUSCT/CSOJ/internal/api/user"
 	"github.com/ZJUSCT/CSOJ/internal/config"
 	"github.com/ZJUSCT/CSOJ/internal/database"
 	"github.com/ZJUSCT/CSOJ/internal/judger"
@@ -98,8 +99,8 @@ func main() {
 	zap.S().Info("judger scheduler started")
 
 	// API routers
-	userEngine := api.NewUserRouter(cfg, db, scheduler, appState)
-	adminEngine := api.NewAdminRouter(cfg, db, scheduler, appState)
+	userEngine := user.NewUserRouter(cfg, db, scheduler, appState)    // <-- 修改
+	adminEngine := admin.NewAdminRouter(cfg, db, scheduler, appState) // <-- 修改
 
 	// start servers
 	go func() {
