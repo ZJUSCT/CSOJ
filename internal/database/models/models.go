@@ -96,10 +96,11 @@ type ContestScoreHistory struct {
 }
 
 type UserProblemBestScore struct {
-	ID           uint   `gorm:"primaryKey"`
-	UserID       string `gorm:"uniqueIndex:idx_user_problem"`
-	ContestID    string `gorm:"uniqueIndex:idx_user_problem"`
-	ProblemID    string `gorm:"uniqueIndex:idx_user_problem"`
-	Score        int
-	SubmissionID string
+	ID              uint   `gorm:"primaryKey"`
+	UserID          string `gorm:"uniqueIndex:idx_user_problem"`
+	ContestID       string `gorm:"uniqueIndex:idx_user_problem"`
+	ProblemID       string `gorm:"uniqueIndex:idx_user_problem"`
+	Score           int
+	SubmissionID    string
+	SubmissionCount int
 }
