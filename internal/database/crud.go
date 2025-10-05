@@ -61,7 +61,7 @@ func CreateSubmission(db *gorm.DB, sub *models.Submission) error {
 
 func GetSubmission(db *gorm.DB, id string) (*models.Submission, error) {
 	var sub models.Submission
-	if err := db.Preload("Containers").Where("id = ?", id).First(&sub).Error; err != nil {
+	if err := db.Preload("User").Preload("Containers").Where("id = ?", id).First(&sub).Error; err != nil {
 		return nil, err
 	}
 	return &sub, nil
@@ -69,7 +69,7 @@ func GetSubmission(db *gorm.DB, id string) (*models.Submission, error) {
 
 func GetSubmissionsByUserID(db *gorm.DB, userID string) ([]models.Submission, error) {
 	var subs []models.Submission
-	if err := db.Where("user_id = ?", userID).Order("created_at desc").Find(&subs).Error; err != nil {
+	if err := db.Preload("User").Where("user_id = ?", userID).Order("created_at desc").Find(&subs).Error; err != nil {
 		return nil, err
 	}
 	return subs, nil
@@ -77,7 +77,7 @@ func GetSubmissionsByUserID(db *gorm.DB, userID string) ([]models.Submission, er
 
 func GetAllSubmissions(db *gorm.DB) ([]models.Submission, error) {
 	var subs []models.Submission
-	if err := db.Order("created_at desc").Find(&subs).Error; err != nil {
+	if err := db.Preload("User").Order("created_at desc").Find(&subs).Error; err != nil {
 		return nil, err
 	}
 	return subs, nil
