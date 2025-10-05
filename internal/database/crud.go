@@ -169,6 +169,27 @@ func GetScoreHistoriesForUsers(db *gorm.DB, contestID string, userIDs []string) 
 	return historiesByUser, nil
 }
 
+// GetScoreHistoryForUser retrieves the score change history for a specific user in a specific contest.
+func GetScoreHistoryForUser(db *gorm.DB, contestID string, userID string) ([]UserScoreHistoryPoint, error) {
+	var results []models.ContestScoreHistory
+	if err := db.Model(&models.ContestScoreHistory{}).
+		Where("contest_id = ? AND user_id = ?", contestID, userID).
+		Order("created_at asc").
+		Find(&results).Error; err != nil {
+		return nil, err
+	}
+
+	history := make([]UserScoreHistoryPoint, 0, len(results))
+	for _, r := range results {
+		history = append(history, UserScoreHistoryPoint{
+			Time:      r.CreatedAt,
+			Score:     r.TotalScoreAfterChange,
+			ProblemID: r.ProblemID,
+		})
+	}
+	return history, nil
+}
+
 func RegisterForContest(db *gorm.DB, userID, contestID string) error {
 	var count int64
 	db.Model(&models.ContestScoreHistory{}).Where("user_id = ? AND contest_id = ?", userID, contestID).Count(&count)

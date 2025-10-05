@@ -408,6 +408,28 @@ func NewUserRouter(
 				util.Success(c, nil, "Successfully registered for contest")
 			})
 
+			authed.GET("/contests/:id/history", func(c *gin.Context) {
+				userID := c.GetString("userID")
+				contestID := c.Param("id")
+
+				appState.RLock()
+				_, ok := appState.Contests[contestID]
+				appState.RUnlock()
+
+				if !ok {
+					util.Error(c, http.StatusNotFound, "contest not found")
+					return
+				}
+
+				history, err := database.GetScoreHistoryForUser(db, contestID, userID)
+				if err != nil {
+					util.Error(c, http.StatusInternalServerError, err)
+					return
+				}
+
+				util.Success(c, history, "User score history retrieved successfully")
+			})
+
 			// Submissions
 			authed.POST("/problems/:id/submit", func(c *gin.Context) {
 				userID := c.GetString("userID")
