@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bufio"
 	"fmt"
 	"io"
 	"net/http"
@@ -39,8 +40,8 @@ func NewAdminRouter(
 
 	r.Use(CORSMiddleware(cfg.CORS))
 
-	r.GET("/ws/submissions/:id/logs", func(c *gin.Context) {
-		handleAdminWs(c, db)
+	r.GET("/ws/submissions/:id/containers/:conID/logs", func(c *gin.Context) {
+		handleAdminContainerWs(c, db)
 	})
 
 	// Management
@@ -419,17 +420,24 @@ func NewAdminRouter(
 	return r
 }
 
-func handleAdminWs(c *gin.Context, db *gorm.DB) {
+func handleAdminContainerWs(c *gin.Context, db *gorm.DB) {
 	submissionID := c.Param("id")
+	containerID := c.Param("conID")
 
-	_, err := database.GetSubmission(db, submissionID)
+	con, err := database.GetContainer(db, containerID)
 	if err != nil {
-		c.String(http.StatusNotFound, "submission not found")
+		if err == gorm.ErrRecordNotFound {
+			c.String(http.StatusNotFound, "container not found")
+			return
+		}
+		c.String(http.StatusInternalServerError, "database error")
 		return
 	}
 
-	msgChan, unsubscribe := pubsub.GetBroker().Subscribe(submissionID)
-	defer unsubscribe()
+	if con.SubmissionID != submissionID {
+		c.String(http.StatusForbidden, "container does not belong to this submission")
+		return
+	}
 
 	conn, err := adminUpgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
@@ -438,25 +446,71 @@ func handleAdminWs(c *gin.Context, db *gorm.DB) {
 	}
 	defer conn.Close()
 
-	go func() {
-		defer conn.Close()
-		for msg := range msgChan {
-			if err := conn.WriteMessage(websocket.TextMessage, msg); err != nil {
-				zap.S().Warnf("error writing to admin websocket: %v", err)
+	if con.Status == models.StatusRunning {
+		// Real-time streaming for a running container
+		msgChan, unsubscribe := pubsub.GetBroker().Subscribe(containerID)
+		defer unsubscribe()
+
+		// Goroutine to pump messages from pubsub to websocket
+		clientClosed := make(chan struct{})
+		go func() {
+			defer close(clientClosed)
+			for msg := range msgChan {
+				if err := conn.WriteMessage(websocket.TextMessage, msg); err != nil {
+					zap.S().Warnf("error writing to admin websocket: %v", err)
+					return
+				}
+			}
+		}()
+
+		// Read loop to detect client close
+		for {
+			if _, _, err := conn.ReadMessage(); err != nil {
+				if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+					zap.S().Infof("admin websocket unexpected close error: %v", err)
+				}
 				break
 			}
 		}
-	}()
+		<-clientClosed // Wait for writer goroutine to finish before returning
 
-	for {
-		if _, _, err := conn.ReadMessage(); err != nil {
-			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-				zap.S().Infof("admin websocket unexpected close error: %v", err)
-			}
-			break
+	} else { // StatusSuccess or StatusFailed: Stream the stored log file
+		if con.LogFilePath == "" {
+			msg := pubsub.FormatMessage("error", "Log file path not recorded for this container.")
+			conn.WriteMessage(websocket.TextMessage, msg)
+			return
 		}
+
+		file, err := os.Open(con.LogFilePath)
+		if err != nil {
+			if os.IsNotExist(err) {
+				msg := pubsub.FormatMessage("error", "Log file not found on disk.")
+				conn.WriteMessage(websocket.TextMessage, msg)
+			} else {
+				msg := pubsub.FormatMessage("error", "Failed to open log file.")
+				conn.WriteMessage(websocket.TextMessage, msg)
+			}
+			return
+		}
+		defer file.Close()
+
+		scanner := bufio.NewScanner(file)
+		for scanner.Scan() {
+			// Replay the raw log file line by line, classifying it as stdout for the client
+			msg := pubsub.FormatMessage("stdout", scanner.Text())
+			if err := conn.WriteMessage(websocket.TextMessage, msg); err != nil {
+				return // Client disconnected
+			}
+		}
+
+		if err := scanner.Err(); err != nil {
+			zap.S().Errorf("error reading log file for container %s: %v", con.ID, err)
+		}
+
+		msg := pubsub.FormatMessage("info", "Log stream finished.")
+		conn.WriteMessage(websocket.TextMessage, msg)
 	}
-	zap.S().Infof("admin websocket connection closed for submission %s", submissionID)
+	zap.S().Infof("admin websocket connection closed for container %s", containerID)
 }
 
 func copyDir(src, dst string) error {
