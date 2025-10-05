@@ -184,6 +184,35 @@ func RegisterForContest(db *gorm.DB, userID, contestID string) error {
 	return db.Create(&history).Error
 }
 
+func GetSubmissionCount(db *gorm.DB, userID, contestID, problemID string) (int, error) {
+	var scoreRecord models.UserProblemBestScore
+	err := db.Where("user_id = ? AND contest_id = ? AND problem_id = ?", userID, contestID, problemID).
+		First(&scoreRecord).Error
+
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return 0, nil
+		}
+		return 0, err
+	}
+	return scoreRecord.SubmissionCount, nil
+}
+
+func IncrementSubmissionCount(db *gorm.DB, userID, contestID, problemID string) error {
+	record := models.UserProblemBestScore{
+		UserID:          userID,
+		ContestID:       contestID,
+		ProblemID:       problemID,
+		SubmissionCount: 1,
+	}
+	return db.Clauses(clause.OnConflict{
+		Columns: []clause.Column{{Name: "user_id"}, {Name: "contest_id"}, {Name: "problem_id"}},
+		DoUpdates: clause.Assignments(map[string]interface{}{
+			"submission_count": gorm.Expr("submission_count + 1"),
+		}),
+	}).Create(&record).Error
+}
+
 func UpdateScoresForNewSubmission(db *gorm.DB, sub *models.Submission, contestID string, newScore int) error {
 	return db.Transaction(func(tx *gorm.DB) error {
 		// 获取当前题目最高分

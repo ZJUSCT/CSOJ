@@ -448,6 +448,19 @@ func NewUserRouter(
 				}
 				appState.RUnlock()
 
+				// Check submission limit
+				if problem.MaxSubmissions > 0 {
+					count, err := database.GetSubmissionCount(db, userID, parentContest.ID, problemID)
+					if err != nil {
+						util.Error(c, http.StatusInternalServerError, fmt.Errorf("failed to check submission count: %w", err))
+						return
+					}
+					if count >= problem.MaxSubmissions {
+						util.Error(c, http.StatusForbidden, fmt.Errorf("maximum submission limit of %d reached", problem.MaxSubmissions))
+						return
+					}
+				}
+
 				form, err := c.MultipartForm()
 				if err != nil {
 					util.Error(c, http.StatusBadRequest, err)
@@ -479,13 +492,66 @@ func NewUserRouter(
 					IsValid:   true,
 				}
 
-				if err := database.CreateSubmission(db, &sub); err != nil {
-					util.Error(c, http.StatusInternalServerError, err)
+				err = db.Transaction(func(tx *gorm.DB) error {
+					if err := database.CreateSubmission(tx, &sub); err != nil {
+						return err
+					}
+					return database.IncrementSubmissionCount(tx, user.ID, parentContest.ID, problemID)
+				})
+
+				if err != nil {
+					util.Error(c, http.StatusInternalServerError, fmt.Errorf("failed to create submission record: %w", err))
 					return
 				}
 
 				scheduler.Submit(&sub, problem)
 				util.Success(c, gin.H{"submission_id": submissionID}, "Submission received")
+			})
+
+			authed.GET("/problems/:id/attempts", func(c *gin.Context) {
+				userID := c.GetString("userID")
+				problemID := c.Param("id")
+
+				appState.RLock()
+				problem, ok := appState.Problems[problemID]
+				if !ok {
+					appState.RUnlock()
+					util.Error(c, http.StatusNotFound, "problem not found")
+					return
+				}
+				parentContest, ok := appState.ProblemToContestMap[problemID]
+				if !ok {
+					appState.RUnlock()
+					util.Error(c, http.StatusInternalServerError, "internal server error: problem has no parent contest")
+					return
+				}
+				appState.RUnlock()
+
+				usedCount, err := database.GetSubmissionCount(db, userID, parentContest.ID, problemID)
+				if err != nil {
+					util.Error(c, http.StatusInternalServerError, fmt.Errorf("failed to retrieve submission count: %w", err))
+					return
+				}
+
+				type AttemptsResponse struct {
+					Limit     *int `json:"limit"`
+					Used      int  `json:"used"`
+					Remaining *int `json:"remaining"`
+				}
+
+				resp := AttemptsResponse{Used: usedCount}
+
+				if problem.MaxSubmissions > 0 {
+					limit := problem.MaxSubmissions
+					remaining := limit - usedCount
+					if remaining < 0 {
+						remaining = 0
+					}
+					resp.Limit = &limit
+					resp.Remaining = &remaining
+				}
+
+				util.Success(c, resp, "Submission attempts retrieved successfully")
 			})
 
 			authed.GET("/submissions", func(c *gin.Context) {

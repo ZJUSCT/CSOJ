@@ -33,17 +33,18 @@ type WorkflowStep struct {
 }
 
 type Problem struct {
-	ID          string         `yaml:"id" json:"id"`
-	Name        string         `yaml:"name" json:"name"`
-	StartTime   time.Time      `yaml:"starttime" json:"starttime"`
-	EndTime     time.Time      `yaml:"endtime" json:"endtime"`
-	Cluster     string         `yaml:"cluster" json:"cluster"`
-	CPU         int            `yaml:"cpu" json:"cpu"`
-	Memory      int64          `yaml:"memory" json:"memory"`
-	Upload      UploadLimit    `yaml:"upload" json:"upload"`
-	Workflow    []WorkflowStep `yaml:"workflow" json:"workflow"`
-	Description string         `json:"description"`
-	BasePath    string         `json:"-"` // Store the base path to find assets
+	ID             string         `yaml:"id" json:"id"`
+	Name           string         `yaml:"name" json:"name"`
+	StartTime      time.Time      `yaml:"starttime" json:"starttime"`
+	EndTime        time.Time      `yaml:"endtime" json:"endtime"`
+	MaxSubmissions int            `yaml:"max_submissions" json:"max_submissions"`
+	Cluster        string         `yaml:"cluster" json:"cluster"`
+	CPU            int            `yaml:"cpu" json:"cpu"`
+	Memory         int64          `yaml:"memory" json:"memory"`
+	Upload         UploadLimit    `yaml:"upload" json:"upload"`
+	Workflow       []WorkflowStep `yaml:"workflow" json:"workflow"`
+	Description    string         `json:"description"`
+	BasePath       string         `json:"-"` // Store the base path to find assets
 }
 
 func LoadAllContestsAndProblems(contestDirs []string) (map[string]*Contest, map[string]*Problem, error) {
