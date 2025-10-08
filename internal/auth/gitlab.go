@@ -74,35 +74,36 @@ func (h *GitLabHandler) Callback(c *gin.Context) {
 		zap.S().Warnf("frontend_callback_url not set in config, using default: %s", frontendURL)
 	}
 
-	errorRedirectURL := h.cfg.Auth.GitLab.FrontendCallbackURL
-	if !strings.Contains(errorRedirectURL, "?") {
-		errorRedirectURL += "?"
+	redirectURL := frontendURL
+
+	if !strings.Contains(frontendURL, "?") {
+		frontendURL += "?"
 	} else {
-		errorRedirectURL += "&"
+		frontendURL += "&"
 	}
-	errorRedirectURL += "error="
+	frontendURL += "error="
 
 	token, err := h.oauth2.Exchange(ctx, code)
 	if err != nil {
-		c.Redirect(http.StatusTemporaryRedirect, errorRedirectURL+"token_exchange_failed")
+		c.Redirect(http.StatusTemporaryRedirect, frontendURL+"token_exchange_failed")
 		return
 	}
 
 	rawIDToken, ok := token.Extra("id_token").(string)
 	if !ok {
-		c.Redirect(http.StatusTemporaryRedirect, errorRedirectURL+"id_token_missing")
+		c.Redirect(http.StatusTemporaryRedirect, frontendURL+"id_token_missing")
 		return
 	}
 
 	idToken, err := h.verifier.Verify(ctx, rawIDToken)
 	if err != nil {
-		c.Redirect(http.StatusTemporaryRedirect, errorRedirectURL+"id_token_verification_failed")
+		c.Redirect(http.StatusTemporaryRedirect, frontendURL+"id_token_verification_failed")
 		return
 	}
 
 	var claims OIDCClaims
 	if err := idToken.Claims(&claims); err != nil {
-		c.Redirect(http.StatusTemporaryRedirect, errorRedirectURL+"claims_extraction_failed")
+		c.Redirect(http.StatusTemporaryRedirect, frontendURL+"claims_extraction_failed")
 		return
 	}
 
@@ -110,16 +111,16 @@ func (h *GitLabHandler) Callback(c *gin.Context) {
 	user, err := database.GetUserByGitLabID(h.db, gitlabIDStr)
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		if claims.PreferredUsername == "" {
-			c.Redirect(http.StatusTemporaryRedirect, errorRedirectURL+"username_claim_missing")
+			c.Redirect(http.StatusTemporaryRedirect, frontendURL+"username_claim_missing")
 			return
 		}
 		// Also check if the username already exists from a local account
 		_, err := database.GetUserByUsername(h.db, claims.PreferredUsername)
 		if !errors.Is(err, gorm.ErrRecordNotFound) {
 			if err == nil {
-				c.Redirect(http.StatusTemporaryRedirect, errorRedirectURL+"username_already_exists")
+				c.Redirect(http.StatusTemporaryRedirect, frontendURL+"username_already_exists")
 			} else {
-				c.Redirect(http.StatusTemporaryRedirect, errorRedirectURL+"database_error")
+				c.Redirect(http.StatusTemporaryRedirect, frontendURL+"database_error")
 			}
 			return
 		}
@@ -132,38 +133,22 @@ func (h *GitLabHandler) Callback(c *gin.Context) {
 			AvatarURL: claims.Picture,
 		}
 		if err := database.CreateUser(h.db, &newUser); err != nil {
-			c.Redirect(http.StatusTemporaryRedirect, errorRedirectURL+"user_creation_failed")
+			c.Redirect(http.StatusTemporaryRedirect, frontendURL+"user_creation_failed")
 			return
 		}
 		user = &newUser
 		zap.S().Infof("new OIDC user registered: %s", user.Username)
 	} else if err != nil {
-		c.Redirect(http.StatusTemporaryRedirect, errorRedirectURL+"database_error")
+		c.Redirect(http.StatusTemporaryRedirect, frontendURL+"database_error")
 		return
-	} else {
-		shouldUpdate := false
-		if user.Nickname != claims.Name {
-			user.Nickname = claims.Name
-			shouldUpdate = true
-		}
-		if user.AvatarURL != claims.Picture {
-			user.AvatarURL = claims.Picture
-			shouldUpdate = true
-		}
-		if shouldUpdate {
-			if err := database.UpdateUser(h.db, user); err != nil {
-				zap.S().Warnf("failed to update user info for %s: %v", user.Username, err)
-			}
-		}
 	}
 
 	jwtToken, err := GenerateJWT(user.ID, h.cfg.Auth.JWT.Secret, h.cfg.Auth.JWT.ExpireHours)
 	if err != nil {
-		c.Redirect(http.StatusTemporaryRedirect, errorRedirectURL+"jwt_generation_failed")
+		c.Redirect(http.StatusTemporaryRedirect, frontendURL+"jwt_generation_failed")
 		return
 	}
 
-	redirectURL := h.cfg.Auth.GitLab.FrontendCallbackURL
 	if !strings.Contains(redirectURL, "?") {
 		redirectURL += "?"
 	} else {

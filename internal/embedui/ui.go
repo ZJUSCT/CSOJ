@@ -4,6 +4,7 @@ import (
 	"embed"
 	"io/fs"
 	"net/http"
+	"path/filepath"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -35,23 +36,36 @@ func RegisterUIHandlers(router *gin.Engine) {
 			return
 		}
 
-		// Attempt to open the file from the embedded filesystem.
-		// We check for its existence to decide whether to serve it directly
-		// or fall back to index.html for SPA routing.
 		path := strings.TrimPrefix(c.Request.URL.Path, "/")
-		_, err := uiFS.Open(path)
-
-		if err != nil {
-			// If the file is not found, we rewrite the request path to serve the root index.html.
-			// This is the crucial part for Single-Page Application (SPA) routing to work.
-			c.Request.URL.Path = "/"
+		if path == "" { // Handle root path explicitly
+			path = "index.html"
 		}
 
-		// Let the standard http.FileServer handle the request.
-		// It will serve the original path if the file exists, or index.html if we rewrote the path.
+		// Check if the file exists as is
+		_, err = uiFS.Open(path)
+		if err != nil {
+			// If the file doesn't exist AND the path has no extension,
+			// try appending .html.
+			if filepath.Ext(path) == "" {
+				htmlPath := path + ".html"
+				_, err = uiFS.Open(htmlPath)
+				if err == nil {
+					// If the .html version exists, rewrite the path to serve it.
+					c.Request.URL.Path = "/" + htmlPath
+				} else {
+					// Otherwise, fall back to the SPA's root index.html.
+					c.Request.URL.Path = "/"
+				}
+			} else {
+				// If the file with an extension doesn't exist, fall back to the SPA root.
+				c.Request.URL.Path = "/"
+			}
+		}
+
+		// Let the standard http.FileServer handle the request with the (potentially modified) path.
 		fileServer.ServeHTTP(c.Writer, c.Request)
 
-		// Abort the middleware chain. This is important as we've already handled the request.
+		// Abort the middleware chain.
 		c.Abort()
 	})
 }
