@@ -209,6 +209,11 @@ The User API is the primary way for regular users to interact with the CSOJ syst
   - **Description**: Gets the current user's profile.
   - **Authentication**: JWT
 
+#### `GET /users/:id`
+
+  - **Description**: Gets the publicly available profile information for any user by their ID.
+  - **Authentication**: None
+
 #### `PATCH /user/profile`
 
   - **Description**: Updates the current user's nickname and signature.
@@ -232,12 +237,12 @@ The User API is the primary way for regular users to interact with the CSOJ syst
 
 ### Assets
 
-These endpoints serve protected static assets like user avatars and problem attachments.
+These endpoints serve static assets. Some require authentication, while others are public.
 
 #### `GET /assets/avatars/:filename`
 
   - **Description**: Gets a user avatar image.
-  - **Authentication**: JWT
+  - **Authentication**: None
 
 #### `GET /assets/contests/:id/*assetpath`
 

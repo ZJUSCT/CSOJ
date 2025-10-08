@@ -21,7 +21,7 @@ CSOJ supports two primary authentication methods, which can be enabled in `confi
       - `POST /api/v1/auth/local/register`
       - `POST /api/v1/auth/local/login`
 
-### 2\. GitLab OAuth2
+### 2. GitLab OAuth2
 
   - **Provider**: GitLab (e.g., gitlab.com or a self-hosted instance)
   - **How it works**: CSOJ integrates with GitLab's OAuth2 protocol to delegate authentication. The process is as follows:
@@ -30,9 +30,9 @@ CSOJ supports two primary authentication methods, which can be enabled in `confi
     3.  CSOJ redirects the user to the GitLab authorization page.
     4.  The user approves the authorization request on GitLab.
     5.  GitLab redirects the user back to CSOJ's configured `redirect_uri` (`/api/v1/auth/gitlab/callback`).
-    6.  CSOJ's callback handler receives an authorization code, exchanges it with GitLab for an access token, and uses the token to fetch the user's profile information.
+    6.  CSOJ's callback handler receives an authorization code, exchanges it for an access token, and fetches the user's profile.
     7.  If the user exists in the CSOJ database (matched by GitLab ID), they are logged in. If not, a new user is created.
-    8.  CSOJ issues its own JWT to the user, who can then use it to access the API.
+    8.  CSOJ issues its own JWT and finally redirects the user to the `frontend_callback_url` with the token appended as a query parameter (e.g., `http://frontend.com/callback?token=...`).
   - **Configuration (`config.yaml`)**:
     ```yaml
     auth:
@@ -41,6 +41,7 @@ CSOJ supports two primary authentication methods, which can be enabled in `confi
         client_id: "YOUR_GITLAB_CLIENT_ID"
         client_secret: "YOUR_GITLAB_CLIENT_SECRET"
         redirect_uri: "[http://your-csoj-host.com/api/v1/auth/gitlab/callback](http://your-csoj-host.com/api/v1/auth/gitlab/callback)"
+        frontend_callback_url: "[http://your-frontend-host.com/auth/callback](http://your-frontend-host.com/auth/callback)"
     ```
 
 ## JSON Web Token (JWT)

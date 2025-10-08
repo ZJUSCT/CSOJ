@@ -20,16 +20,16 @@ logger:
 
 # Storage path configuration
 storage:
-  user_avatar: "data/avatars"           # User avatars
+  user_avatar: "data/avatars"        # User avatars
   submission_content: "data/submissions" # User-submitted files
-  database: "data/csoj.db"              # SQLite database file
-  submission_log: "data/logs"           # Logs from judging containers
+  database: "data/csoj.db"           # SQLite database file
+  submission_log: "data/logs"        # Logs from judging containers
 
 # Authentication configuration
 auth:
   jwt:
     secret: "a_very_secret_key_change_me" # JWT signing secret, MUST be changed
-    expire_hours: 72                      # JWT expiration time in hours
+    expire_hours: 72                       # JWT expiration time in hours
   
   # Local username/password authentication
   local:
@@ -41,6 +41,7 @@ auth:
     client_id: "YOUR_GITLAB_CLIENT_ID"
     client_secret: "YOUR_GITLAB_CLIENT_SECRET"
     redirect_uri: "http://localhost:8080/api/v1/auth/gitlab/callback"
+    frontend_callback_url: "http://localhost:3000/callback" # URL for frontend to handle the final redirect with the token
 
 # Cross-Origin Resource Sharing (CORS) configuration
 cors:
@@ -53,8 +54,8 @@ cluster:
   - name: "default-cluster" # Cluster name, referenced in problem configs
     node:
       - name: "node-1"
-        cpu: 4              # Total CPU cores available for judging
-        memory: 4096        # Total memory (in MB) available for judging
+        cpu: 4             # Total CPU cores available for judging
+        memory: 4096       # Total memory (in MB) available for judging
         docker: "tcp://192.168.1.101:2375" # Docker Daemon address for this node
       - name: "node-2"
         cpu: 8
@@ -126,6 +127,7 @@ contest:
           - `client_id`: (string) The Client ID obtained after creating an application in GitLab.
           - `client_secret`: (string) The Client Secret obtained after creating an application in GitLab.
           - `redirect_uri`: (string) The callback URL configured in your GitLab application, which must exactly match this URI.
+          - `frontend_callback_url`: (string) The URL on your frontend application where users are redirected after a successful login. The JWT will be appended as a `?token=` query parameter.
 
 -----
 
