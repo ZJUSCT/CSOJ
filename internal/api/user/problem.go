@@ -5,9 +5,28 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/ZJUSCT/CSOJ/internal/judger"
 	"github.com/ZJUSCT/CSOJ/internal/util"
 	"github.com/gin-gonic/gin"
 )
+
+type WorkflowStepResponse struct {
+	Name string `json:"name"`
+}
+
+type ProblemResponse struct {
+	ID             string                 `json:"id"`
+	Name           string                 `json:"name"`
+	StartTime      time.Time              `json:"starttime"`
+	EndTime        time.Time              `json:"endtime"`
+	MaxSubmissions int                    `json:"max_submissions"`
+	Cluster        string                 `json:"cluster"`
+	CPU            int                    `json:"cpu"`
+	Memory         int64                  `json:"memory"`
+	Upload         judger.UploadLimit     `json:"upload"`
+	Workflow       []WorkflowStepResponse `json:"workflow"`
+	Description    string                 `json:"description"`
+}
 
 func (h *Handler) getProblem(c *gin.Context) {
 	problemID := c.Param("id")
@@ -18,7 +37,6 @@ func (h *Handler) getProblem(c *gin.Context) {
 		ok = parentOk
 		if ok {
 			now := time.Now()
-			// Check if the contest and problem are active
 			if now.Before(parentContest.StartTime) {
 				util.Error(c, http.StatusForbidden, fmt.Errorf("contest has not started yet"))
 				h.appState.RUnlock()
@@ -42,5 +60,24 @@ func (h *Handler) getProblem(c *gin.Context) {
 		return
 	}
 
-	util.Success(c, problem, "Problem found")
+	workflowResponse := make([]WorkflowStepResponse, len(problem.Workflow))
+	for i, step := range problem.Workflow {
+		workflowResponse[i] = WorkflowStepResponse{Name: step.Name}
+	}
+
+	response := ProblemResponse{
+		ID:             problem.ID,
+		Name:           problem.Name,
+		StartTime:      problem.StartTime,
+		EndTime:        problem.EndTime,
+		MaxSubmissions: problem.MaxSubmissions,
+		Cluster:        problem.Cluster,
+		CPU:            problem.CPU,
+		Memory:         problem.Memory,
+		Upload:         problem.Upload,
+		Workflow:       workflowResponse,
+		Description:    problem.Description,
+	}
+
+	util.Success(c, response, "Problem found")
 }
