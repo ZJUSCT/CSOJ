@@ -2,6 +2,7 @@ package judger
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -44,29 +45,22 @@ func NewDispatcher(cfg *config.Config, db *gorm.DB, scheduler *Scheduler, appSta
 func (d *Dispatcher) Dispatch(sub *models.Submission, prob *Problem, node *NodeState, allocatedCores []int) {
 	zap.S().Infof("dispatching submission %s to node %s", sub.ID, node.Name)
 
-	// Ensure resources are cleaned up
+	// Ensure resources are released
 	defer func() {
 		d.scheduler.ReleaseResources(prob.Cluster, node.Name, allocatedCores, prob.Memory)
-		// No longer closing submission topic here, it's handled per-container now
 		zap.S().Infof("finished dispatching submission %s", sub.ID)
 	}()
 
 	docker, err := NewDockerManager(node.Docker)
 	if err != nil {
 		d.failSubmission(sub, fmt.Sprintf("failed to create docker client: %v", err))
-		pubsub.GetBroker().CloseTopic(sub.ID) // Close submission topic on early failure
+		pubsub.GetBroker().CloseTopic(sub.ID)
 		return
 	}
 
-	var containerIDs []string
-	defer func() {
-		for _, cid := range containerIDs {
-			docker.CleanupContainer(cid)
-		}
-	}()
+	var successfulContainerIDs []string
 
 	var lastStdout string
-	// 将核心ID列表转换为逗号分隔的字符串
 	var coreStrs []string
 	for _, c := range allocatedCores {
 		coreStrs = append(coreStrs, strconv.Itoa(c))
@@ -78,21 +72,27 @@ func (d *Dispatcher) Dispatch(sub *models.Submission, prob *Problem, node *NodeS
 		database.UpdateSubmission(d.db, sub)
 
 		containerID, stdout, stderr, err := d.runWorkflowStep(docker, sub, prob, flow, cpusetCpus, i == 0)
-		if containerID != "" {
-			containerIDs = append(containerIDs, containerID)
-		}
+
 		if err != nil {
 			d.failSubmission(sub, fmt.Sprintf("workflow step %d failed: %v\nStderr: %s", i, err, stderr))
-			pubsub.GetBroker().CloseTopic(sub.ID) // Close submission topic on failure
+			pubsub.GetBroker().CloseTopic(sub.ID)
 			return
 		}
+
+		successfulContainerIDs = append(successfulContainerIDs, containerID)
 		lastStdout = stdout
 	}
+
+	defer func() {
+		for _, cid := range successfulContainerIDs {
+			docker.CleanupContainer(cid)
+		}
+	}()
 
 	var result JudgeResult
 	if err := json.Unmarshal([]byte(lastStdout), &result); err != nil {
 		d.failSubmission(sub, fmt.Sprintf("failed to parse judge result: %v. Raw output: %s", err, lastStdout))
-		pubsub.GetBroker().CloseTopic(sub.ID) // Close submission topic on failure
+		pubsub.GetBroker().CloseTopic(sub.ID)
 		return
 	}
 
@@ -105,7 +105,7 @@ func (d *Dispatcher) Dispatch(sub *models.Submission, prob *Problem, node *NodeS
 	}
 
 	zap.S().Infof("submission %s finished successfully with score %d", sub.ID, sub.Score)
-	pubsub.GetBroker().CloseTopic(sub.ID) // Close submission topic on success
+	pubsub.GetBroker().CloseTopic(sub.ID)
 
 	contestID := d.findContestIDForProblem(prob.ID)
 	if contestID == "" {
@@ -118,11 +118,12 @@ func (d *Dispatcher) Dispatch(sub *models.Submission, prob *Problem, node *NodeS
 }
 
 func (d *Dispatcher) runWorkflowStep(docker *DockerManager, sub *models.Submission, prob *Problem, flow WorkflowStep, cpusetCpus string, isFirstStep bool) (containerID, stdout, stderr string, err error) {
-	// Create log directory if it doesn't exist
+	stepCtx, cancel := context.WithTimeout(context.Background(), time.Duration(flow.Timeout)*time.Second)
+	defer cancel()
+
 	if err := os.MkdirAll(d.cfg.Storage.SubmissionLog, 0755); err != nil {
 		return "", "", "", fmt.Errorf("failed to create log directory: %w", err)
 	}
-
 	logFileName := fmt.Sprintf("%s_%s.log", sub.ID, uuid.New().String())
 	logFilePath := filepath.Join(d.cfg.Storage.SubmissionLog, logFileName)
 
@@ -136,67 +137,99 @@ func (d *Dispatcher) runWorkflowStep(docker *DockerManager, sub *models.Submissi
 		LogFilePath:  logFilePath,
 	}
 	database.CreateContainer(d.db, cont)
-	// Ensure the pubsub topic for this container is closed when the function returns
 	defer pubsub.GetBroker().CloseTopic(cont.ID)
 
-	remoteWorkDir := filepath.Join("/tmp", "submission", sub.ID)
-
-	containerID, err = docker.CreateContainer(flow.Image, remoteWorkDir, prob.CPU, cpusetCpus, prob.Memory, flow.Root, flow.Mounts, flow.Network)
-	if err != nil {
-		d.failContainer(cont, -1, "failed to create container")
-		return "", "", "", fmt.Errorf("failed to create container: %v", err)
+	type result struct {
+		ContainerID string
+		Stdout      string
+		Stderr      string
+		Err         error
 	}
-	cont.DockerID = containerID
-	database.UpdateContainer(d.db, cont)
+	doneChan := make(chan result)
 
-	if err := docker.StartContainer(containerID); err != nil {
-		d.failContainer(cont, -1, "failed to start container")
-		return containerID, "", "", fmt.Errorf("failed to start container: %v", err)
-	}
+	go func() {
+		var execStdout, execStderr string
 
-	if isFirstStep {
-		localWorkDir := filepath.Join(d.cfg.Storage.SubmissionContent, sub.ID)
-		zap.S().Infof("copying files from %s to container %s:/mnt/work/", localWorkDir, containerID)
-		if err := docker.CopyToContainer(containerID, localWorkDir, "/mnt/work/"); err != nil {
-			d.failContainer(cont, -1, "failed to copy files")
-			return containerID, "", "", fmt.Errorf("failed to copy files to container: %v", err)
-		}
-	}
-
-	var combinedLog bytes.Buffer
-	for j, stepCmd := range flow.Steps {
-		// Callback for real-time streaming, publishing to the container's unique topic
-		outputCallback := func(streamType string, data []byte) {
-			msg := pubsub.FormatMessage(streamType, string(data))
-			pubsub.GetBroker().Publish(cont.ID, msg)
+		remoteWorkDir := filepath.Join("/tmp", "submission", sub.ID)
+		cid, err := docker.CreateContainer(flow.Image, remoteWorkDir, prob.CPU, cpusetCpus, prob.Memory, flow.Root, flow.Mounts, flow.Network)
+		if err != nil {
+			doneChan <- result{Err: fmt.Errorf("failed to create container: %w", err)}
+			return
 		}
 
-		execResult, err := docker.ExecInContainer(containerID, stepCmd, time.Duration(flow.Timeout)*time.Second, outputCallback)
+		cont.DockerID = cid
+		database.UpdateContainer(d.db, cont)
 
-		// Append command and output to the combined log buffer
-		combinedLog.WriteString(fmt.Sprintf("\n--- Executing Command %d ---\n", j+1))
-		combinedLog.WriteString("STDOUT:\n")
-		combinedLog.WriteString(execResult.Stdout)
-		combinedLog.WriteString("\nSTDERR:\n")
-		combinedLog.WriteString(execResult.Stderr)
-		combinedLog.WriteString(fmt.Sprintf("\n--- Exit Code: %d ---\n", execResult.ExitCode))
-
-		if err != nil || execResult.ExitCode != 0 {
-			d.failContainer(cont, execResult.ExitCode, combinedLog.String())
-			errMsg := fmt.Errorf("exec failed with exit code %d: %w", execResult.ExitCode, err)
-			return containerID, execResult.Stdout, execResult.Stderr, errMsg
+		if err := docker.StartContainer(cid); err != nil {
+			doneChan <- result{ContainerID: cid, Err: fmt.Errorf("failed to start container: %w", err)}
+			return
 		}
-		stdout = execResult.Stdout
-		stderr = execResult.Stderr
+
+		if isFirstStep {
+			localWorkDir := filepath.Join(d.cfg.Storage.SubmissionContent, sub.ID)
+			zap.S().Infof("copying files from %s to container %s:/mnt/work/", localWorkDir, cid)
+			if err := docker.CopyToContainer(cid, localWorkDir, "/mnt/work/"); err != nil {
+				doneChan <- result{ContainerID: cid, Err: fmt.Errorf("failed to copy files to container: %w", err)}
+				return
+			}
+		}
+
+		var combinedLog bytes.Buffer
+		for j, stepCmd := range flow.Steps {
+			outputCallback := func(streamType string, data []byte) {
+				msg := pubsub.FormatMessage(streamType, string(data))
+				pubsub.GetBroker().Publish(cont.ID, msg)
+			}
+
+			execResult, err := docker.ExecInContainer(stepCtx, cid, stepCmd, outputCallback)
+
+			combinedLog.WriteString(fmt.Sprintf("\n--- Executing Command %d ---\n", j+1))
+			combinedLog.WriteString("STDOUT:\n")
+			combinedLog.WriteString(execResult.Stdout)
+			combinedLog.WriteString("\nSTDERR:\n")
+			combinedLog.WriteString(execResult.Stderr)
+			combinedLog.WriteString(fmt.Sprintf("\n--- Exit Code: %d ---\n", execResult.ExitCode))
+
+			if err != nil || execResult.ExitCode != 0 {
+				if err == context.DeadlineExceeded {
+					d.failContainer(cont, -1, "overall step timeout exceeded")
+					doneChan <- result{ContainerID: cid, Err: fmt.Errorf("workflow step timed out")}
+					return
+				}
+				d.failContainer(cont, execResult.ExitCode, combinedLog.String())
+				errMsg := fmt.Errorf("exec failed with exit code %d: %w", execResult.ExitCode, err)
+				doneChan <- result{ContainerID: cid, Stdout: execResult.Stdout, Stderr: execResult.Stderr, Err: errMsg}
+				return
+			}
+			execStdout = execResult.Stdout
+			execStderr = execResult.Stderr
+		}
+		os.WriteFile(logFilePath, combinedLog.Bytes(), 0644)
+		doneChan <- result{ContainerID: cid, Stdout: execStdout, Stderr: execStderr, Err: nil}
+	}()
+
+	select {
+	case <-stepCtx.Done():
+		res := <-doneChan
+		zap.S().Warnf("workflow step for submission %s timed out. Cleaning up container %s.", sub.ID, res.ContainerID)
+		if res.ContainerID != "" {
+			docker.CleanupContainer(res.ContainerID)
+		}
+		d.failContainer(cont, -1, "overall step timeout exceeded")
+		return res.ContainerID, "", "Timeout exceeded", stepCtx.Err()
+
+	case res := <-doneChan:
+		if res.Err != nil {
+			if res.ContainerID != "" {
+				docker.CleanupContainer(res.ContainerID)
+			}
+			return res.ContainerID, res.Stdout, res.Stderr, res.Err
+		}
+		cont.Status = models.StatusSuccess
+		cont.FinishedAt = time.Now()
+		database.UpdateContainer(d.db, cont)
+		return res.ContainerID, res.Stdout, res.Stderr, nil
 	}
-
-	cont.Status = models.StatusSuccess
-	cont.FinishedAt = time.Now()
-	database.UpdateContainer(d.db, cont)
-	// Write the full log to file upon success
-	os.WriteFile(logFilePath, combinedLog.Bytes(), 0644)
-
-	return containerID, stdout, stderr, nil
 }
 
 func (d *Dispatcher) findContestIDForProblem(problemID string) string {
