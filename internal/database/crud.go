@@ -124,6 +124,7 @@ type LeaderboardEntry struct {
 	UserID        string         `json:"user_id"`
 	Username      string         `json:"username"`
 	Nickname      string         `json:"nickname"`
+	AvatarURL     string         `json:"avatar_url"`
 	TotalScore    int            `json:"total_score"`
 	ProblemScores map[string]int `json:"problem_scores"`
 	lastScoreTime time.Time
@@ -142,12 +143,13 @@ func GetLeaderboard(db *gorm.DB, contestID string) ([]LeaderboardEntry, error) {
 		UserID    string
 		Username  string
 		Nickname  string
+		AvatarURL string
 		ProblemID string
 		Score     int
 	}
 	var rows []scoreRow
 	err := db.Table("user_problem_best_scores").
-		Select("users.id as user_id, users.username, users.nickname, user_problem_best_scores.problem_id, user_problem_best_scores.score").
+		Select("users.id as user_id, users.username, users.nickname, users.avatar_url, user_problem_best_scores.problem_id, user_problem_best_scores.score").
 		Joins("join users on users.id = user_problem_best_scores.user_id").
 		Where("user_problem_best_scores.contest_id = ?", contestID).
 		Scan(&rows).Error
@@ -165,6 +167,7 @@ func GetLeaderboard(db *gorm.DB, contestID string) ([]LeaderboardEntry, error) {
 				UserID:        row.UserID,
 				Username:      row.Username,
 				Nickname:      row.Nickname,
+				AvatarURL:     row.AvatarURL,
 				TotalScore:    0,
 				ProblemScores: make(map[string]int),
 			}
