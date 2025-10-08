@@ -46,18 +46,26 @@ memory: 256                 # Amount of memory (in MB) to request for judging
 # The judging workflow
 workflow:
   # Step 1: Compile the C++ code
-  - image: "gcc:latest"       # The Docker image to use
-    root: false               # Whether to run the container as the root user
-    timeout: 10               # Timeout for this step in seconds
-    show: true                # Whether to allow users to see the log for this step
+  - name: "Compile"              # (Optional) Name for this step
+    image: "gcc:latest"          # The Docker image to use
+    root: false                  # Whether to run the container as the root user
+    timeout: 10                  # Timeout for this step in seconds
+    show: true                   # Whether to allow users to see the log for this step
     steps:
       - ["g++", "main.cpp", "-o", "main"]
 
   # Step 2: Run and judge
-  - image: "zjusct/oj-judger:latest" # Use an image with judging tools
+  - name: "Run & Judge"          # (Optional) Name for this step
+    image: "zjusct/oj-judger:latest" # Use an image with judging tools
     root: false
     timeout: 5
-    show: false # Judge logs are usually not shown to users
+    show: false                  # Judge logs are usually not shown to users
+    network: false               # (Optional) Disable network for this container
+    mounts:                      # (Optional) Extra volume mounts
+      - type: bind
+        source: "/etc/csoj/testcases/aplusb" # Path on the judger node
+        target: "/data"                     # Path inside the container
+        readonly: true                      # Mount as read-only
     steps:
       # This is a hypothetical judging command
       # It reads standard input, runs the user's program, compares the output,
@@ -130,14 +138,23 @@ workflow:
 
   - **Type**: `array of objects`
   - **Required**: Yes
-  - **Description**: Defines the core judging process as an array of steps that are executed sequentially.
-      - `image`: (string) The Docker image to be used for this step.
-      - `root`: (boolean) Whether commands inside the container run as the `root` user. For security, this should be `false` whenever possible.
-      - `timeout`: (integer) The total timeout for this step, in seconds.
-      - `show`: (boolean) Whether to allow regular users to view the logs for this step via the API. Typically, compile logs can be public (`true`), while judge logs (which might contain test case info) should be hidden (`false`).
-      - `steps`: (array of arrays of strings) A list of commands to be executed sequentially inside the container. Each command is an array of strings, like `["command", "arg1", "arg2"]`.
+  - **Description**: Defines the core judging process as an array of steps that are executed sequentially. Each object in the array represents a step and has the following fields:
+      - `name`: (string, optional) An optional name for the step, which will be returned via the API. Defaults to `Step N` if not provided.
+      - `image`: (string, required) The Docker image to be used for this step.
+      - `root`: (boolean, optional) Whether commands inside the container run as the `root` user. For security, this should be `false` whenever possible. Defaults to `false`.
+      - `timeout`: (integer, required) The total timeout for this step, in seconds.
+      - `show`: (boolean, optional) Whether to allow regular users to view the logs for this step via the API. Typically, compile logs can be public (`true`), while judge logs (which might contain test case info) should be hidden (`false`). Defaults to `false`.
+      - `network`: (boolean, optional) Whether to enable network access for this step's container. Defaults to `false` (network disabled).
+      - `steps`: (array of arrays of strings, required) A list of commands to be executed sequentially inside the container. Each command is an array of strings, like `["command", "arg1", "arg2"]`.
+      - `mounts`: (array of objects, optional) A list of additional volumes to mount into the container. Each mount object has the following fields:
+          - `type`: (string, optional) The mount type. Defaults to `bind`.
+          - `source`: (string, required) The path on the host machine (the judger node).
+          - `target`: (string, required) The path inside the container.
+          - `readonly`: (boolean, optional) Whether to mount the volume as read-only. Defaults to `true`.
 
 #### Judge Result JSON Format
+
+The **final step** of the workflow is responsible for reporting the result by printing a JSON object to standard output.
 
 ```json
 {

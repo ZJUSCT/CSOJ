@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/stdcopy"
 	"go.uber.org/zap"
@@ -35,7 +36,7 @@ func NewDockerManager(host string) (*DockerManager, error) {
 	return &DockerManager{cli: cli}, nil
 }
 
-func (m *DockerManager) CreateContainer(image, workDir string, cpu int, memory int64, asRoot bool) (string, error) {
+func (m *DockerManager) CreateContainer(image, workDir string, cpu int, memory int64, asRoot bool, mounts []Mount, networkEnabled bool) (string, error) {
 	ctx := context.Background()
 
 	config := &container.Config{
@@ -46,7 +47,7 @@ func (m *DockerManager) CreateContainer(image, workDir string, cpu int, memory i
 		AttachStdin:     true,
 		AttachStdout:    true,
 		AttachStderr:    true,
-		NetworkDisabled: true,
+		NetworkDisabled: !networkEnabled,
 	}
 
 	if !asRoot {
@@ -60,6 +61,27 @@ func (m *DockerManager) CreateContainer(image, workDir string, cpu int, memory i
 			Memory:   memory * 1024 * 1024,
 		},
 	}
+
+	dockerMounts := []mount.Mount{}
+	for _, mnt := range mounts {
+		mountType := mount.TypeBind
+		if mnt.Type != "" {
+			mountType = mount.Type(mnt.Type)
+		}
+
+		isReadOnly := true // Default to true
+		if mnt.ReadOnly != nil {
+			isReadOnly = *mnt.ReadOnly
+		}
+
+		dockerMounts = append(dockerMounts, mount.Mount{
+			Type:     mountType,
+			Source:   mnt.Source,
+			Target:   mnt.Target,
+			ReadOnly: isReadOnly,
+		})
+	}
+	hostConfig.Mounts = dockerMounts
 
 	resp, err := m.cli.ContainerCreate(ctx, config, hostConfig, nil, nil, "")
 	if err != nil {
