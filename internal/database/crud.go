@@ -189,7 +189,7 @@ func GetLeaderboard(db *gorm.DB, contestID string) ([]LeaderboardEntry, error) {
 	// This represents the time of their last score-improving submission.
 	type userLastUpdate struct {
 		UserID   string
-		LastTime *string
+		LastTime *time.Time
 	}
 	var lastUpdates []userLastUpdate
 	if err := db.Model(&models.ContestScoreHistory{}).
@@ -202,15 +202,8 @@ func GetLeaderboard(db *gorm.DB, contestID string) ([]LeaderboardEntry, error) {
 
 	lastUpdateMap := make(map[string]time.Time)
 	for _, update := range lastUpdates {
-		if update.LastTime != nil && *update.LastTime != "" {
-			parsedTime, err := time.Parse("2006-01-02 15:04:05", *update.LastTime)
-			if err != nil {
-				// If the first format fails, try the more standard RFC3339 as a fallback.
-				parsedTime, err = time.Parse(time.RFC3339, *update.LastTime)
-			}
-			if err == nil {
-				lastUpdateMap[update.UserID] = parsedTime
-			}
+		if update.LastTime != nil {
+			lastUpdateMap[update.UserID] = *update.LastTime
 		}
 	}
 
