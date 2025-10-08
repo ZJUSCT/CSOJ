@@ -12,6 +12,7 @@ import (
 
 type WorkflowStepResponse struct {
 	Name string `json:"name"`
+	Show bool   `json:"show"`
 }
 
 type ProblemResponse struct {
@@ -62,7 +63,7 @@ func (h *Handler) getProblem(c *gin.Context) {
 
 	workflowResponse := make([]WorkflowStepResponse, len(problem.Workflow))
 	for i, step := range problem.Workflow {
-		workflowResponse[i] = WorkflowStepResponse{Name: step.Name}
+		workflowResponse[i] = WorkflowStepResponse{Name: step.Name, Show: step.Show}
 	}
 
 	response := ProblemResponse{
