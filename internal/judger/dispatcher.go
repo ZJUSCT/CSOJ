@@ -132,7 +132,7 @@ func (d *Dispatcher) runWorkflowStep(docker *DockerManager, sub *models.Submissi
 
 	remoteWorkDir := filepath.Join("/tmp", "submission", sub.ID)
 
-	containerID, err = docker.CreateContainer(flow.Image, remoteWorkDir, prob.CPU, prob.Memory, flow.Root)
+	containerID, err = docker.CreateContainer(flow.Image, remoteWorkDir, prob.CPU, prob.Memory, flow.Root, flow.Mounts, flow.Network)
 	if err != nil {
 		d.failContainer(cont, -1, "failed to create container")
 		return "", "", "", fmt.Errorf("failed to create container: %v", err)

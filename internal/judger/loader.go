@@ -24,12 +24,22 @@ type UploadLimit struct {
 	MaxSize int `yaml:"maxsize" json:"max_size"`
 }
 
+type Mount struct {
+	Type     string `yaml:"type" json:"type"`
+	Source   string `yaml:"source" json:"source"`
+	Target   string `yaml:"target" json:"target"`
+	ReadOnly *bool  `yaml:"readonly" json:"readonly"`
+}
+
 type WorkflowStep struct {
+	Name    string     `yaml:"name" json:"name"`
 	Image   string     `yaml:"image" json:"image"`
 	Root    bool       `yaml:"root" json:"root"`
 	Timeout int        `yaml:"timeout" json:"timeout"`
 	Show    bool       `yaml:"show" json:"show"`
 	Steps   [][]string `yaml:"steps" json:"steps"`
+	Mounts  []Mount    `yaml:"mounts" json:"mounts"`
+	Network bool       `yaml:"network" json:"network"`
 }
 
 type Problem struct {
