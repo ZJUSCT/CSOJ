@@ -3,6 +3,7 @@ package user
 import (
 	"github.com/ZJUSCT/CSOJ/internal/api"
 	"github.com/ZJUSCT/CSOJ/internal/config"
+	"github.com/ZJUSCT/CSOJ/internal/embedui"
 	"github.com/ZJUSCT/CSOJ/internal/judger"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -89,5 +90,8 @@ func NewUserRouter(
 			}
 		}
 	}
+
+	embedui.RegisterUIHandlers(r)
+
 	return r
 }
