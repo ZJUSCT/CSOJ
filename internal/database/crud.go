@@ -2,7 +2,9 @@ package database
 
 import (
 	"errors"
+	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/ZJUSCT/CSOJ/internal/database/models"
@@ -163,6 +165,11 @@ func GetLeaderboard(db *gorm.DB, contestID string) ([]LeaderboardEntry, error) {
 	for _, row := range rows {
 		// If user is not yet in the map, create a new entry
 		if _, ok := resultsMap[row.UserID]; !ok {
+
+			if row.AvatarURL != "" && !strings.HasPrefix(row.AvatarURL, "http") {
+				row.AvatarURL = fmt.Sprintf("/api/v1/assets/avatars/%s", row.AvatarURL)
+			}
+
 			resultsMap[row.UserID] = &LeaderboardEntry{
 				UserID:        row.UserID,
 				Username:      row.Username,
