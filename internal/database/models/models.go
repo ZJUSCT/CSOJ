@@ -56,13 +56,14 @@ type Submission struct {
 	UserID    string `gorm:"index" json:"user_id"`
 	User      User   `json:"user"`
 
-	Status      Status  `gorm:"index" json:"status"`
-	CurrentStep int     `json:"current_step"` // index of the current workflow step
-	Cluster     string  `json:"cluster"`
-	Node        string  `json:"node"`
-	Score       int     `json:"score"`
-	Info        JSONMap `gorm:"type:text" json:"info"`
-	IsValid     bool    `json:"is_valid"`
+	Status         Status  `gorm:"index" json:"status"`
+	CurrentStep    int     `json:"current_step"` // index of the current workflow step
+	Cluster        string  `json:"cluster"`
+	Node           string  `json:"node"`
+	AllocatedCores string  `json:"allocated_cores"` // e.g., "2,3,4"
+	Score          int     `json:"score"`
+	Info           JSONMap `gorm:"type:text" json:"info"`
+	IsValid        bool    `json:"is_valid"`
 
 	Containers []Container `json:"containers"`
 }

@@ -1,6 +1,8 @@
 package judger
 
 import (
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -22,8 +24,8 @@ type AppState struct {
 type NodeState struct {
 	sync.Mutex
 	*config.Node
-	UsedCPU    int   `json:"used_cpu"`
-	UsedMemory int64 `json:"used_memory"`
+	UsedMemory int64  `json:"used_memory"`
+	UsedCores  []bool `json:"-"`
 }
 
 type ClusterState struct {
@@ -57,10 +59,12 @@ func NewScheduler(cfg *config.Config, db *gorm.DB, appState *AppState) *Schedule
 		}
 		for j := range cluster.Nodes {
 			node := cluster.Nodes[j]
+			// 初始化核心使用状态，所有核心都标记为未使用 (false)
+			nodeCores := make([]bool, node.CPU)
 			clusterState.Nodes[node.Name] = &NodeState{
 				Node:       &node,
-				UsedCPU:    0,
 				UsedMemory: 0,
+				UsedCores:  nodeCores,
 			}
 		}
 		clusters[cluster.Name] = clusterState
@@ -116,7 +120,6 @@ func (s *Scheduler) GetClusterStates() map[string]ClusterState {
 			node.Lock()
 			nodeSnapshots[nodeName] = &NodeState{
 				Node:       node.Node,
-				UsedCPU:    node.UsedCPU,
 				UsedMemory: node.UsedMemory,
 			}
 			node.Unlock()
@@ -156,6 +159,7 @@ func (s *Scheduler) clusterWorker(clusterName string, queue <-chan QueuedSubmiss
 	zap.S().Infof("starting worker for cluster '%s'", clusterName)
 	for job := range queue {
 		var node *NodeState
+		var allocatedCores []int
 		zap.S().Infof("processing submission %s for cluster '%s'", job.Submission.ID, clusterName)
 
 		// This loop implements the FIFO retry logic.
@@ -182,7 +186,7 @@ func (s *Scheduler) clusterWorker(clusterName string, queue <-chan QueuedSubmiss
 			job.Submission = &currentSub
 
 			zap.S().Debugf("searching for available node for submission %s in cluster %s", currentSub.ID, clusterName)
-			node = s.findAvailableNode(clusterName, job.Problem.CPU, job.Problem.Memory)
+			node, allocatedCores = s.findAvailableNode(clusterName, job.Problem.CPU, job.Problem.Memory)
 			if node != nil {
 				break // Found a node, exit the retry loop.
 			}
@@ -199,22 +203,30 @@ func (s *Scheduler) clusterWorker(clusterName string, queue <-chan QueuedSubmiss
 
 		zap.S().Infof("node %s assigned to submission %s", node.Name, job.Submission.ID)
 
+		// Convert []int to string for storing in DB
+		var coreStrs []string
+		for _, c := range allocatedCores {
+			coreStrs = append(coreStrs, strconv.Itoa(c))
+		}
+
 		job.Submission.Node = node.Name
 		job.Submission.Status = models.StatusRunning
+		job.Submission.AllocatedCores = strings.Join(coreStrs, ",")
+
 		if err := s.db.Save(job.Submission).Error; err != nil {
 			zap.S().Errorf("failed to update submission status for %s: %v", job.Submission.ID, err)
-			s.ReleaseResources(job.Problem.Cluster, node.Name, job.Problem.CPU, job.Problem.Memory)
+			s.ReleaseResources(job.Problem.Cluster, node.Name, allocatedCores, job.Problem.Memory)
 			continue
 		}
 
-		go s.dispatcher.Dispatch(job.Submission, job.Problem, node)
+		go s.dispatcher.Dispatch(job.Submission, job.Problem, node, allocatedCores)
 	}
 }
 
-func (s *Scheduler) findAvailableNode(clusterName string, requiredCPU int, requiredMemory int64) *NodeState {
+func (s *Scheduler) findAvailableNode(clusterName string, requiredCPU int, requiredMemory int64) (*NodeState, []int) {
 	cluster, ok := s.clusters[clusterName]
 	if !ok {
-		return nil
+		return nil, nil
 	}
 
 	cluster.Lock()
@@ -222,31 +234,66 @@ func (s *Scheduler) findAvailableNode(clusterName string, requiredCPU int, requi
 
 	for _, node := range cluster.Nodes {
 		node.Lock()
-		if node.CPU-node.UsedCPU >= requiredCPU && node.Memory-node.UsedMemory >= requiredMemory {
-			node.UsedCPU += requiredCPU
-			node.UsedMemory += requiredMemory
-			node.Unlock()
-			return node
+		if node.Memory-node.UsedMemory >= requiredMemory {
+			// 查找连续的可用核心
+			startCore := -1
+			if requiredCPU > 0 {
+				for i := 0; i <= len(node.UsedCores)-requiredCPU; i++ {
+					isBlockFree := true
+					for j := 0; j < requiredCPU; j++ {
+						if node.UsedCores[i+j] {
+							isBlockFree = false
+							break
+						}
+					}
+					if isBlockFree {
+						startCore = i
+						break
+					}
+				}
+			} else { // Handle CPU=0 case
+				startCore = -2 // Special value indicating no cores needed
+			}
+
+			if startCore != -1 {
+				// 找到了，分配资源
+				allocatedCores := make([]int, requiredCPU)
+				if startCore != -2 { // Only allocate if cores were requested
+					for i := 0; i < requiredCPU; i++ {
+						coreID := startCore + i
+						node.UsedCores[coreID] = true // 标记为已使用
+						allocatedCores[i] = coreID
+					}
+				}
+				node.UsedMemory += requiredMemory
+				node.Unlock()
+				return node, allocatedCores
+			}
 		}
 		node.Unlock()
 	}
-	return nil
+	return nil, nil
 }
 
-func (s *Scheduler) ReleaseResources(clusterName, nodeName string, cpu int, memory int64) {
+func (s *Scheduler) ReleaseResources(clusterName, nodeName string, coresToRelease []int, memory int64) {
 	if cluster, ok := s.clusters[clusterName]; ok {
 		if node, ok := cluster.Nodes[nodeName]; ok {
 			node.Lock()
-			node.UsedCPU -= cpu
-			if node.UsedCPU < 0 {
-				node.UsedCPU = 0
+			for _, coreID := range coresToRelease {
+				if coreID >= 0 && coreID < len(node.UsedCores) {
+					node.UsedCores[coreID] = false
+				}
 			}
 			node.UsedMemory -= memory
 			if node.UsedMemory < 0 {
 				node.UsedMemory = 0
 			}
 			node.Unlock()
-			zap.S().Infof("released resources (cpu: %d, mem: %dMB) from node %s", cpu, memory, nodeName)
+			var coreStrs []string
+			for _, c := range coresToRelease {
+				coreStrs = append(coreStrs, strconv.Itoa(c))
+			}
+			zap.S().Infof("released resources (cores: [%s], mem: %dMB) from node %s", strings.Join(coreStrs, ","), memory, nodeName)
 		}
 	}
 }

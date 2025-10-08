@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/ZJUSCT/CSOJ/internal/database"
@@ -290,7 +292,18 @@ func (h *Handler) interruptSubmission(c *gin.Context) {
 			return
 		}
 
-		h.scheduler.ReleaseResources(problem.Cluster, sub.Node, problem.CPU, problem.Memory)
+		// Parse allocated cores from submission record to release them
+		var coresToRelease []int
+		if sub.AllocatedCores != "" {
+			coreStrs := strings.Split(sub.AllocatedCores, ",")
+			for _, s := range coreStrs {
+				coreID, err := strconv.Atoi(s)
+				if err == nil {
+					coresToRelease = append(coresToRelease, coreID)
+				}
+			}
+		}
+		h.scheduler.ReleaseResources(problem.Cluster, sub.Node, coresToRelease, problem.Memory)
 
 		msg := pubsub.FormatMessage("error", "Submission interrupted by user.")
 		pubsub.GetBroker().Publish(subID, msg)

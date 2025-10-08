@@ -62,11 +62,12 @@ type JWT struct {
 }
 
 type GitLab struct {
-	App          string `yaml:"app"`
-	URL          string `yaml:"url"`
-	ClientID     string `yaml:"client_id"`
-	ClientSecret string `yaml:"client_secret"`
-	RedirectURI  string `yaml:"redirect_uri"`
+	App                 string `yaml:"app"`
+	URL                 string `yaml:"url"`
+	ClientID            string `yaml:"client_id"`
+	ClientSecret        string `yaml:"client_secret"`
+	RedirectURI         string `yaml:"redirect_uri"`
+	FrontendCallbackURL string `yaml:"frontend_callback_url"`
 }
 
 type Admin struct {
