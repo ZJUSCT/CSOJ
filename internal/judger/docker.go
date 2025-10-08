@@ -4,7 +4,6 @@ import (
 	"archive/tar"
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -166,19 +165,7 @@ func newCallbackWriter(streamType string, buffer *bytes.Buffer, callback func(st
 }
 
 func (w *callbackWriter) Write(p []byte) (int, error) {
-	// To avoid sending sensitive data or large binary chunks over websocket,
-	// we marshal the raw bytes into a JSON-safe string.
-	// A simple string conversion is okay for typical text output.
-	// For more complex data, base64 encoding might be better.
-	jsonBytes, err := json.Marshal(string(p))
-	if err != nil {
-		return 0, err
-	}
-	// The jsonBytes will be like `"hello\nworld"` (including quotes)
-	// We trim the quotes for cleaner data on the client side.
-	cleanBytes := bytes.Trim(jsonBytes, `"`)
-
-	w.callback(w.streamType, cleanBytes)
+	w.callback(w.streamType, p)
 	return w.buffer.Write(p)
 }
 
