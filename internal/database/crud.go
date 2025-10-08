@@ -2,7 +2,9 @@ package database
 
 import (
 	"errors"
+	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/ZJUSCT/CSOJ/internal/database/models"
@@ -163,6 +165,11 @@ func GetLeaderboard(db *gorm.DB, contestID string) ([]LeaderboardEntry, error) {
 	for _, row := range rows {
 		// If user is not yet in the map, create a new entry
 		if _, ok := resultsMap[row.UserID]; !ok {
+
+			if row.AvatarURL != "" && !strings.HasPrefix(row.AvatarURL, "http") {
+				row.AvatarURL = fmt.Sprintf("/api/v1/assets/avatars/%s", row.AvatarURL)
+			}
+
 			resultsMap[row.UserID] = &LeaderboardEntry{
 				UserID:        row.UserID,
 				Username:      row.Username,
@@ -178,31 +185,43 @@ func GetLeaderboard(db *gorm.DB, contestID string) ([]LeaderboardEntry, error) {
 		entry.TotalScore += row.Score
 	}
 
-	// Fetch the last score update time for each user who has a score history.
-	// This represents the time of their last score-improving submission.
-	type userLastUpdate struct {
-		UserID   string
-		LastTime *string
-	}
-	var lastUpdates []userLastUpdate
-	if err := db.Model(&models.ContestScoreHistory{}).
-		Select("user_id, max(created_at) as last_time").
-		Where("contest_id = ?", contestID).
-		Group("user_id").
-		Scan(&lastUpdates).Error; err != nil {
-		return nil, err
+	// For tie-breaking, find the first time each user achieved their final score.
+	// This is more complex than just taking the last update time. We fetch all relevant
+	// history points and process them in-memory to avoid N+1 database queries.
+	lastUpdateMap := make(map[string]time.Time)
+	userIDs := make([]string, 0, len(resultsMap))
+	for userID := range resultsMap {
+		userIDs = append(userIDs, userID)
 	}
 
-	lastUpdateMap := make(map[string]time.Time)
-	for _, update := range lastUpdates {
-		if update.LastTime != nil && *update.LastTime != "" {
-			parsedTime, err := time.Parse("2006-01-02 15:04:05", *update.LastTime)
-			if err != nil {
-				// If the first format fails, try the more standard RFC3339 as a fallback.
-				parsedTime, err = time.Parse(time.RFC3339, *update.LastTime)
+	if len(userIDs) > 0 {
+		var allHistories []models.ContestScoreHistory
+		// Fetch all history records for users on the leaderboard, sorted by time.
+		if err := db.Model(&models.ContestScoreHistory{}).
+			Where("contest_id = ? AND user_id IN ?", contestID, userIDs).
+			Order("created_at asc").
+			Find(&allHistories).Error; err != nil {
+			return nil, err
+		}
+
+		// Create a lookup map for final scores.
+		finalScores := make(map[string]int)
+		for userID, entry := range resultsMap {
+			finalScores[userID] = entry.TotalScore
+		}
+
+		// Track which users we've already found the tie-breaker time for.
+		processedUsers := make(map[string]bool)
+		// Iterate through the time-sorted histories. The first time a user's
+		// history score matches their final score is the time we want.
+		for _, h := range allHistories {
+			if processed, ok := processedUsers[h.UserID]; ok && processed {
+				continue
 			}
-			if err == nil {
-				lastUpdateMap[update.UserID] = parsedTime
+
+			if finalScore, ok := finalScores[h.UserID]; ok && h.TotalScoreAfterChange == finalScore {
+				lastUpdateMap[h.UserID] = h.CreatedAt
+				processedUsers[h.UserID] = true
 			}
 		}
 	}

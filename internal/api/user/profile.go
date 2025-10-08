@@ -92,9 +92,9 @@ func (h *Handler) updateUserProfile(c *gin.Context) {
 }
 
 func validateAvatar(file *multipart.FileHeader) error {
-	const maxAvatarSize = 5 * 1024 * 1024
+	const maxAvatarSize = 1024 * 1024
 	if file.Size > maxAvatarSize {
-		return fmt.Errorf("avatar file is too large. Maximum size is 5MB")
+		return fmt.Errorf("avatar file is too large. Maximum size is 1MB")
 	}
 
 	src, err := file.Open()
