@@ -51,6 +51,10 @@ func NewUserRouter(
 		v1.GET("/contests/:id/leaderboard", h.getContestLeaderboard)
 		v1.GET("/contests/:id/trend", h.getContestTrend)
 		v1.GET("/problems/:id", h.getProblem)
+		v1.GET("/users/:id", h.getPublicUserProfile)
+
+		// Publicly accessible assets
+		v1.GET("/assets/avatars/:filename", h.serveAvatar)
 
 		// Authenticated routes
 		authed := v1.Group("/")
@@ -81,10 +85,9 @@ func NewUserRouter(
 				submissions.GET("/:id/containers/:conID/log", h.getContainerLog)
 			}
 
-			// Assets
+			// Authenticated assets
 			assets := authed.Group("/assets")
 			{
-				assets.GET("/avatars/:filename", h.serveAvatar)
 				assets.GET("/contests/:id/*assetpath", h.serveContestAsset)
 				assets.GET("/problems/:id/*assetpath", h.serveProblemAsset)
 			}

@@ -1,6 +1,7 @@
 package user
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -12,7 +13,17 @@ import (
 	"github.com/ZJUSCT/CSOJ/internal/database"
 	"github.com/ZJUSCT/CSOJ/internal/util"
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
+
+// PublicProfileResponse 定义了用户的公开可访问信息。
+type PublicProfileResponse struct {
+	ID        string `json:"id"`
+	Username  string `json:"username"`
+	Nickname  string `json:"nickname"`
+	Signature string `json:"signature"`
+	AvatarURL string `json:"avatar_url"`
+}
 
 func (h *Handler) getUserProfile(c *gin.Context) {
 	userID := c.GetString("userID")
@@ -26,6 +37,34 @@ func (h *Handler) getUserProfile(c *gin.Context) {
 		user.AvatarURL = fmt.Sprintf("/api/v1/assets/avatars/%s", user.AvatarURL)
 	}
 	util.Success(c, user, "ok")
+}
+
+func (h *Handler) getPublicUserProfile(c *gin.Context) {
+	userID := c.Param("id")
+	user, err := database.GetUserByID(h.db, userID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			util.Error(c, http.StatusNotFound, "user not found")
+		} else {
+			util.Error(c, http.StatusInternalServerError, "database error")
+		}
+		return
+	}
+
+	avatarURL := user.AvatarURL
+	if user.AvatarURL != "" && !strings.HasPrefix(user.AvatarURL, "http") {
+		avatarURL = fmt.Sprintf("/api/v1/assets/avatars/%s", user.AvatarURL)
+	}
+
+	response := PublicProfileResponse{
+		ID:        user.ID,
+		Username:  user.Username,
+		Nickname:  user.Nickname,
+		Signature: user.Signature,
+		AvatarURL: avatarURL,
+	}
+
+	util.Success(c, response, "User profile retrieved successfully")
 }
 
 func (h *Handler) updateUserProfile(c *gin.Context) {
