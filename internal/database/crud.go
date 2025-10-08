@@ -182,7 +182,7 @@ func GetLeaderboard(db *gorm.DB, contestID string) ([]LeaderboardEntry, error) {
 	// This represents the time of their last score-improving submission.
 	type userLastUpdate struct {
 		UserID   string
-		LastTime time.Time
+		LastTime *time.Time
 	}
 	var lastUpdates []userLastUpdate
 	if err := db.Model(&models.ContestScoreHistory{}).
@@ -195,7 +195,9 @@ func GetLeaderboard(db *gorm.DB, contestID string) ([]LeaderboardEntry, error) {
 
 	lastUpdateMap := make(map[string]time.Time)
 	for _, update := range lastUpdates {
-		lastUpdateMap[update.UserID] = update.LastTime
+		if update.LastTime != nil {
+			lastUpdateMap[update.UserID] = *update.LastTime
+		}
 	}
 
 	// Convert map to slice and add last update time
