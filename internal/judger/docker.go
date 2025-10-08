@@ -95,11 +95,7 @@ func (m *DockerManager) StartContainer(containerID string) error {
 	return m.cli.ContainerStart(context.Background(), containerID, container.StartOptions{})
 }
 
-// stream-oriented
-func (m *DockerManager) ExecInContainer(containerID string, cmd []string, timeout time.Duration, outputCallback func(streamType string, data []byte)) (ExecResult, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-
+func (m *DockerManager) ExecInContainer(ctx context.Context, containerID string, cmd []string, outputCallback func(streamType string, data []byte)) (ExecResult, error) {
 	execConfig := container.ExecOptions{
 		Cmd:          cmd,
 		AttachStdout: true,
@@ -119,12 +115,9 @@ func (m *DockerManager) ExecInContainer(containerID string, cmd []string, timeou
 	defer resp.Close()
 
 	var stdoutBuf, stderrBuf bytes.Buffer
-
-	// Use a custom writer for the callback
 	stdoutWriter := newCallbackWriter("stdout", &stdoutBuf, outputCallback)
 	stderrWriter := newCallbackWriter("stderr", &stderrBuf, outputCallback)
 
-	// stdcopy.StdCopy demultiplexes the stream from Docker into separate stdout and stderr
 	_, err = stdcopy.StdCopy(stdoutWriter, stderrWriter, resp.Reader)
 	if err != nil {
 		zap.S().Warnf("error copying stdout/stderr from container exec: %v", err)
@@ -132,6 +125,10 @@ func (m *DockerManager) ExecInContainer(containerID string, cmd []string, timeou
 
 	var inspect container.ExecInspect
 	for {
+		if ctx.Err() != nil {
+			return ExecResult{}, ctx.Err()
+		}
+
 		inspect, err = m.cli.ContainerExecInspect(ctx, execID)
 		if err != nil {
 			return ExecResult{}, err
