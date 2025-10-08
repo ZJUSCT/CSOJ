@@ -12,7 +12,7 @@ A problem directory must contain a `problem.yaml` file and may optionally includ
 └── p1001-aplusb/
 ├── problem.yaml    \# The core configuration file for the problem
 ├── index.md        \# (Optional) The problem statement in Markdown
-└── index.assets/   \# (Optional) Static assets (e.g., images) referenced in the statement
+└── index.assets/   \#(Optional) Static assets (e.g., images) referenced in the statement
 └── image.png
 
 ```
@@ -38,6 +38,11 @@ endtime: "2025-10-01T12:00:00+08:00"
 # Maximum number of valid submissions per user for this problem. 0 means unlimited.
 max_submissions: 10
 
+# Limits on user-uploaded files (optional)
+upload:
+  maxnum: 1    # Maximum number of files allowed
+  maxsize: 64  # Maximum size (in KB) for each file
+
 # Judging resource configuration
 cluster: "default-cluster"  # Specifies which cluster to judge on
 cpu: 1                      # Number of CPU cores to request for judging
@@ -46,22 +51,22 @@ memory: 256                 # Amount of memory (in MB) to request for judging
 # The judging workflow
 workflow:
   # Step 1: Compile the C++ code
-  - name: "Compile"              # (Optional) Name for this step
-    image: "gcc:latest"          # The Docker image to use
-    root: false                  # Whether to run the container as the root user
-    timeout: 10                  # Timeout for this step in seconds
-    show: true                   # Whether to allow users to see the log for this step
+  - name: "Compile"             # (Optional) Name for this step
+    image: "gcc:latest"         # The Docker image to use
+    root: false                 # Whether to run the container as the root user
+    timeout: 10                 # Timeout for this step in seconds
+    show: true                  # Whether to allow users to see the log for this step
     steps:
       - ["g++", "main.cpp", "-o", "main"]
 
   # Step 2: Run and judge
-  - name: "Run & Judge"          # (Optional) Name for this step
+  - name: "Run & Judge"         # (Optional) Name for this step
     image: "zjusct/oj-judger:latest" # Use an image with judging tools
     root: false
     timeout: 5
-    show: false                  # Judge logs are usually not shown to users
-    network: false               # (Optional) Disable network for this container
-    mounts:                      # (Optional) Extra volume mounts
+    show: false                 # Judge logs are usually not shown to users
+    network: false              # (Optional) Disable network for this container
+    mounts:                     # (Optional) Extra volume mounts
       - type: bind
         source: "/etc/csoj/testcases/aplusb" # Path on the judger node
         target: "/data"                     # Path inside the container
@@ -71,8 +76,7 @@ workflow:
       # It reads standard input, runs the user's program, compares the output,
       # and prints the result (in JSON format) to standard output.
       - ["/judge", "--input", "/data/input.txt", "--ans", "/data/ans.txt", "./main"]
-
-```
+````
 
 -----
 
@@ -107,6 +111,16 @@ workflow:
   - **Type**: `integer`
   - **Required**: No
   - **Description**: Limits the number of valid submissions a user can make for this problem. `0` or not set means unlimited.
+
+-----
+
+### `upload`
+
+  - **Type**: `object`
+  - **Required**: No
+  - **Description**: Defines limits for user-uploaded files.
+      - `maxnum`: (integer) The maximum number of files a user can upload in a single submission.
+      - `maxsize`: (integer) The maximum size in kilobytes (KB) for each individual file.
 
 -----
 

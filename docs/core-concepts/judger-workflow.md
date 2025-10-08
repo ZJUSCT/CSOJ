@@ -37,17 +37,16 @@ workflow:
 
 ### How It Works
 
-  - **File System**: When the first step starts, the user's submitted files are copied into the container's working directory, `/mnt/work/`. This directory is persistent across all steps for a single submission.
+  - **File System Persistence**: For each submission, the system creates a temporary working directory on the host judger node (e.g., `/tmp/submission/<submission-id>`). This host directory is then bind-mounted into the working directory (`/mnt/work/`) of **every container** in the workflow. This ensures that any files created or modified in one step (like a compiled binary) are available to all subsequent steps.
   - **Step 1 (Compilation)**:
       - A container is created from the `gcc:latest` image.
-      - The command `g++ main.cpp -o main -O2` is executed inside the container.
-      - This command compiles the user's code and creates an executable file named `main` inside `/mnt/work/`.
-      - After this step completes, the container is destroyed, but the `/mnt/work/` directory (containing `main.cpp` and the new `main` executable) is preserved for the next step.
+      - The user's submitted files are copied from storage into the host working directory, which is then mounted into the container at `/mnt/work/`.
+      - The command `g++ main.cpp -o main -O2` is executed, creating an executable file `main` in `/mnt/work/`.
+      - Because this directory is on the host, the `main` executable persists after the compilation container is destroyed.
   - **Step 2 (Judging)**:
       - A new container is created from the `zjusct/oj-judger:latest` image.
-      - The `/mnt/work/` directory, which now contains the compiled `main` executable, is mounted into this new container.
-      - The command `/judge --bin ./main` is executed. This is a hypothetical script or program that runs the user's executable against test cases.
-      - The `/judge` program is responsible for determining the score and result.
+      - The same host working directory, which now contains both `main.cpp` and the compiled `main` executable, is mounted into this new container at `/mnt/work/`.
+      - The command `/judge --bin ./main` is executed to run the user's program against test cases.
 
 ## Result Reporting
 
