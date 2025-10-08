@@ -19,14 +19,16 @@ The `workflow` is an array of steps, executed sequentially. Each step runs in a 
 ```yaml
 workflow:
   # Step 1: Compilation
-  - image: "gcc:latest"
+  - name: "Compile"
+    image: "gcc:latest"
     timeout: 10
     show: true
     steps:
       - ["g++", "main.cpp", "-o", "main", "-O2"]
 
   # Step 2: Judging
-  - image: "zjusct/oj-judger:latest"
+  - name: "Judge"
+    image: "zjusct/oj-judger:latest"
     timeout: 5
     show: false
     steps:
