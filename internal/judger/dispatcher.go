@@ -118,6 +118,7 @@ func (d *Dispatcher) Dispatch(sub *models.Submission, prob *Problem, node *NodeS
 }
 
 func (d *Dispatcher) runWorkflowStep(docker *DockerManager, sub *models.Submission, prob *Problem, flow WorkflowStep, cpusetCpus string, isFirstStep bool) (containerID, stdout, stderr string, err error) {
+	zap.S().Debugf("Creating timeout context for step. Raw timeout value from config: %d seconds", flow.Timeout)
 	stepCtx, cancel := context.WithTimeout(context.Background(), time.Duration(flow.Timeout)*time.Second)
 	defer cancel()
 
@@ -145,18 +146,29 @@ func (d *Dispatcher) runWorkflowStep(docker *DockerManager, sub *models.Submissi
 		Stderr      string
 		Err         error
 	}
-	doneChan := make(chan result)
+	doneChan := make(chan result, 1)
+	cidChan := make(chan string, 1)
 
 	go func() {
 		var execStdout, execStderr string
+		var cid string
+
+		defer func() {
+			if r := recover(); r != nil {
+				zap.S().Errorf("Recovered from panic in dispatcher goroutine: %v", r)
+				doneChan <- result{ContainerID: cid, Err: fmt.Errorf("panic recovered: %v", r)}
+			}
+		}()
 
 		remoteWorkDir := filepath.Join("/tmp", "submission", sub.ID)
-		cid, err := docker.CreateContainer(flow.Image, remoteWorkDir, prob.CPU, cpusetCpus, prob.Memory, flow.Root, flow.Mounts, flow.Network)
+		var err error
+		cid, err = docker.CreateContainer(flow.Image, remoteWorkDir, prob.CPU, cpusetCpus, prob.Memory, flow.Root, flow.Mounts, flow.Network)
 		if err != nil {
 			doneChan <- result{Err: fmt.Errorf("failed to create container: %w", err)}
 			return
 		}
 
+		cidChan <- cid
 		cont.DockerID = cid
 		database.UpdateContainer(d.db, cont)
 
@@ -191,11 +203,6 @@ func (d *Dispatcher) runWorkflowStep(docker *DockerManager, sub *models.Submissi
 			combinedLog.WriteString(fmt.Sprintf("\n--- Exit Code: %d ---\n", execResult.ExitCode))
 
 			if err != nil || execResult.ExitCode != 0 {
-				if err == context.DeadlineExceeded {
-					d.failContainer(cont, -1, "overall step timeout exceeded")
-					doneChan <- result{ContainerID: cid, Err: fmt.Errorf("workflow step timed out")}
-					return
-				}
 				d.failContainer(cont, execResult.ExitCode, combinedLog.String())
 				errMsg := fmt.Errorf("exec failed with exit code %d: %w", execResult.ExitCode, err)
 				doneChan <- result{ContainerID: cid, Stdout: execResult.Stdout, Stderr: execResult.Stderr, Err: errMsg}
@@ -208,28 +215,43 @@ func (d *Dispatcher) runWorkflowStep(docker *DockerManager, sub *models.Submissi
 		doneChan <- result{ContainerID: cid, Stdout: execStdout, Stderr: execStderr, Err: nil}
 	}()
 
-	select {
-	case <-stepCtx.Done():
-		res := <-doneChan
-		zap.S().Warnf("workflow step for submission %s timed out. Cleaning up container %s.", sub.ID, res.ContainerID)
-		if res.ContainerID != "" {
-			docker.CleanupContainer(res.ContainerID)
-		}
-		d.failContainer(cont, -1, "overall step timeout exceeded")
-		return res.ContainerID, "", "Timeout exceeded", stepCtx.Err()
+	var finalRes result
+	var cidForCleanup string
 
-	case res := <-doneChan:
-		if res.Err != nil {
-			if res.ContainerID != "" {
-				docker.CleanupContainer(res.ContainerID)
-			}
-			return res.ContainerID, res.Stdout, res.Stderr, res.Err
+	zap.S().Debugf("Entering select block for submission %s, waiting for completion or timeout...", sub.ID)
+	select {
+	case cidForCleanup = <-cidChan:
+		select {
+		case <-stepCtx.Done():
+			zap.S().Warnf("TIMEOUT branch selected for submission %s. Cleaning up container %s.", sub.ID, cidForCleanup)
+			docker.CleanupContainer(cidForCleanup)
+			d.failContainer(cont, -1, "overall step timeout exceeded")
+			return cidForCleanup, "", "Timeout exceeded", stepCtx.Err()
+
+		case finalRes = <-doneChan:
+			zap.S().Debugf("DONE_CHAN branch selected for submission %s. Error from goroutine: %v", sub.ID, finalRes.Err)
 		}
-		cont.Status = models.StatusSuccess
-		cont.FinishedAt = time.Now()
-		database.UpdateContainer(d.db, cont)
-		return res.ContainerID, res.Stdout, res.Stderr, nil
+	case <-stepCtx.Done():
+		zap.S().Warnf("TIMEOUT branch selected for submission %s. Container was not even created.", sub.ID)
+		d.failContainer(cont, -1, "overall step timeout exceeded before container creation")
+		return "", "", "Timeout exceeded", stepCtx.Err()
+
+	case finalRes = <-doneChan:
+		zap.S().Debugf("DONE_CHAN (early) branch selected for submission %s. Error from goroutine: %v", sub.ID, finalRes.Err)
 	}
+
+	// Process the final result
+	if finalRes.Err != nil {
+		if finalRes.ContainerID != "" {
+			docker.CleanupContainer(finalRes.ContainerID)
+		}
+		return finalRes.ContainerID, finalRes.Stdout, finalRes.Stderr, finalRes.Err
+	}
+
+	cont.Status = models.StatusSuccess
+	cont.FinishedAt = time.Now()
+	database.UpdateContainer(d.db, cont)
+	return finalRes.ContainerID, finalRes.Stdout, finalRes.Stderr, nil
 }
 
 func (d *Dispatcher) findContestIDForProblem(problemID string) string {

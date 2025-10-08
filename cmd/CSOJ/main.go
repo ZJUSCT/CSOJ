@@ -35,12 +35,25 @@ func main() {
 	}
 
 	// logger
-	var logger *zap.Logger
+	var zapCfg zap.Config
 	if cfg.Logger.Level == "debug" {
-		logger, err = zap.NewDevelopment()
+		zapCfg = zap.NewDevelopmentConfig()
 	} else {
-		logger, err = zap.NewProduction()
+		zapCfg = zap.NewProductionConfig()
 	}
+
+	// Set output paths
+	if cfg.Logger.File != "" {
+		// Log to both file and stdout/stderr
+		zapCfg.OutputPaths = []string{"stdout", cfg.Logger.File}
+		zapCfg.ErrorOutputPaths = []string{"stderr", cfg.Logger.File}
+	} else {
+		// Default to just stdout/stderr
+		zapCfg.OutputPaths = []string{"stdout"}
+		zapCfg.ErrorOutputPaths = []string{"stderr"}
+	}
+
+	logger, err := zapCfg.Build()
 	if err != nil {
 		log.Fatalf("can't initialize zap logger: %v", err)
 	}
@@ -99,8 +112,8 @@ func main() {
 	zap.S().Info("judger scheduler started")
 
 	// API routers
-	userEngine := user.NewUserRouter(cfg, db, scheduler, appState)    // <-- 修改
-	adminEngine := admin.NewAdminRouter(cfg, db, scheduler, appState) // <-- 修改
+	userEngine := user.NewUserRouter(cfg, db, scheduler, appState)
+	adminEngine := admin.NewAdminRouter(cfg, db, scheduler, appState)
 
 	// start servers
 	go func() {
