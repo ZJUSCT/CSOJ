@@ -164,7 +164,7 @@ func (d *Dispatcher) runWorkflowStep(docker *DockerManager, sub *models.Submissi
 	}
 
 	var combinedLog bytes.Buffer
-	for _, stepCmd := range flow.Steps {
+	for j, stepCmd := range flow.Steps {
 		// Callback for real-time streaming, publishing to the container's unique topic
 		outputCallback := func(streamType string, data []byte) {
 			msg := pubsub.FormatMessage(streamType, string(data))
@@ -174,7 +174,7 @@ func (d *Dispatcher) runWorkflowStep(docker *DockerManager, sub *models.Submissi
 		execResult, err := docker.ExecInContainer(containerID, stepCmd, time.Duration(flow.Timeout)*time.Second, outputCallback)
 
 		// Append command and output to the combined log buffer
-		combinedLog.WriteString(fmt.Sprintf("\n--- Executing: %v ---\n", stepCmd))
+		combinedLog.WriteString(fmt.Sprintf("\n--- Executing Command %d ---\n", j+1))
 		combinedLog.WriteString("STDOUT:\n")
 		combinedLog.WriteString(execResult.Stdout)
 		combinedLog.WriteString("\nSTDERR:\n")

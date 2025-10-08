@@ -126,6 +126,7 @@ type LeaderboardEntry struct {
 	Nickname      string         `json:"nickname"`
 	TotalScore    int            `json:"total_score"`
 	ProblemScores map[string]int `json:"problem_scores"`
+	lastScoreTime time.Time
 }
 
 // UserScoreHistoryPoint represents a single point in a user's score history for a contest.
@@ -174,15 +175,48 @@ func GetLeaderboard(db *gorm.DB, contestID string) ([]LeaderboardEntry, error) {
 		entry.TotalScore += row.Score
 	}
 
-	// Convert map to slice
+	// Fetch the last score update time for each user who has a score history.
+	// This represents the time of their last score-improving submission.
+	type userLastUpdate struct {
+		UserID   string
+		LastTime time.Time
+	}
+	var lastUpdates []userLastUpdate
+	if err := db.Model(&models.ContestScoreHistory{}).
+		Select("user_id, max(created_at) as last_time").
+		Where("contest_id = ?", contestID).
+		Group("user_id").
+		Scan(&lastUpdates).Error; err != nil {
+		return nil, err
+	}
+
+	lastUpdateMap := make(map[string]time.Time)
+	for _, update := range lastUpdates {
+		lastUpdateMap[update.UserID] = update.LastTime
+	}
+
+	// Convert map to slice and add last update time
 	var results []LeaderboardEntry
 	for _, entry := range resultsMap {
+		if updateTime, ok := lastUpdateMap[entry.UserID]; ok {
+			entry.lastScoreTime = updateTime
+		}
 		results = append(results, *entry)
 	}
 
-	// Sort the final slice by total score descending
+	// Sort the final slice by total score descending, then by time ascending for ties
 	sort.Slice(results, func(i, j int) bool {
-		return results[i].TotalScore > results[j].TotalScore
+		if results[i].TotalScore != results[j].TotalScore {
+			return results[i].TotalScore > results[j].TotalScore
+		}
+		// If scores are equal, the one with the earlier time is better (ranks higher).
+		if results[i].lastScoreTime.IsZero() {
+			return false
+		}
+		if results[j].lastScoreTime.IsZero() {
+			return true
+		}
+		return results[i].lastScoreTime.Before(results[j].lastScoreTime)
 	})
 
 	return results, nil
