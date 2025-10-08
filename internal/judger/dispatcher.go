@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/ZJUSCT/CSOJ/internal/config"
@@ -39,12 +41,12 @@ func NewDispatcher(cfg *config.Config, db *gorm.DB, scheduler *Scheduler, appSta
 	}
 }
 
-func (d *Dispatcher) Dispatch(sub *models.Submission, prob *Problem, node *NodeState) {
+func (d *Dispatcher) Dispatch(sub *models.Submission, prob *Problem, node *NodeState, allocatedCores []int) {
 	zap.S().Infof("dispatching submission %s to node %s", sub.ID, node.Name)
 
 	// Ensure resources are cleaned up
 	defer func() {
-		d.scheduler.ReleaseResources(prob.Cluster, node.Name, prob.CPU, prob.Memory)
+		d.scheduler.ReleaseResources(prob.Cluster, node.Name, allocatedCores, prob.Memory)
 		// No longer closing submission topic here, it's handled per-container now
 		zap.S().Infof("finished dispatching submission %s", sub.ID)
 	}()
@@ -64,11 +66,18 @@ func (d *Dispatcher) Dispatch(sub *models.Submission, prob *Problem, node *NodeS
 	}()
 
 	var lastStdout string
+	// 将核心ID列表转换为逗号分隔的字符串
+	var coreStrs []string
+	for _, c := range allocatedCores {
+		coreStrs = append(coreStrs, strconv.Itoa(c))
+	}
+	cpusetCpus := strings.Join(coreStrs, ",")
+
 	for i, flow := range prob.Workflow {
 		sub.CurrentStep = i
 		database.UpdateSubmission(d.db, sub)
 
-		containerID, stdout, stderr, err := d.runWorkflowStep(docker, sub, prob, flow, i == 0)
+		containerID, stdout, stderr, err := d.runWorkflowStep(docker, sub, prob, flow, cpusetCpus, i == 0)
 		if containerID != "" {
 			containerIDs = append(containerIDs, containerID)
 		}
@@ -108,7 +117,7 @@ func (d *Dispatcher) Dispatch(sub *models.Submission, prob *Problem, node *NodeS
 	}
 }
 
-func (d *Dispatcher) runWorkflowStep(docker *DockerManager, sub *models.Submission, prob *Problem, flow WorkflowStep, isFirstStep bool) (containerID, stdout, stderr string, err error) {
+func (d *Dispatcher) runWorkflowStep(docker *DockerManager, sub *models.Submission, prob *Problem, flow WorkflowStep, cpusetCpus string, isFirstStep bool) (containerID, stdout, stderr string, err error) {
 	// Create log directory if it doesn't exist
 	if err := os.MkdirAll(d.cfg.Storage.SubmissionLog, 0755); err != nil {
 		return "", "", "", fmt.Errorf("failed to create log directory: %w", err)
@@ -132,7 +141,7 @@ func (d *Dispatcher) runWorkflowStep(docker *DockerManager, sub *models.Submissi
 
 	remoteWorkDir := filepath.Join("/tmp", "submission", sub.ID)
 
-	containerID, err = docker.CreateContainer(flow.Image, remoteWorkDir, prob.CPU, prob.Memory, flow.Root, flow.Mounts, flow.Network)
+	containerID, err = docker.CreateContainer(flow.Image, remoteWorkDir, prob.CPU, cpusetCpus, prob.Memory, flow.Root, flow.Mounts, flow.Network)
 	if err != nil {
 		d.failContainer(cont, -1, "failed to create container")
 		return "", "", "", fmt.Errorf("failed to create container: %v", err)

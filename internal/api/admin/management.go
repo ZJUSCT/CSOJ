@@ -3,6 +3,8 @@ package admin
 import (
 	"fmt"
 	"net/http"
+	"strconv"
+	"strings"
 
 	"github.com/ZJUSCT/CSOJ/internal/database/models"
 	"github.com/ZJUSCT/CSOJ/internal/judger"
@@ -79,7 +81,18 @@ func (h *Handler) reload(c *gin.Context) {
 							}
 						}
 					}
-					h.scheduler.ReleaseResources(problem.Cluster, sub.Node, problem.CPU, problem.Memory)
+					// Parse allocated cores from submission record to release them
+					var coresToRelease []int
+					if sub.AllocatedCores != "" {
+						coreStrs := strings.Split(sub.AllocatedCores, ",")
+						for _, s := range coreStrs {
+							coreID, err := strconv.Atoi(s)
+							if err == nil {
+								coresToRelease = append(coresToRelease, coreID)
+							}
+						}
+					}
+					h.scheduler.ReleaseResources(problem.Cluster, sub.Node, coresToRelease, problem.Memory)
 				}
 			}
 

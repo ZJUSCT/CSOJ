@@ -36,7 +36,7 @@ func NewDockerManager(host string) (*DockerManager, error) {
 	return &DockerManager{cli: cli}, nil
 }
 
-func (m *DockerManager) CreateContainer(image, workDir string, cpu int, memory int64, asRoot bool, mounts []Mount, networkEnabled bool) (string, error) {
+func (m *DockerManager) CreateContainer(image, workDir string, cpu int, cpusetCpus string, memory int64, asRoot bool, mounts []Mount, networkEnabled bool) (string, error) {
 	ctx := context.Background()
 
 	config := &container.Config{
@@ -57,8 +57,9 @@ func (m *DockerManager) CreateContainer(image, workDir string, cpu int, memory i
 	hostConfig := &container.HostConfig{
 		Binds: []string{workDir + ":/mnt/work"},
 		Resources: container.Resources{
-			NanoCPUs: int64(cpu) * 1e9,
-			Memory:   memory * 1024 * 1024,
+			NanoCPUs:   int64(cpu) * 1e9,
+			Memory:     memory * 1024 * 1024,
+			CpusetCpus: cpusetCpus,
 		},
 	}
 
