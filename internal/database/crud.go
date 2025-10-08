@@ -2,6 +2,7 @@ package database
 
 import (
 	"errors"
+	"sort"
 	"time"
 
 	"github.com/ZJUSCT/CSOJ/internal/database/models"
@@ -118,11 +119,13 @@ func UpdateContainer(db *gorm.DB, container *models.Container) error {
 }
 
 // Score & Leaderboard
+
 type LeaderboardEntry struct {
-	UserID     string `json:"user_id"`
-	Username   string `json:"username"`
-	Nickname   string `json:"nickname"`
-	TotalScore int    `json:"total_score"`
+	UserID        string         `json:"user_id"`
+	Username      string         `json:"username"`
+	Nickname      string         `json:"nickname"`
+	TotalScore    int            `json:"total_score"`
+	ProblemScores map[string]int `json:"problem_scores"`
 }
 
 // UserScoreHistoryPoint represents a single point in a user's score history for a contest.
@@ -133,15 +136,56 @@ type UserScoreHistoryPoint struct {
 }
 
 func GetLeaderboard(db *gorm.DB, contestID string) ([]LeaderboardEntry, error) {
-	var results []LeaderboardEntry
+	// Intermediate struct for scanning the raw query result
+	type scoreRow struct {
+		UserID    string
+		Username  string
+		Nickname  string
+		ProblemID string
+		Score     int
+	}
+	var rows []scoreRow
 	err := db.Table("user_problem_best_scores").
-		Select("users.id as user_id, users.username, users.nickname, SUM(user_problem_best_scores.score) as total_score").
+		Select("users.id as user_id, users.username, users.nickname, user_problem_best_scores.problem_id, user_problem_best_scores.score").
 		Joins("join users on users.id = user_problem_best_scores.user_id").
 		Where("user_problem_best_scores.contest_id = ?", contestID).
-		Group("user_problem_best_scores.user_id").
-		Order("total_score desc").
-		Scan(&results).Error
-	return results, err
+		Scan(&rows).Error
+
+	if err != nil {
+		return nil, err
+	}
+
+	// Process rows into a map for easy aggregation
+	resultsMap := make(map[string]*LeaderboardEntry)
+	for _, row := range rows {
+		// If user is not yet in the map, create a new entry
+		if _, ok := resultsMap[row.UserID]; !ok {
+			resultsMap[row.UserID] = &LeaderboardEntry{
+				UserID:        row.UserID,
+				Username:      row.Username,
+				Nickname:      row.Nickname,
+				TotalScore:    0,
+				ProblemScores: make(map[string]int),
+			}
+		}
+		// Add problem score and update total score
+		entry := resultsMap[row.UserID]
+		entry.ProblemScores[row.ProblemID] = row.Score
+		entry.TotalScore += row.Score
+	}
+
+	// Convert map to slice
+	var results []LeaderboardEntry
+	for _, entry := range resultsMap {
+		results = append(results, *entry)
+	}
+
+	// Sort the final slice by total score descending
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].TotalScore > results[j].TotalScore
+	})
+
+	return results, nil
 }
 
 // GetScoreHistoriesForUsers retrieves the score change history for a given list of users in a specific contest.
