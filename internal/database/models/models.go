@@ -104,4 +104,5 @@ type UserProblemBestScore struct {
 	Score           int
 	SubmissionID    string
 	SubmissionCount int
+	LastScoreTime   time.Time
 }

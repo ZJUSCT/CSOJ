@@ -74,7 +74,7 @@ func (d *Dispatcher) Dispatch(sub *models.Submission, prob *Problem, node *NodeS
 		containerID, stdout, stderr, err := d.runWorkflowStep(docker, sub, prob, flow, cpusetCpus, i == 0)
 
 		if err != nil {
-			d.failSubmission(sub, fmt.Sprintf("workflow step %d failed: %v\nStderr: %s", i, err, stderr))
+			d.failSubmission(sub, fmt.Sprintf("workflow step %d failed: %v\nStderr: %s", i+1, err, stderr))
 			pubsub.GetBroker().CloseTopic(sub.ID)
 			return
 		}
