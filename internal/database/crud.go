@@ -142,16 +142,17 @@ type UserScoreHistoryPoint struct {
 func GetLeaderboard(db *gorm.DB, contestID string) ([]LeaderboardEntry, error) {
 	// Intermediate struct for scanning the raw query result
 	type scoreRow struct {
-		UserID    string
-		Username  string
-		Nickname  string
-		AvatarURL string
-		ProblemID string
-		Score     int
+		UserID        string
+		Username      string
+		Nickname      string
+		AvatarURL     string
+		ProblemID     string
+		Score         int
+		LastScoreTime time.Time
 	}
 	var rows []scoreRow
 	err := db.Table("user_problem_best_scores").
-		Select("users.id as user_id, users.username, users.nickname, users.avatar_url, user_problem_best_scores.problem_id, user_problem_best_scores.score").
+		Select("users.id as user_id, users.username, users.nickname, users.avatar_url, user_problem_best_scores.problem_id, user_problem_best_scores.score, user_problem_best_scores.last_score_time").
 		Joins("join users on users.id = user_problem_best_scores.user_id").
 		Where("user_problem_best_scores.contest_id = ?", contestID).
 		Scan(&rows).Error
@@ -179,59 +180,20 @@ func GetLeaderboard(db *gorm.DB, contestID string) ([]LeaderboardEntry, error) {
 				ProblemScores: make(map[string]int),
 			}
 		}
-		// Add problem score and update total score
+		// Add problem score, update total score, and track the latest time
 		entry := resultsMap[row.UserID]
 		entry.ProblemScores[row.ProblemID] = row.Score
 		entry.TotalScore += row.Score
-	}
 
-	// For tie-breaking, find the first time each user achieved their final score.
-	// This is more complex than just taking the last update time. We fetch all relevant
-	// history points and process them in-memory to avoid N+1 database queries.
-	lastUpdateMap := make(map[string]time.Time)
-	userIDs := make([]string, 0, len(resultsMap))
-	for userID := range resultsMap {
-		userIDs = append(userIDs, userID)
-	}
-
-	if len(userIDs) > 0 {
-		var allHistories []models.ContestScoreHistory
-		// Fetch all history records for users on the leaderboard, sorted by time.
-		if err := db.Model(&models.ContestScoreHistory{}).
-			Where("contest_id = ? AND user_id IN ?", contestID, userIDs).
-			Order("created_at asc").
-			Find(&allHistories).Error; err != nil {
-			return nil, err
-		}
-
-		// Create a lookup map for final scores.
-		finalScores := make(map[string]int)
-		for userID, entry := range resultsMap {
-			finalScores[userID] = entry.TotalScore
-		}
-
-		// Track which users we've already found the tie-breaker time for.
-		processedUsers := make(map[string]bool)
-		// Iterate through the time-sorted histories. The first time a user's
-		// history score matches their final score is the time we want.
-		for _, h := range allHistories {
-			if processed, ok := processedUsers[h.UserID]; ok && processed {
-				continue
-			}
-
-			if finalScore, ok := finalScores[h.UserID]; ok && h.TotalScoreAfterChange == finalScore {
-				lastUpdateMap[h.UserID] = h.CreatedAt
-				processedUsers[h.UserID] = true
-			}
+		// For tie-breaking, the time is the latest time any of their scores were improved.
+		if row.LastScoreTime.After(entry.lastScoreTime) {
+			entry.lastScoreTime = row.LastScoreTime
 		}
 	}
 
-	// Convert map to slice and add last update time
+	// Convert map to slice
 	var results []LeaderboardEntry
 	for _, entry := range resultsMap {
-		if updateTime, ok := lastUpdateMap[entry.UserID]; ok {
-			entry.lastScoreTime = updateTime
-		}
 		results = append(results, *entry)
 	}
 
@@ -345,24 +307,25 @@ func IncrementSubmissionCount(db *gorm.DB, userID, contestID, problemID string) 
 
 func UpdateScoresForNewSubmission(db *gorm.DB, sub *models.Submission, contestID string, newScore int) error {
 	return db.Transaction(func(tx *gorm.DB) error {
-		// 获取当前题目最高分
+		// Get current best score for the problem
 		var bestScore models.UserProblemBestScore
 		err := tx.Where("user_id = ? AND contest_id = ? AND problem_id = ?", sub.UserID, contestID, sub.ProblemID).
 			First(&bestScore).Error
 
-		// 如果没有记录或者新分数更高
+		// If no record exists or the new score is higher
 		if errors.Is(err, gorm.ErrRecordNotFound) || newScore > bestScore.Score {
-			// 更新或创建最高分记录
+			// Update or create the best score record
 			bestScore.UserID = sub.UserID
 			bestScore.ContestID = contestID
 			bestScore.ProblemID = sub.ProblemID
 			bestScore.Score = newScore
 			bestScore.SubmissionID = sub.ID
+			bestScore.LastScoreTime = sub.CreatedAt // Update time only on score increase
 			if err := tx.Save(&bestScore).Error; err != nil {
 				return err
 			}
 
-			// 重新计算比赛总分
+			// Recalculate total contest score
 			var totalScore struct {
 				Score int
 			}
@@ -373,7 +336,7 @@ func UpdateScoresForNewSubmission(db *gorm.DB, sub *models.Submission, contestID
 				return err
 			}
 
-			// 记录分数变化历史
+			// Record score change history
 			history := models.ContestScoreHistory{
 				UserID:                    sub.UserID,
 				ContestID:                 contestID,
@@ -384,14 +347,8 @@ func UpdateScoresForNewSubmission(db *gorm.DB, sub *models.Submission, contestID
 			if err := tx.Create(&history).Error; err != nil {
 				return err
 			}
-		} else if newScore == bestScore.Score {
-			// 同分提交，只更新提交ID
-			bestScore.SubmissionID = sub.ID
-			if err := tx.Save(&bestScore).Error; err != nil {
-				return err
-			}
 		}
-		// 如果分数更低，则什么都不做
+		// If score is lower or equal, do nothing to the score or time.
 		return nil
 	})
 }
@@ -417,10 +374,11 @@ func RecalculateScoresForUserProblem(db *gorm.DB, userID, problemID, contestID, 
 			oldTotalScore = 0
 		}
 
-		// Find the new best valid submission for the specific problem
+		// Find the new best valid submission for the specific problem.
+		// Highest score wins. For ties, earliest submission wins.
 		var newBestSub models.Submission
 		err := tx.Where("user_id = ? AND problem_id = ? AND is_valid = ?", userID, problemID, true).
-			Order("score desc, created_at desc").
+			Order("score desc, created_at asc").
 			First(&newBestSub).Error
 
 		if err != nil {
@@ -437,16 +395,17 @@ func RecalculateScoresForUserProblem(db *gorm.DB, userID, problemID, contestID, 
 		} else {
 			// A new best valid submission was found. Update or create the best score entry.
 			bestScore := models.UserProblemBestScore{
-				UserID:       userID,
-				ContestID:    contestID,
-				ProblemID:    problemID,
-				Score:        newBestSub.Score,
-				SubmissionID: newBestSub.ID,
+				UserID:        userID,
+				ContestID:     contestID,
+				ProblemID:     problemID,
+				Score:         newBestSub.Score,
+				SubmissionID:  newBestSub.ID,
+				LastScoreTime: newBestSub.CreatedAt,
 			}
 			// Use OnConflict to either create a new record or update the existing one based on the unique index.
 			if err := tx.Clauses(clause.OnConflict{
 				Columns:   []clause.Column{{Name: "user_id"}, {Name: "contest_id"}, {Name: "problem_id"}},
-				DoUpdates: clause.AssignmentColumns([]string{"score", "submission_id"}),
+				DoUpdates: clause.AssignmentColumns([]string{"score", "submission_id", "last_score_time"}),
 			}).Create(&bestScore).Error; err != nil {
 				return err
 			}

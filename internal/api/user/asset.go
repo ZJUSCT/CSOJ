@@ -43,7 +43,7 @@ func (h *Handler) serveContestAsset(c *gin.Context) {
 
 	// Security: ensure the requested path is within the allowed assets directory
 	baseAssetDir := filepath.Join(contest.BasePath, "index.assets")
-	requestedFile := filepath.Join(baseAssetDir, assetPath)
+	requestedFile := filepath.Join(contest.BasePath, assetPath)
 
 	safeBase, err := filepath.Abs(baseAssetDir)
 	if err != nil {
@@ -103,7 +103,7 @@ func (h *Handler) serveProblemAsset(c *gin.Context) {
 
 	// --- Security Logic (same as contest assets) ---
 	baseAssetDir := filepath.Join(problem.BasePath, "index.assets")
-	requestedFile := filepath.Join(baseAssetDir, assetPath)
+	requestedFile := filepath.Join(problem.BasePath, assetPath)
 
 	safeBase, err := filepath.Abs(baseAssetDir)
 	if err != nil {
