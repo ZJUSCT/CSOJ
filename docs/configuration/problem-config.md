@@ -76,7 +76,7 @@ workflow:
       # It reads standard input, runs the user's program, compares the output,
       # and prints the result (in JSON format) to standard output.
       - ["/judge", "--input", "/data/input.txt", "--ans", "/data/ans.txt", "./main"]
-````
+```
 
 -----
 
