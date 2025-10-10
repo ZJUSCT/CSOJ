@@ -44,6 +44,11 @@ type WorkflowStep struct {
 	Network bool       `yaml:"network" json:"network"`
 }
 
+type ScoreConfig struct {
+	Mode                string `yaml:"mode" json:"mode"`
+	MaxPerformanceScore int    `yaml:"max_performance_score" json:"max_performance_score"`
+}
+
 type Problem struct {
 	ID             string         `yaml:"id" json:"id"`
 	Name           string         `yaml:"name" json:"name"`
@@ -55,6 +60,7 @@ type Problem struct {
 	Memory         int64          `yaml:"memory" json:"memory"`
 	Upload         UploadLimit    `yaml:"upload" json:"upload"`
 	Workflow       []WorkflowStep `yaml:"workflow" json:"workflow"`
+	Score          ScoreConfig    `yaml:"score" json:"score"`
 	Description    string         `json:"description"`
 	BasePath       string         `json:"-"` // Store the base path to find assets
 }
@@ -125,6 +131,11 @@ func loadProblem(dir string) (*Problem, error) {
 		return nil, err
 	}
 	problem.BasePath = dir // Set the base path
+
+	// Set default score mode if not provided
+	if problem.Score.Mode == "" {
+		problem.Score.Mode = "score"
+	}
 
 	desc, _ := os.ReadFile(filepath.Join(dir, "index.md"))
 	problem.Description = string(desc)

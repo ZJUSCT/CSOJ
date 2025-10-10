@@ -123,13 +123,14 @@ func UpdateContainer(db *gorm.DB, container *models.Container) error {
 // Score & Leaderboard
 
 type LeaderboardEntry struct {
-	UserID        string         `json:"user_id"`
-	Username      string         `json:"username"`
-	Nickname      string         `json:"nickname"`
-	AvatarURL     string         `json:"avatar_url"`
-	TotalScore    int            `json:"total_score"`
-	ProblemScores map[string]int `json:"problem_scores"`
-	lastScoreTime time.Time
+	UserID           string         `json:"user_id"`
+	Username         string         `json:"username"`
+	Nickname         string         `json:"nickname"`
+	AvatarURL        string         `json:"avatar_url"`
+	TotalScore       int            `json:"total_score"`
+	ProblemScores    map[string]int `json:"problem_scores"`
+	lastScoreTime    time.Time
+	registrationTime time.Time
 }
 
 // UserScoreHistoryPoint represents a single point in a user's score history for a contest.
@@ -140,54 +141,76 @@ type UserScoreHistoryPoint struct {
 }
 
 func GetLeaderboard(db *gorm.DB, contestID string) ([]LeaderboardEntry, error) {
-	// Intermediate struct for scanning the raw query result
+	// --- Step 1: Get all registered users and their registration time as a string ---
+	type registeredUser struct {
+		UserID           string
+		Username         string
+		Nickname         string
+		AvatarURL        string
+		RegistrationTime string // Read time as a string from DB
+	}
+	var users []registeredUser
+	err := db.Table("contest_score_histories").
+		Select("users.id as user_id, users.username, users.nickname, users.avatar_url, datetime(MIN(contest_score_histories.created_at)) as registration_time").
+		Joins("join users on users.id = contest_score_histories.user_id").
+		Where("contest_score_histories.contest_id = ?", contestID).
+		Group("users.id, users.username, users.nickname, users.avatar_url").
+		Scan(&users).Error
+	if err != nil {
+		return nil, fmt.Errorf("failed to get registered users: %w", err)
+	}
+
+	// --- Step 2: Get all best scores for the contest ---
 	type scoreRow struct {
 		UserID        string
-		Username      string
-		Nickname      string
-		AvatarURL     string
 		ProblemID     string
 		Score         int
 		LastScoreTime time.Time
 	}
-	var rows []scoreRow
-	err := db.Table("user_problem_best_scores").
-		Select("users.id as user_id, users.username, users.nickname, users.avatar_url, user_problem_best_scores.problem_id, user_problem_best_scores.score, user_problem_best_scores.last_score_time").
-		Joins("join users on users.id = user_problem_best_scores.user_id").
-		Where("user_problem_best_scores.contest_id = ?", contestID).
-		Scan(&rows).Error
-
+	var scores []scoreRow
+	err = db.Table("user_problem_best_scores").
+		Select("user_id, problem_id, score, last_score_time").
+		Where("contest_id = ?", contestID).
+		Scan(&scores).Error
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to get scores: %w", err)
 	}
 
-	// Process rows into a map for easy aggregation
+	// --- Step 3: Combine users and scores ---
 	resultsMap := make(map[string]*LeaderboardEntry)
-	for _, row := range rows {
-		// If user is not yet in the map, create a new entry
-		if _, ok := resultsMap[row.UserID]; !ok {
 
-			if row.AvatarURL != "" && !strings.HasPrefix(row.AvatarURL, "http") {
-				row.AvatarURL = fmt.Sprintf("/api/v1/assets/avatars/%s", row.AvatarURL)
-			}
-
-			resultsMap[row.UserID] = &LeaderboardEntry{
-				UserID:        row.UserID,
-				Username:      row.Username,
-				Nickname:      row.Nickname,
-				AvatarURL:     row.AvatarURL,
-				TotalScore:    0,
-				ProblemScores: make(map[string]int),
-			}
+	// Initialize map with all registered users, default score 0
+	for _, user := range users {
+		// Manually parse the time string. The format from SQLite's datetime() is "2006-01-02 15:04:05"
+		regTime, parseErr := time.Parse("2006-01-02 15:04:05", user.RegistrationTime)
+		if parseErr != nil {
+			return nil, fmt.Errorf("failed to parse registration time for user %s ('%s'): %w", user.UserID, user.RegistrationTime, parseErr)
 		}
-		// Add problem score, update total score, and track the latest time
-		entry := resultsMap[row.UserID]
-		entry.ProblemScores[row.ProblemID] = row.Score
-		entry.TotalScore += row.Score
 
-		// For tie-breaking, the time is the latest time any of their scores were improved.
-		if row.LastScoreTime.After(entry.lastScoreTime) {
-			entry.lastScoreTime = row.LastScoreTime
+		avatarURL := user.AvatarURL
+		if avatarURL != "" && !strings.HasPrefix(avatarURL, "http") {
+			avatarURL = fmt.Sprintf("/api/v1/assets/avatars/%s", avatarURL)
+		}
+		resultsMap[user.UserID] = &LeaderboardEntry{
+			UserID:           user.UserID,
+			Username:         user.Username,
+			Nickname:         user.Nickname,
+			AvatarURL:        avatarURL,
+			TotalScore:       0,
+			ProblemScores:    make(map[string]int),
+			lastScoreTime:    time.Time{}, // Zero value for time
+			registrationTime: regTime,     // Use the parsed time object
+		}
+	}
+
+	// Populate scores for users who have submitted
+	for _, score := range scores {
+		if entry, ok := resultsMap[score.UserID]; ok {
+			entry.ProblemScores[score.ProblemID] = score.Score
+			entry.TotalScore += score.Score
+			if score.LastScoreTime.After(entry.lastScoreTime) {
+				entry.lastScoreTime = score.LastScoreTime
+			}
 		}
 	}
 
@@ -197,12 +220,20 @@ func GetLeaderboard(db *gorm.DB, contestID string) ([]LeaderboardEntry, error) {
 		results = append(results, *entry)
 	}
 
-	// Sort the final slice by total score descending, then by time ascending for ties
+	// Sort the final slice
 	sort.Slice(results, func(i, j int) bool {
+		// Primary sort: Total Score (desc)
 		if results[i].TotalScore != results[j].TotalScore {
 			return results[i].TotalScore > results[j].TotalScore
 		}
-		// If scores are equal, the one with the earlier time is better (ranks higher).
+
+		// Scores are equal.
+		// If score is 0, tie-break by registration time (asc - earlier is better).
+		if results[i].TotalScore == 0 {
+			return results[i].registrationTime.Before(results[j].registrationTime)
+		}
+
+		// If score is > 0, tie-break by last score time (asc - earlier is better).
 		if results[i].lastScoreTime.IsZero() {
 			return false
 		}
@@ -336,26 +367,7 @@ func UpdateScoresForNewSubmission(db *gorm.DB, sub *models.Submission, contestID
 				return err
 			}
 
-			// Recalculate total contest score
-			var totalScore struct {
-				Score int
-			}
-			if err := tx.Model(&models.UserProblemBestScore{}).
-				Select("sum(score) as score").
-				Where("user_id = ? AND contest_id = ?", sub.UserID, contestID).
-				First(&totalScore).Error; err != nil {
-				return err
-			}
-
-			// Record score change history
-			history := models.ContestScoreHistory{
-				UserID:                    sub.UserID,
-				ContestID:                 contestID,
-				ProblemID:                 sub.ProblemID,
-				TotalScoreAfterChange:     totalScore.Score,
-				LastEffectiveSubmissionID: sub.ID,
-			}
-			if err := tx.Create(&history).Error; err != nil {
+			if err := createScoreHistory(tx, sub.UserID, contestID, sub.ProblemID, sub.ID); err != nil {
 				return err
 			}
 		}
@@ -364,29 +376,119 @@ func UpdateScoresForNewSubmission(db *gorm.DB, sub *models.Submission, contestID
 	})
 }
 
+// Helper function to create score history to avoid repetition.
+func createScoreHistory(tx *gorm.DB, userID, contestID, problemID, submissionID string) error {
+	var totalScore struct {
+		Score int
+	}
+	if err := tx.Model(&models.UserProblemBestScore{}).
+		Select("sum(score) as score").
+		Where("user_id = ? AND contest_id = ?", userID, contestID).
+		First(&totalScore).Error; err != nil {
+		return err
+	}
+
+	history := models.ContestScoreHistory{
+		UserID:                    userID,
+		ContestID:                 contestID,
+		ProblemID:                 problemID,
+		TotalScoreAfterChange:     totalScore.Score,
+		LastEffectiveSubmissionID: submissionID,
+	}
+	return tx.Create(&history).Error
+}
+
 // RecalculateScoresForUserProblem recalculates the best score for a given user/problem,
 // and updates the total contest score if necessary. This is typically called after a
 // submission is marked as invalid.
-func RecalculateScoresForUserProblem(db *gorm.DB, userID, problemID, contestID, sourceSubmissionID string) error {
+func RecalculateScoresForUserProblem(db *gorm.DB, userID, problemID, contestID, sourceSubmissionID string, scoreMode string, maxPerformanceScore int) error {
 	return db.Transaction(func(tx *gorm.DB) error {
-		// 1. Get the user's total score before any changes
+		// For performance mode, we must recalculate for everyone, as the max performance might have changed.
+		if scoreMode == "performance" {
+			// First, find the new best valid submission for the user whose submission was invalidated.
+			var newBestSub models.Submission
+			err := tx.Where("user_id = ? AND problem_id = ? AND is_valid = ?", userID, problemID, true).
+				Order("performance desc, created_at asc").
+				First(&newBestSub).Error
+
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				// No valid submissions left for this user. Delete their best score record.
+				if err := tx.Where("user_id = ? AND contest_id = ? AND problem_id = ?", userID, contestID, problemID).
+					Delete(&models.UserProblemBestScore{}).Error; err != nil {
+					return err
+				}
+			} else if err != nil {
+				return err // A different database error.
+			} else {
+				// A new best valid submission was found. Update the user's best score entry.
+				// Score will be recalculated later. Just update performance and submission ID.
+				// LastScoreTime is also updated because this is now their best attempt.
+				if err := tx.Model(&models.UserProblemBestScore{}).
+					Where("user_id = ? AND contest_id = ? AND problem_id = ?", userID, contestID, problemID).
+					Updates(map[string]interface{}{
+						"performance":     newBestSub.Performance,
+						"submission_id":   newBestSub.ID,
+						"last_score_time": newBestSub.CreatedAt,
+					}).Error; err != nil {
+					return err
+				}
+			}
+
+			// Now, find the new global max performance for the problem.
+			var newMaxPerformance struct {
+				Performance float64
+			}
+			err = tx.Model(&models.UserProblemBestScore{}).
+				Select("MAX(performance) as performance").
+				Where("contest_id = ? AND problem_id = ?", contestID, problemID).
+				Scan(&newMaxPerformance).Error
+			if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+				return err
+			}
+
+			// Get all user scores for this problem to recalculate them.
+			var allUserScores []models.UserProblemBestScore
+			if err := tx.Where("contest_id = ? AND problem_id = ?", contestID, problemID).Find(&allUserScores).Error; err != nil {
+				return err
+			}
+
+			for _, userScore := range allUserScores {
+				var newScore int
+				if newMaxPerformance.Performance > 0 {
+					if userScore.Performance == newMaxPerformance.Performance {
+						newScore = maxPerformanceScore
+					} else {
+						newScore = int(float64(maxPerformanceScore) * userScore.Performance / newMaxPerformance.Performance)
+					}
+				} // If max performance is 0, score is 0.
+
+				if userScore.Score != newScore {
+					// Invalidation shouldn't update LastScoreTime for score changes.
+					if err := tx.Model(&userScore).Update("score", newScore).Error; err != nil {
+						return err
+					}
+					if err := createScoreHistory(tx, userScore.UserID, contestID, problemID, sourceSubmissionID); err != nil {
+						return err
+					}
+				}
+			}
+			return nil
+		}
+
+		// --- Default "score" mode logic ---
 		var oldTotalScore int
-		// Find the most recent score history entry for the user in this contest
 		if err := tx.Model(&models.ContestScoreHistory{}).
 			Select("total_score_after_change").
 			Where("user_id = ? AND contest_id = ?", userID, contestID).
 			Order("created_at desc").
 			Limit(1).
 			Scan(&oldTotalScore).Error; err != nil {
-			// If no record found, old score is 0. This is not an error.
 			if !errors.Is(err, gorm.ErrRecordNotFound) {
 				return err
 			}
 			oldTotalScore = 0
 		}
 
-		// Find the new best valid submission for the specific problem.
-		// Highest score wins. For ties, earliest submission wins.
 		var newBestSub models.Submission
 		err := tx.Where("user_id = ? AND problem_id = ? AND is_valid = ?", userID, problemID, true).
 			Order("score desc, created_at asc").
@@ -394,17 +496,14 @@ func RecalculateScoresForUserProblem(db *gorm.DB, userID, problemID, contestID, 
 
 		if err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
-				// No valid submissions left for this problem, so delete the best score entry.
 				if err := tx.Where("user_id = ? AND contest_id = ? AND problem_id = ?", userID, contestID, problemID).
 					Delete(&models.UserProblemBestScore{}).Error; err != nil {
 					return err
 				}
 			} else {
-				// A different database error occurred.
 				return err
 			}
 		} else {
-			// A new best valid submission was found. Update or create the best score entry.
 			bestScore := models.UserProblemBestScore{
 				UserID:        userID,
 				ContestID:     contestID,
@@ -413,7 +512,6 @@ func RecalculateScoresForUserProblem(db *gorm.DB, userID, problemID, contestID, 
 				SubmissionID:  newBestSub.ID,
 				LastScoreTime: newBestSub.CreatedAt,
 			}
-			// Use OnConflict to either create a new record or update the existing one based on the unique index.
 			if err := tx.Clauses(clause.OnConflict{
 				Columns:   []clause.Column{{Name: "user_id"}, {Name: "contest_id"}, {Name: "problem_id"}},
 				DoUpdates: clause.AssignmentColumns([]string{"score", "submission_id", "last_score_time"}),
@@ -422,7 +520,6 @@ func RecalculateScoresForUserProblem(db *gorm.DB, userID, problemID, contestID, 
 			}
 		}
 
-		// Recalculate the new total score for the contest
 		var newTotalScore int
 		if err := tx.Model(&models.UserProblemBestScore{}).
 			Select("COALESCE(SUM(score), 0)").
@@ -431,7 +528,6 @@ func RecalculateScoresForUserProblem(db *gorm.DB, userID, problemID, contestID, 
 			return err
 		}
 
-		// If the total score has changed, create a new history record
 		if newTotalScore != oldTotalScore {
 			history := models.ContestScoreHistory{
 				UserID:                    userID,
@@ -445,6 +541,135 @@ func RecalculateScoresForUserProblem(db *gorm.DB, userID, problemID, contestID, 
 			}
 		}
 
+		return nil
+	})
+}
+
+func UpdateScoresForPerformanceSubmission(db *gorm.DB, sub *models.Submission, contestID string, maxPerformanceScore int) error {
+	// Performance score of 0 is ignored for initial scoring.
+	if sub.Performance == 0 {
+		return db.Model(sub).Update("performance", sub.Performance).Error
+	}
+
+	return db.Transaction(func(tx *gorm.DB) error {
+		// First, update the submission's performance value. The score will be calculated and updated later in the transaction.
+		if err := tx.Model(sub).UpdateColumns(map[string]interface{}{"performance": sub.Performance}).Error; err != nil {
+			return err
+		}
+
+		// Get the current highest performance for this problem *before* this submission's impact is recorded in UserProblemBestScore.
+		var currentMaxPerformance struct {
+			Performance float64
+		}
+		err := tx.Model(&models.UserProblemBestScore{}).
+			Select("MAX(performance) as performance").
+			Where("contest_id = ? AND problem_id = ?", contestID, sub.ProblemID).
+			Scan(&currentMaxPerformance).Error
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
+		}
+
+		// Get this user's current best performance record.
+		var userBestScore models.UserProblemBestScore
+		err = tx.Where("user_id = ? AND contest_id = ? AND problem_id = ?", sub.UserID, contestID, sub.ProblemID).
+			First(&userBestScore).Error
+		isFirstSubmissionForUser := errors.Is(err, gorm.ErrRecordNotFound)
+
+		// Only proceed if this is a new best performance for the user.
+		if isFirstSubmissionForUser || sub.Performance > userBestScore.Performance {
+			// Update or create the user's best performance record.
+			// Score will be updated later. LastScoreTime is only updated on a score *increase*.
+			userBestScore.UserID = sub.UserID
+			userBestScore.ContestID = contestID
+			userBestScore.ProblemID = sub.ProblemID
+			userBestScore.Performance = sub.Performance
+			userBestScore.SubmissionID = sub.ID
+			if err := tx.Save(&userBestScore).Error; err != nil {
+				return err
+			}
+		} else {
+			// Not a new best for the user. Calculate their score based on current max and update the submission object, then we are done.
+			score := 0
+			if currentMaxPerformance.Performance > 0 {
+				score = int(float64(maxPerformanceScore) * sub.Performance / currentMaxPerformance.Performance)
+			}
+			return tx.Model(sub).Update("score", score).Error
+		}
+
+		// --- Recalculate scores ---
+
+		// Case 1: This submission sets a new global max performance.
+		if sub.Performance > currentMaxPerformance.Performance {
+			newMaxPerformance := sub.Performance
+			// The submitter gets the max score.
+			submitterNewScore := maxPerformanceScore
+			if submitterNewScore > userBestScore.Score {
+				// Score increased, update score and time.
+				if err := tx.Model(&userBestScore).Updates(map[string]interface{}{"score": submitterNewScore, "last_score_time": sub.CreatedAt}).Error; err != nil {
+					return err
+				}
+				if err := createScoreHistory(tx, sub.UserID, contestID, sub.ProblemID, sub.ID); err != nil {
+					return err
+				}
+			} else {
+				// Score did not increase (or it's the first submission), just update the score.
+				if err := tx.Model(&userBestScore).Update("score", submitterNewScore).Error; err != nil {
+					return err
+				}
+				if isFirstSubmissionForUser {
+					if err := createScoreHistory(tx, sub.UserID, contestID, sub.ProblemID, sub.ID); err != nil {
+						return err
+					}
+				}
+			}
+
+			// Update the submission object itself with the final score
+			if err := tx.Model(sub).Update("score", submitterNewScore).Error; err != nil {
+				return err
+			}
+
+			// Recalculate scores for all other users.
+			var otherUserScores []models.UserProblemBestScore
+			if err := tx.Where("contest_id = ? AND problem_id = ? AND user_id != ?", contestID, sub.ProblemID, sub.UserID).Find(&otherUserScores).Error; err != nil {
+				return err
+			}
+			for _, otherUser := range otherUserScores {
+				newScore := int(float64(maxPerformanceScore) * otherUser.Performance / newMaxPerformance)
+				if otherUser.Score != newScore {
+					// Score changed, update it. Do NOT update LastScoreTime.
+					if err := tx.Model(&otherUser).Update("score", newScore).Error; err != nil {
+						return err
+					}
+					if err := createScoreHistory(tx, otherUser.UserID, contestID, sub.ProblemID, sub.ID); err != nil {
+						return err
+					}
+				}
+			}
+		} else { // Case 2: Not a new global max.
+			// Calculate this user's score based on the existing max performance.
+			newScore := int(float64(maxPerformanceScore) * sub.Performance / currentMaxPerformance.Performance)
+			if newScore > userBestScore.Score {
+				// Score increased, update score and time.
+				if err := tx.Model(&userBestScore).Updates(map[string]interface{}{"score": newScore, "last_score_time": sub.CreatedAt}).Error; err != nil {
+					return err
+				}
+				if err := createScoreHistory(tx, sub.UserID, contestID, sub.ProblemID, sub.ID); err != nil {
+					return err
+				}
+			} else if isFirstSubmissionForUser {
+				// First submission, not a record. Just set the score.
+				if err := tx.Model(&userBestScore).Update("score", newScore).Error; err != nil {
+					return err
+				}
+				if err := createScoreHistory(tx, sub.UserID, contestID, sub.ProblemID, sub.ID); err != nil {
+					return err
+				}
+			}
+			// Update the submission object itself with the final score
+			if err := tx.Model(sub).Update("score", newScore).Error; err != nil {
+				return err
+			}
+		}
 		return nil
 	})
 }

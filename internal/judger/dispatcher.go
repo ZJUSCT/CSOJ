@@ -29,8 +29,9 @@ type Dispatcher struct {
 }
 
 type JudgeResult struct {
-	Score int                    `json:"score"`
-	Info  map[string]interface{} `json:"info"`
+	Score       int                    `json:"score"`
+	Performance float64                `json:"performance"`
+	Info        map[string]interface{} `json:"info"`
 }
 
 func NewDispatcher(cfg *config.Config, db *gorm.DB, scheduler *Scheduler, appState *AppState) *Dispatcher {
@@ -97,9 +98,37 @@ func (d *Dispatcher) Dispatch(sub *models.Submission, prob *Problem, node *NodeS
 		return
 	}
 
+	contestID := d.findContestIDForProblem(prob.ID)
+	if contestID == "" {
+		zap.S().Warnf("cannot find contest for problem %s, skipping score update", prob.ID)
+	}
+
+	sub.Info = result.Info // common for both modes
+
+	if prob.Score.Mode == "performance" && contestID != "" {
+		sub.Performance = result.Performance
+		// Score will be calculated by the DB function
+		if err := database.UpdateScoresForPerformanceSubmission(d.db, sub, contestID, prob.Score.MaxPerformanceScore); err != nil {
+			zap.S().Errorf("failed to update performance scores for submission %s: %v", sub.ID, err)
+		}
+		// After the transaction, the submission score in the DB is updated. Let's retrieve it to put it in the final object.
+		var updatedSub models.Submission
+		if errDb := d.db.Select("score").Where("id = ?", sub.ID).First(&updatedSub).Error; errDb == nil {
+			sub.Score = updatedSub.Score
+		} else {
+			zap.S().Errorf("failed to retrieve updated score for submission %s: %v", sub.ID, errDb)
+		}
+
+	} else { // Default score mode or no contest found
+		sub.Score = result.Score
+		if contestID != "" {
+			if err := database.UpdateScoresForNewSubmission(d.db, sub, contestID, sub.Score); err != nil {
+				zap.S().Errorf("failed to update scores for submission %s: %v", sub.ID, err)
+			}
+		}
+	}
+
 	sub.Status = models.StatusSuccess
-	sub.Score = result.Score
-	sub.Info = result.Info
 	if err := database.UpdateSubmission(d.db, sub); err != nil {
 		zap.S().Errorf("failed to update successful submission %s: %v", sub.ID, err)
 		return
@@ -107,15 +136,6 @@ func (d *Dispatcher) Dispatch(sub *models.Submission, prob *Problem, node *NodeS
 
 	zap.S().Infof("submission %s finished successfully with score %d", sub.ID, sub.Score)
 	pubsub.GetBroker().CloseTopic(sub.ID)
-
-	contestID := d.findContestIDForProblem(prob.ID)
-	if contestID == "" {
-		zap.S().Warnf("cannot find contest for problem %s, skipping score update", prob.ID)
-		return
-	}
-	if err := database.UpdateScoresForNewSubmission(d.db, sub, contestID, sub.Score); err != nil {
-		zap.S().Errorf("failed to update scores for submission %s: %v", sub.ID, err)
-	}
 }
 
 func (d *Dispatcher) runWorkflowStep(docker *DockerManager, sub *models.Submission, prob *Problem, flow WorkflowStep, cpusetCpus string, isFirstStep bool) (containerID, stdout, stderr string, err error) {
