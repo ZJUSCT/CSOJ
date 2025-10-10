@@ -64,6 +64,25 @@ The User API is the primary way for regular users to interact with the CSOJ syst
 
 -----
 
+### General Info
+
+#### `GET /links`
+  - **Description**: Gets the list of dynamic navigation links configured in `config.yaml`.
+  - **Authentication**: None
+  - **Success Response** (`200 OK`):
+    ```json
+    {
+      "code": 0,
+      "data": [
+        { "name": "Source Code", "url": "[https://github.com/ZJUSCT/CSOJ](https://github.com/ZJUSCT/CSOJ)" },
+        { "name": "About", "url": "/about" }
+      ],
+      "message": "Links retrieved successfully"
+    }
+    ```
+
+-----
+
 ### Contests
 
 #### `GET /contests`
@@ -141,10 +160,10 @@ The User API is the primary way for regular users to interact with the CSOJ syst
 
 #### `POST /problems/:id/submit`
 
-  - **Description**: Submits code/files for a problem. The request must be of type `multipart/form-data`.
+  - **Description**: Submits code/files for a problem. The request must be of type `multipart/form-data`. **The user must be registered for the contest before submitting.**
   - **Authentication**: JWT
   - **Request Body** (`multipart/form-data`):
-      - `files`: One or more file fields.
+      - `files`: One or more file fields, preserving directory structure.
   - **Success Response** (`200 OK`):
     ```json
     {
@@ -197,7 +216,7 @@ The User API is the primary way for regular users to interact with the CSOJ syst
 
 #### `GET /submissions/:id/containers/:conID/log`
 
-  - **Description**: Gets the full log for a specific step (container) of a submission. The step must be configured with `show: true` in `problem.yaml`.
+  - **Description**: Gets the full log for a specific step (container) of a submission. The step must be configured with `show: true` in `problem.yaml`. The log is returned in NDJSON format.
   - **Authentication**: JWT
 
 -----
@@ -260,7 +279,7 @@ These endpoints serve static assets. Some require authentication, while others a
 
 #### `GET /ws/submissions/:subID/containers/:conID/logs?token=<jwt>`
 
-  - **Description**: Establishes a WebSocket connection to stream real-time logs from a judging container.
+  - **Description**: Establishes a WebSocket connection to stream the complete log from a judging container. For finished containers, it streams the saved log file. For running containers, it first sends all historical logs from the cache and then continues to stream new logs in real-time.
   - **Authentication**: JWT passed via the `token` query parameter.
   - **Message Format** (JSON):
     ```json
