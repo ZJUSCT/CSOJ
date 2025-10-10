@@ -47,6 +47,19 @@ func (h *Handler) submitToProblem(c *gin.Context) {
 		return
 	}
 
+	// Check if user is registered for the contest
+	isRegistered, err := database.IsUserRegisteredForContest(h.db, user.ID, parentContest.ID)
+	if err != nil {
+		h.appState.RUnlock()
+		util.Error(c, http.StatusInternalServerError, fmt.Errorf("failed to check contest registration: %w", err))
+		return
+	}
+	if !isRegistered {
+		h.appState.RUnlock()
+		util.Error(c, http.StatusForbidden, fmt.Errorf("you must register for the contest before submitting"))
+		return
+	}
+
 	// Check time restrictions for submission
 	now := time.Now()
 	if now.Before(parentContest.StartTime) || now.After(parentContest.EndTime) {
