@@ -1,6 +1,7 @@
 package judger
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 	"sync"
@@ -26,6 +27,14 @@ type NodeState struct {
 	*config.Node
 	UsedMemory int64  `json:"used_memory"`
 	UsedCores  []bool `json:"-"`
+	IsPaused   bool   `json:"is_paused"`
+}
+
+type NodeDetail struct {
+	*config.Node
+	UsedMemory int64  `json:"used_memory"`
+	UsedCores  []bool `json:"used_cores"`
+	IsPaused   bool   `json:"is_paused"`
 }
 
 type ClusterState struct {
@@ -65,6 +74,7 @@ func NewScheduler(cfg *config.Config, db *gorm.DB, appState *AppState) *Schedule
 				Node:       &node,
 				UsedMemory: 0,
 				UsedCores:  nodeCores,
+				IsPaused:   false,
 			}
 		}
 		clusters[cluster.Name] = clusterState
@@ -118,19 +128,92 @@ func (s *Scheduler) GetClusterStates() map[string]ClusterState {
 		nodeSnapshots := make(map[string]*NodeState)
 		for nodeName, node := range cluster.Nodes {
 			node.Lock()
+			// Create a copy to avoid exposing internal state directly
+			nodeStateCopy := *node.Node
 			nodeSnapshots[nodeName] = &NodeState{
-				Node:       node.Node,
+				Node:       &nodeStateCopy,
 				UsedMemory: node.UsedMemory,
+				IsPaused:   node.IsPaused,
 			}
 			node.Unlock()
 		}
+		clusterConfigCopy := *cluster.Cluster
 		snapshot[name] = ClusterState{
-			Cluster: cluster.Cluster,
+			Cluster: &clusterConfigCopy,
 			Nodes:   nodeSnapshots,
 		}
 		cluster.Unlock()
 	}
 	return snapshot
+}
+
+func (s *Scheduler) GetNodeDetails(clusterName, nodeName string) (*NodeDetail, error) {
+	cluster, ok := s.clusters[clusterName]
+	if !ok {
+		return nil, fmt.Errorf("cluster '%s' not found", clusterName)
+	}
+
+	node, ok := cluster.Nodes[nodeName]
+	if !ok {
+		return nil, fmt.Errorf("node '%s' not found in cluster '%s'", nodeName, clusterName)
+	}
+
+	node.Lock()
+	defer node.Unlock()
+
+	nodeConfigCopy := *node.Node
+	details := &NodeDetail{
+		Node:       &nodeConfigCopy,
+		UsedMemory: node.UsedMemory,
+		IsPaused:   node.IsPaused,
+		UsedCores:  append([]bool(nil), node.UsedCores...), // Return a copy
+	}
+
+	return details, nil
+}
+
+func (s *Scheduler) PauseNode(clusterName, nodeName string) error {
+	cluster, ok := s.clusters[clusterName]
+	if !ok {
+		return fmt.Errorf("cluster '%s' not found", clusterName)
+	}
+
+	node, ok := cluster.Nodes[nodeName]
+	if !ok {
+		return fmt.Errorf("node '%s' not found in cluster '%s'", nodeName, clusterName)
+	}
+
+	node.Lock()
+	defer node.Unlock()
+	node.IsPaused = true
+	zap.S().Warnf("admin paused node '%s/%s'", clusterName, nodeName)
+	return nil
+}
+
+func (s *Scheduler) ResumeNode(clusterName, nodeName string) error {
+	cluster, ok := s.clusters[clusterName]
+	if !ok {
+		return fmt.Errorf("cluster '%s' not found", clusterName)
+	}
+
+	node, ok := cluster.Nodes[nodeName]
+	if !ok {
+		return fmt.Errorf("node '%s' not found in cluster '%s'", nodeName, clusterName)
+	}
+
+	node.Lock()
+	defer node.Unlock()
+	node.IsPaused = false
+	zap.S().Infof("admin resumed node '%s/%s'", clusterName, nodeName)
+	return nil
+}
+
+func (s *Scheduler) GetQueueLengths() map[string]int {
+	lengths := make(map[string]int)
+	for name, queue := range s.queues {
+		lengths[name] = len(queue)
+	}
+	return lengths
 }
 
 func (s *Scheduler) Submit(submission *models.Submission, problem *Problem) {
@@ -162,48 +245,40 @@ func (s *Scheduler) clusterWorker(clusterName string, queue <-chan QueuedSubmiss
 		var allocatedCores []int
 		zap.S().Infof("processing submission %s for cluster '%s'", job.Submission.ID, clusterName)
 
-		// This loop implements the FIFO retry logic.
-		// The worker will be blocked here until resources are available for this job.
 		for {
-			// Refetch from DB to check for interruptions while waiting.
 			var currentSub models.Submission
 			if err := s.db.First(&currentSub, "id = ?", job.Submission.ID).Error; err != nil {
 				if err == gorm.ErrRecordNotFound {
-					zap.S().Warnf("submission %s was deleted from DB (likely via reload), dropping job.", job.Submission.ID)
+					zap.S().Warnf("submission %s was deleted from DB, dropping job.", job.Submission.ID)
 				} else {
 					zap.S().Errorf("failed to refetch submission %s from DB: %v", job.Submission.ID, err)
 				}
-				node = nil // Ensure node is nil to break outer loop
+				node = nil
 				break
 			}
 			if currentSub.Status != models.StatusQueued {
 				zap.S().Infof("submission %s is no longer in queued status (%s), skipping processing.", currentSub.ID, currentSub.Status)
-				node = nil // Ensure node is nil to break outer loop
+				node = nil
 				break
 			}
 
-			// Use the latest state from the database.
 			job.Submission = &currentSub
 
 			zap.S().Debugf("searching for available node for submission %s in cluster %s", currentSub.ID, clusterName)
 			node, allocatedCores = s.findAvailableNode(clusterName, job.Problem.CPU, job.Problem.Memory)
 			if node != nil {
-				break // Found a node, exit the retry loop.
+				break
 			}
 
-			// Wait before retrying
 			time.Sleep(1 * time.Second)
 		}
 
 		if node == nil {
-			// This happens if the job was dropped (e.g., DB error or cancelled).
-			// The loop above will have logged the reason.
 			continue
 		}
 
 		zap.S().Infof("node %s assigned to submission %s", node.Name, job.Submission.ID)
 
-		// Convert []int to string for storing in DB
 		var coreStrs []string
 		for _, c := range allocatedCores {
 			coreStrs = append(coreStrs, strconv.Itoa(c))
@@ -234,8 +309,12 @@ func (s *Scheduler) findAvailableNode(clusterName string, requiredCPU int, requi
 
 	for _, node := range cluster.Nodes {
 		node.Lock()
+		if node.IsPaused {
+			node.Unlock()
+			continue
+		}
+
 		if node.Memory-node.UsedMemory >= requiredMemory {
-			// 查找连续的可用核心
 			startCore := -1
 			if requiredCPU > 0 {
 				for i := 0; i <= len(node.UsedCores)-requiredCPU; i++ {
@@ -251,17 +330,16 @@ func (s *Scheduler) findAvailableNode(clusterName string, requiredCPU int, requi
 						break
 					}
 				}
-			} else { // Handle CPU=0 case
-				startCore = -2 // Special value indicating no cores needed
+			} else {
+				startCore = -2
 			}
 
 			if startCore != -1 {
-				// 找到了，分配资源
 				allocatedCores := make([]int, requiredCPU)
-				if startCore != -2 { // Only allocate if cores were requested
+				if startCore != -2 {
 					for i := 0; i < requiredCPU; i++ {
 						coreID := startCore + i
-						node.UsedCores[coreID] = true // 标记为已使用
+						node.UsedCores[coreID] = true
 						allocatedCores[i] = coreID
 					}
 				}

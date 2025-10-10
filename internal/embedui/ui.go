@@ -10,16 +10,17 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-//go:embed ui/**
+//go:embed all:sites
 var embedFS embed.FS
 
 // RegisterUIHandlers registers a middleware to serve the embedded UI.
-func RegisterUIHandlers(router *gin.Engine) {
-	// Create a sub-filesystem that starts from the 'ui' directory.
-	uiFS, err := fs.Sub(embedFS, "ui")
+func RegisterUIHandlers(router *gin.Engine, sitename string) {
+	// Create a sub-filesystem that starts from the 'sites' directory.
+	uiFS, err := fs.Sub(embedFS, "sites/"+sitename)
 	if err != nil {
 		panic("embedui: failed to create sub filesystem: " + err.Error())
 	}
+
 	fileServer := http.FileServer(http.FS(uiFS))
 
 	// Use a middleware to handle all requests.

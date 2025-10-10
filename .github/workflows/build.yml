@@ -80,7 +80,7 @@ jobs:
       - name: Download WebUI
         run: |
           wget https://github.com/ZJUSCT/CSOJ-WebUI/releases/latest/download/site.tar.gz
-          tar -xzf site.tar.gz -C ./internal/embedui/ui
+          tar -xzf site.tar.gz -C ./internal/embedui/sites/user
 
       - name: Set up Go
         uses: actions/setup-go@v5

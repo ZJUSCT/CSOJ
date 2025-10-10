@@ -120,6 +120,18 @@ func UpdateContainer(db *gorm.DB, container *models.Container) error {
 	return db.Save(container).Error
 }
 
+func GetAllContainers(db *gorm.DB, filters map[string]string) ([]models.Container, error) {
+	var containers []models.Container
+	query := db.Order("created_at desc")
+	for key, value := range filters {
+		query = query.Where(fmt.Sprintf("%s = ?", key), value)
+	}
+	if err := query.Find(&containers).Error; err != nil {
+		return nil, err
+	}
+	return containers, nil
+}
+
 // Score & Leaderboard
 
 type LeaderboardEntry struct {
@@ -330,6 +342,12 @@ func GetSubmissionCount(db *gorm.DB, userID, contestID, problemID string) (int, 
 		return 0, err
 	}
 	return scoreRecord.SubmissionCount, nil
+}
+
+func GetBestScoresByUserID(db *gorm.DB, userID string) ([]models.UserProblemBestScore, error) {
+	var scores []models.UserProblemBestScore
+	err := db.Where("user_id = ?", userID).Find(&scores).Error
+	return scores, err
 }
 
 func IncrementSubmissionCount(db *gorm.DB, userID, contestID, problemID string) error {

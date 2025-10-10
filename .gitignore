@@ -9,6 +9,7 @@ CSOJ.exe
 
 venv
 
-internal/embedui/ui
+internal/embedui/sites
+
 
 *.log

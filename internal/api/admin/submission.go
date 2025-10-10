@@ -21,12 +21,25 @@ import (
 )
 
 func (h *Handler) getAllSubmissions(c *gin.Context) {
-	subs, err := database.GetAllSubmissions(h.db)
-	if err != nil {
+	// Add filtering capabilities
+	query := h.db.Preload("User").Order("created_at desc")
+	if userID := c.Query("user_id"); userID != "" {
+		query = query.Where("user_id = ?", userID)
+	}
+	if problemID := c.Query("problem_id"); problemID != "" {
+		query = query.Where("problem_id = ?", problemID)
+	}
+	if status := c.Query("status"); status != "" {
+		query = query.Where("status = ?", status)
+	}
+
+	var subs []models.Submission
+	if err := query.Find(&subs).Error; err != nil {
 		util.Error(c, http.StatusInternalServerError, err)
 		return
 	}
-	util.Success(c, subs, "ok")
+
+	util.Success(c, subs, "Submissions retrieved successfully")
 }
 
 func (h *Handler) getSubmission(c *gin.Context) {
@@ -36,6 +49,69 @@ func (h *Handler) getSubmission(c *gin.Context) {
 		return
 	}
 	util.Success(c, sub, "ok")
+}
+
+func (h *Handler) updateSubmission(c *gin.Context) {
+	subID := c.Param("id")
+	sub, err := database.GetSubmission(h.db, subID)
+	if err != nil {
+		util.Error(c, http.StatusNotFound, err)
+		return
+	}
+
+	var req struct {
+		Status *models.Status  `json:"status"`
+		Score  *int            `json:"score"`
+		Info   *models.JSONMap `json:"info"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		util.Error(c, http.StatusBadRequest, err)
+		return
+	}
+
+	if req.Status != nil {
+		sub.Status = *req.Status
+	}
+	if req.Score != nil {
+		sub.Score = *req.Score
+	}
+	if req.Info != nil {
+		sub.Info = *req.Info
+	}
+
+	if err := database.UpdateSubmission(h.db, sub); err != nil {
+		util.Error(c, http.StatusInternalServerError, err)
+		return
+	}
+	zap.S().Warnf("admin manually updated submission %s", sub.ID)
+	util.Success(c, sub, "Submission manually updated. Note: This does not trigger score recalculation.")
+}
+
+func (h *Handler) deleteSubmission(c *gin.Context) {
+	subID := c.Param("id")
+	// First, get submission to find its content path, if any.
+	sub, err := database.GetSubmission(h.db, subID)
+	if err != nil {
+		util.Error(c, http.StatusNotFound, "submission not found")
+		return
+	}
+
+	// Delete from DB. GORM's cascading delete will handle associated containers.
+	if err := h.db.Delete(&models.Submission{}, subID).Error; err != nil {
+		util.Error(c, http.StatusInternalServerError, fmt.Errorf("failed to delete submission from database: %w", err))
+		return
+	}
+
+	// Delete submission content from disk.
+	submissionPath := filepath.Join(h.cfg.Storage.SubmissionContent, subID)
+	if err := os.RemoveAll(submissionPath); err != nil {
+		zap.S().Errorf("failed to delete submission content at %s: %v", submissionPath, err)
+		util.Error(c, http.StatusInternalServerError, "DB record deleted, but failed to delete submission content from disk")
+		return
+	}
+	zap.S().Warnf("admin deleted submission %s and its content", sub.ID)
+	util.Success(c, nil, "Submission and its content deleted successfully")
 }
 
 func (h *Handler) getContainerLog(c *gin.Context) {
