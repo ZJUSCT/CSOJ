@@ -95,7 +95,7 @@ func NewUserRouter(
 		}
 	}
 
-	embedui.RegisterUIHandlers(r)
+	embedui.RegisterUIHandlers(r, "user")
 
 	return r
 }
