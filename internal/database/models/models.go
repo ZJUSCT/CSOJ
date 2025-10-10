@@ -66,7 +66,7 @@ type Submission struct {
 	Info           JSONMap `gorm:"type:text" json:"info"`
 	IsValid        bool    `json:"is_valid"`
 
-	Containers []Container `json:"containers"`
+	Containers []Container `gorm:"foreignKey:SubmissionID;constraint:OnDelete:CASCADE" json:"containers"`
 }
 
 type Container struct {

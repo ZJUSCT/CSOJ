@@ -1,22 +1,92 @@
 package admin
 
 import (
+	"errors"
 	"net/http"
 
+	"github.com/ZJUSCT/CSOJ/internal/auth"
 	"github.com/ZJUSCT/CSOJ/internal/database"
 	"github.com/ZJUSCT/CSOJ/internal/database/models"
 	"github.com/ZJUSCT/CSOJ/internal/util"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"go.uber.org/zap"
+	"gorm.io/gorm"
 )
 
 func (h *Handler) getAllUsers(c *gin.Context) {
+	// Add filtering by username
+	username := c.Query("username")
+	if username != "" {
+		user, err := database.GetUserByUsername(h.db, username)
+		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				util.Error(c, http.StatusNotFound, "user not found")
+			} else {
+				util.Error(c, http.StatusInternalServerError, err)
+			}
+			return
+		}
+		util.Success(c, []models.User{*user}, "User retrieved successfully")
+		return
+	}
+
 	users, err := database.GetAllUsers(h.db)
 	if err != nil {
 		util.Error(c, http.StatusInternalServerError, err)
 		return
 	}
 	util.Success(c, users, "Users retrieved successfully")
+}
+
+func (h *Handler) getUser(c *gin.Context) {
+	userID := c.Param("id")
+	user, err := database.GetUserByID(h.db, userID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			util.Error(c, http.StatusNotFound, "user not found")
+		} else {
+			util.Error(c, http.StatusInternalServerError, err)
+		}
+		return
+	}
+	util.Success(c, user, "User retrieved successfully")
+}
+
+func (h *Handler) updateUser(c *gin.Context) {
+	userID := c.Param("id")
+	user, err := database.GetUserByID(h.db, userID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			util.Error(c, http.StatusNotFound, "user not found")
+		} else {
+			util.Error(c, http.StatusInternalServerError, err)
+		}
+		return
+	}
+
+	var reqBody struct {
+		Nickname  *string `json:"nickname"`
+		Signature *string `json:"signature"`
+	}
+
+	if err := c.ShouldBindJSON(&reqBody); err != nil {
+		util.Error(c, http.StatusBadRequest, err)
+		return
+	}
+
+	if reqBody.Nickname != nil {
+		user.Nickname = *reqBody.Nickname
+	}
+	if reqBody.Signature != nil {
+		user.Signature = *reqBody.Signature
+	}
+
+	if err := database.UpdateUser(h.db, user); err != nil {
+		util.Error(c, http.StatusInternalServerError, err)
+		return
+	}
+	util.Success(c, user, "User profile updated successfully")
 }
 
 func (h *Handler) createUser(c *gin.Context) {
@@ -40,4 +110,122 @@ func (h *Handler) deleteUser(c *gin.Context) {
 		return
 	}
 	util.Success(c, nil, "User deleted successfully")
+}
+
+func (h *Handler) getUserContestHistory(c *gin.Context) {
+	userID := c.Param("id")
+	contestID := c.Query("contest_id")
+
+	if contestID == "" {
+		util.Error(c, http.StatusBadRequest, "contest_id query parameter is required")
+		return
+	}
+
+	if _, err := database.GetUserByID(h.db, userID); err != nil {
+		util.Error(c, http.StatusNotFound, "user not found")
+		return
+	}
+	h.appState.RLock()
+	_, ok := h.appState.Contests[contestID]
+	h.appState.RUnlock()
+	if !ok {
+		util.Error(c, http.StatusNotFound, "contest not found")
+		return
+	}
+
+	history, err := database.GetScoreHistoryForUser(h.db, contestID, userID)
+	if err != nil {
+		util.Error(c, http.StatusInternalServerError, err)
+		return
+	}
+
+	util.Success(c, history, "User score history retrieved successfully")
+}
+
+func (h *Handler) resetUserPassword(c *gin.Context) {
+	userID := c.Param("id")
+	user, err := database.GetUserByID(h.db, userID)
+	if err != nil {
+		util.Error(c, http.StatusNotFound, "user not found")
+		return
+	}
+
+	if user.GitLabID != nil {
+		util.Error(c, http.StatusBadRequest, "cannot reset password for GitLab user")
+		return
+	}
+
+	var req struct {
+		Password string `json:"password" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		util.Error(c, http.StatusBadRequest, err)
+		return
+	}
+
+	hashedPassword, err := auth.HashPassword(req.Password)
+	if err != nil {
+		util.Error(c, http.StatusInternalServerError, "failed to hash new password")
+		return
+	}
+
+	user.PasswordHash = hashedPassword
+	if err := database.UpdateUser(h.db, user); err != nil {
+		util.Error(c, http.StatusInternalServerError, "failed to update user password")
+		return
+	}
+
+	zap.S().Warnf("admin reset password for user %s (%s)", user.Username, user.ID)
+	util.Success(c, nil, "User password reset successfully")
+}
+
+func (h *Handler) registerUserForContest(c *gin.Context) {
+	userID := c.Param("id")
+	var req struct {
+		ContestID string `json:"contest_id" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		util.Error(c, http.StatusBadRequest, err)
+		return
+	}
+
+	if _, err := database.GetUserByID(h.db, userID); err != nil {
+		util.Error(c, http.StatusNotFound, "user not found")
+		return
+	}
+	h.appState.RLock()
+	_, ok := h.appState.Contests[req.ContestID]
+	h.appState.RUnlock()
+	if !ok {
+		util.Error(c, http.StatusNotFound, "contest not found")
+		return
+	}
+
+	if err := database.RegisterForContest(h.db, userID, req.ContestID); err != nil {
+		if err.Error() == "already registered" {
+			util.Error(c, http.StatusConflict, err)
+			return
+		}
+		util.Error(c, http.StatusInternalServerError, err)
+		return
+	}
+
+	zap.S().Infof("admin registered user %s for contest %s", userID, req.ContestID)
+	util.Success(c, nil, "Successfully registered user for contest")
+}
+
+func (h *Handler) getUserScores(c *gin.Context) {
+	userID := c.Param("id")
+	if _, err := database.GetUserByID(h.db, userID); err != nil {
+		util.Error(c, http.StatusNotFound, "user not found")
+		return
+	}
+
+	scores, err := database.GetBestScoresByUserID(h.db, userID)
+	if err != nil {
+		util.Error(c, http.StatusInternalServerError, err)
+		return
+	}
+
+	util.Success(c, scores, "User best scores retrieved successfully")
 }
