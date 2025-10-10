@@ -102,7 +102,27 @@ func (h *Handler) submitToProblem(c *gin.Context) {
 	}
 
 	for _, file := range files {
-		dst := filepath.Join(submissionPath, file.Filename)
+		relativePath := filepath.Clean(file.Filename)
+
+		if filepath.IsAbs(relativePath) || strings.HasPrefix(relativePath, "..") {
+			util.Error(c, http.StatusBadRequest, fmt.Sprintf("invalid file path: %s", file.Filename))
+			return
+		}
+
+		dst := filepath.Join(submissionPath, relativePath)
+
+		dst = filepath.Clean(dst)
+
+		if !strings.HasPrefix(dst, submissionPath) {
+			util.Error(c, http.StatusBadRequest, fmt.Sprintf("invalid file path after join: %s", file.Filename))
+			return
+		}
+
+		if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+			util.Error(c, http.StatusInternalServerError, fmt.Errorf("failed to create directory: %w", err))
+			return
+		}
+
 		if err := c.SaveUploadedFile(file, dst); err != nil {
 			util.Error(c, http.StatusInternalServerError, err)
 			return
