@@ -11,6 +11,7 @@ import (
 type Broker struct {
 	mu          sync.RWMutex
 	subscribers map[string][]chan []byte // topic -> list of subscriber channels
+	cache       map[string][][]byte      // topic -> list of cached messages
 }
 
 type WsMessage struct {
@@ -28,19 +29,32 @@ func GetBroker() *Broker {
 	once.Do(func() {
 		broker = &Broker{
 			subscribers: make(map[string][]chan []byte),
+			cache:       make(map[string][][]byte),
 		}
 	})
 	return broker
 }
 
-// Subscribe subscribes to a topic and returns a channel to receive messages.
-// It also returns an unsubscribe function to be called when the client disconnects.
+// Subscribe subscribes to a topic. It first sends all cached messages to the new
+// subscriber, then adds the subscriber to receive live messages.
 func (b *Broker) Subscribe(topic string) (<-chan []byte, func()) {
 	b.mu.Lock()
-	defer b.mu.Unlock()
 
-	ch := make(chan []byte, 128)
+	ch := make(chan []byte, 128) // Use a buffered channel
+
+	// Send cached history to the new subscriber.
+	// We do this inside the lock to get a consistent snapshot.
+	// The actual sending happens in a goroutine to avoid blocking the broker.
+	history := b.cache[topic]
+
+	go func() {
+		for _, msg := range history {
+			ch <- msg
+		}
+	}()
+
 	b.subscribers[topic] = append(b.subscribers[topic], ch)
+	b.mu.Unlock() // Unlock after modifying subscribers map
 
 	unsubscribe := func() {
 		b.mu.Lock()
@@ -58,28 +72,31 @@ func (b *Broker) Subscribe(topic string) (<-chan []byte, func()) {
 		zap.S().Debugf("unsubscribed from topic %s", topic)
 	}
 
-	zap.S().Debugf("new subscription to topic %s", topic)
+	zap.S().Debugf("new subscription to topic %s, sent %d cached messages", topic, len(history))
 	return ch, unsubscribe
 }
 
-// Publish publishes a message to all subscribers of a topic.
+// Publish publishes a message to all subscribers of a topic and caches it.
 func (b *Broker) Publish(topic string, msg []byte) {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
+	b.mu.Lock()
+	defer b.mu.Unlock()
 
-	// Non-blocking send to all subscribers
+	// Add message to cache.
+	// For production, you might want to add a cache size limit per topic to prevent memory exhaustion.
+	b.cache[topic] = append(b.cache[topic], msg)
+
+	// Broadcast to live subscribers (non-blocking).
 	for _, ch := range b.subscribers[topic] {
 		select {
 		case ch <- msg:
 		default:
-			// If the channel is full, drop the message for this subscriber.
+			// If a subscriber's channel is full, drop the message for them.
 			// This prevents a slow client from blocking the publisher.
 		}
 	}
 }
 
-// CloseTopic closes all subscriber channels for a given topic.
-// This should be called when a submission is finished.
+// CloseTopic closes all subscriber channels and clears the cache for a given topic.
 func (b *Broker) CloseTopic(topic string) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -89,7 +106,9 @@ func (b *Broker) CloseTopic(topic string) {
 			close(ch)
 		}
 		delete(b.subscribers, topic)
-		zap.S().Infof("closed pubsub topic %s", topic)
+		// Crucially, delete the cache to free up memory
+		delete(b.cache, topic)
+		zap.S().Infof("closed pubsub topic %s and cleared cache", topic)
 	}
 }
 

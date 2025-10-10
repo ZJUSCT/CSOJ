@@ -71,10 +71,11 @@ func (d *Dispatcher) Dispatch(sub *models.Submission, prob *Problem, node *NodeS
 		sub.CurrentStep = i
 		database.UpdateSubmission(d.db, sub)
 
-		containerID, stdout, stderr, err := d.runWorkflowStep(docker, sub, prob, flow, cpusetCpus, i == 0)
+		containerID, stdout, _, err := d.runWorkflowStep(docker, sub, prob, flow, cpusetCpus, i == 0)
 
 		if err != nil {
-			d.failSubmission(sub, fmt.Sprintf("workflow step %d failed: %v\nStderr: %s", i+1, err, stderr))
+			// runWorkflowStep now handles logging and failure updates internally
+			d.failSubmission(sub, fmt.Sprintf("workflow step %d failed: %v", i+1, err))
 			pubsub.GetBroker().CloseTopic(sub.ID)
 			return
 		}
@@ -152,6 +153,7 @@ func (d *Dispatcher) runWorkflowStep(docker *DockerManager, sub *models.Submissi
 	go func() {
 		var execStdout, execStderr string
 		var cid string
+		var jsonLogBuffer bytes.Buffer // Buffer for NDJSON log file
 
 		defer func() {
 			if r := recover(); r != nil {
@@ -186,24 +188,28 @@ func (d *Dispatcher) runWorkflowStep(docker *DockerManager, sub *models.Submissi
 			}
 		}
 
-		var combinedLog bytes.Buffer
 		for j, stepCmd := range flow.Steps {
+			startMsg := pubsub.FormatMessage("info", fmt.Sprintf("\n--- Executing Command %d ---\n", j+1))
+			jsonLogBuffer.Write(startMsg)
+			jsonLogBuffer.WriteString("\n")
+			pubsub.GetBroker().Publish(cont.ID, startMsg)
+
 			outputCallback := func(streamType string, data []byte) {
 				msg := pubsub.FormatMessage(streamType, string(data))
 				pubsub.GetBroker().Publish(cont.ID, msg)
+				jsonLogBuffer.Write(msg)
+				jsonLogBuffer.WriteString("\n")
 			}
 
 			execResult, err := docker.ExecInContainer(stepCtx, cid, stepCmd, outputCallback)
 
-			combinedLog.WriteString(fmt.Sprintf("\n--- Executing Command %d ---\n", j+1))
-			combinedLog.WriteString("STDOUT:\n")
-			combinedLog.WriteString(execResult.Stdout)
-			combinedLog.WriteString("\nSTDERR:\n")
-			combinedLog.WriteString(execResult.Stderr)
-			combinedLog.WriteString(fmt.Sprintf("\n--- Exit Code: %d ---\n", execResult.ExitCode))
+			exitMsg := pubsub.FormatMessage("info", fmt.Sprintf("\n--- Exit Code: %d ---\n", execResult.ExitCode))
+			jsonLogBuffer.Write(exitMsg)
+			jsonLogBuffer.WriteString("\n")
+			pubsub.GetBroker().Publish(cont.ID, exitMsg)
 
 			if err != nil || execResult.ExitCode != 0 {
-				d.failContainer(cont, execResult.ExitCode, combinedLog.String())
+				d.failContainer(cont, execResult.ExitCode, jsonLogBuffer.String())
 				errMsg := fmt.Errorf("exec failed with exit code %d: %w", execResult.ExitCode, err)
 				doneChan <- result{ContainerID: cid, Stdout: execResult.Stdout, Stderr: execResult.Stderr, Err: errMsg}
 				return
@@ -211,7 +217,7 @@ func (d *Dispatcher) runWorkflowStep(docker *DockerManager, sub *models.Submissi
 			execStdout = execResult.Stdout
 			execStderr = execResult.Stderr
 		}
-		os.WriteFile(logFilePath, combinedLog.Bytes(), 0644)
+		os.WriteFile(logFilePath, jsonLogBuffer.Bytes(), 0644)
 		doneChan <- result{ContainerID: cid, Stdout: execStdout, Stderr: execStderr, Err: nil}
 	}()
 
@@ -225,7 +231,7 @@ func (d *Dispatcher) runWorkflowStep(docker *DockerManager, sub *models.Submissi
 		case <-stepCtx.Done():
 			zap.S().Warnf("TIMEOUT branch selected for submission %s. Cleaning up container %s.", sub.ID, cidForCleanup)
 			docker.CleanupContainer(cidForCleanup)
-			d.failContainer(cont, -1, "overall step timeout exceeded")
+			d.failContainer(cont, -1, string(pubsub.FormatMessage("error", "Timeout exceeded")))
 			return cidForCleanup, "", "Timeout exceeded", stepCtx.Err()
 
 		case finalRes = <-doneChan:
@@ -233,7 +239,7 @@ func (d *Dispatcher) runWorkflowStep(docker *DockerManager, sub *models.Submissi
 		}
 	case <-stepCtx.Done():
 		zap.S().Warnf("TIMEOUT branch selected for submission %s. Container was not even created.", sub.ID)
-		d.failContainer(cont, -1, "overall step timeout exceeded before container creation")
+		d.failContainer(cont, -1, string(pubsub.FormatMessage("error", "Timeout exceeded before container creation")))
 		return "", "", "Timeout exceeded", stepCtx.Err()
 
 	case finalRes = <-doneChan:

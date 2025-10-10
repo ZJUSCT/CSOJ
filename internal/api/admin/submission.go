@@ -65,7 +65,7 @@ func (h *Handler) getContainerLog(c *gin.Context) {
 	}
 	defer file.Close()
 
-	c.Header("Content-Type", "text/plain; charset=utf-8")
+	c.Header("Content-Type", "application/x-ndjson; charset=utf-8")
 	io.Copy(c.Writer, file)
 }
 
