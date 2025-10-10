@@ -142,12 +142,13 @@ func (h *Handler) updateSubmissionValidity(c *gin.Context) {
 	if !reqBody.IsValid {
 		h.appState.RLock()
 		contest, ok := h.appState.ProblemToContestMap[sub.ProblemID]
+		problem, probOk := h.appState.Problems[sub.ProblemID]
 		h.appState.RUnlock()
-		if !ok {
+		if !ok || !probOk {
 			// This should not happen in a consistent system, but handle it
-			zap.S().Errorf("failed to find parent contest for problem %s during score recalculation for submission %s", sub.ProblemID, sub.ID)
+			zap.S().Errorf("failed to find parent contest or problem %s during score recalculation for submission %s", sub.ProblemID, sub.ID)
 		} else {
-			if err := database.RecalculateScoresForUserProblem(h.db, sub.UserID, sub.ProblemID, contest.ID, sub.ID); err != nil {
+			if err := database.RecalculateScoresForUserProblem(h.db, sub.UserID, sub.ProblemID, contest.ID, sub.ID, problem.Score.Mode, problem.Score.MaxPerformanceScore); err != nil {
 				util.Error(c, http.StatusInternalServerError, fmt.Errorf("failed to recalculate scores: %w", err))
 				return
 			}

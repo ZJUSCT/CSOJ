@@ -62,6 +62,7 @@ type Submission struct {
 	Node           string  `json:"node"`
 	AllocatedCores string  `json:"allocated_cores"` // e.g., "2,3,4"
 	Score          int     `json:"score"`
+	Performance    float64 `json:"performance"`
 	Info           JSONMap `gorm:"type:text" json:"info"`
 	IsValid        bool    `json:"is_valid"`
 
@@ -102,6 +103,7 @@ type UserProblemBestScore struct {
 	ContestID       string `gorm:"uniqueIndex:idx_user_problem"`
 	ProblemID       string `gorm:"uniqueIndex:idx_user_problem"`
 	Score           int
+	Performance     float64
 	SubmissionID    string
 	SubmissionCount int
 	LastScoreTime   time.Time
