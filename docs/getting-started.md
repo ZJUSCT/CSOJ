@@ -59,6 +59,11 @@ cluster:
 # Paths to contest and problem configuration files
 contest:
   - "contests/sample-contest"
+
+# (Optional) Dynamic links for the frontend navigation bar
+links:
+  - name: "Project Source"
+    url: "[https://github.com/ZJUSCT/CSOJ](https://github.com/ZJUSCT/CSOJ)"
 ```
 
 For more details on configuration files, please refer to the **[Configuration Guides](https://www.google.com/search?q=./configuration/main-config.md)**.

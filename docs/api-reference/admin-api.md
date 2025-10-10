@@ -66,7 +66,7 @@ The current version of the Admin API has **no built-in authentication mechanism*
 
 #### `GET /submissions/:id/containers/:conID/log`
 
-  - **Description**: Gets the full log for any step (container) of any submission, regardless of the `show` flag.
+  - **Description**: Gets the full log for any step (container) of any submission, regardless of the `show` flag. The log is returned in NDJSON format.
 
 #### `POST /submissions/:id/rejudge`
 
@@ -103,5 +103,5 @@ The current version of the Admin API has **no built-in authentication mechanism*
 
 #### `GET /ws/submissions/:id/containers/:conID/logs`
 
-  - **Description**: Establishes a WebSocket connection to stream logs from any container, regardless of its state (running or finished) or `show` flag.
+  - **Description**: Establishes a WebSocket connection to stream the complete log for any container. For finished containers, it streams the saved log file. For running containers, it first sends all historical logs from the cache and then continues to stream new logs in real-time. This is available regardless of the `show` flag.
   - **Authentication**: None.

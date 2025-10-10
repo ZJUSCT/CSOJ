@@ -29,7 +29,7 @@ storage:
 auth:
   jwt:
     secret: "a_very_secret_key_change_me" # JWT signing secret, MUST be changed
-    expire_hours: 72                       # JWT expiration time in hours
+    expire_hours: 72                     # JWT expiration time in hours
   
   # Local username/password authentication
   local:
@@ -37,7 +37,7 @@ auth:
   
   # GitLab OAuth2 authentication
   gitlab:
-    url: "[https://gitlab.com](https://gitlab.com)"             # GitLab instance URL
+    url: "https://gitlab.com"
     client_id: "YOUR_GITLAB_CLIENT_ID"
     client_secret: "YOUR_GITLAB_CLIENT_SECRET"
     redirect_uri: "http://localhost:8080/api/v1/auth/gitlab/callback"
@@ -49,12 +49,19 @@ cors:
     - "http://localhost:3000"
     - "[http://127.0.0.1:3000](http://127.0.0.1:3000)"
 
+# Dynamic links for the frontend navigation bar
+links:
+  - name: "Project Source"
+    url: "[https://github.com/ZJUSCT/CSOJ](https://github.com/ZJUSCT/CSOJ)"
+  - name: "About"
+    url: "/about"
+
 # Judger cluster configuration
 cluster:
   - name: "default-cluster" # Cluster name, referenced in problem configs
     node:
       - name: "node-1"
-        cpu: 4             # Total CPU cores available for judging
+        cpu: 4           # Total CPU cores available for judging
         memory: 4096       # Total memory (in MB) available for judging
         docker: "tcp://192.168.1.101:2375" # Docker Daemon address for this node
       - name: "node-2"
@@ -137,6 +144,24 @@ contest:
   - **Required**: No
   - **Description**: Configures Cross-Origin Resource Sharing (CORS) for the API.
       - `allowed_origins`: (array of strings) A list of origins that are allowed to access the API. You can add your frontend application's address here. Supports `*` as a wildcard.
+
+-----
+
+### `links`
+
+  - **Type**: `array of objects`
+  - **Required**: No
+  - **Description**: Defines a list of dynamic links to be displayed in the frontend's main navigation bar.
+      - `name`: (string) The text to display for the link.
+      - `url`: (string) The destination URL. Can be an internal path (e.g., `/about`) or an external URL (e.g., `https://github.com/ZJUSCT/CSOJ`).
+  - **Example**:
+    ```yaml
+    links:
+      - name: "Project Source"
+        url: "[https://github.com/ZJUSCT/CSOJ](https://github.com/ZJUSCT/CSOJ)"
+      - name: "About"
+        url: "/about"
+    ```
 
 -----
 

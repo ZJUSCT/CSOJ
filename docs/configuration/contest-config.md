@@ -12,7 +12,6 @@ contests/sample-contest/
 ├── contest.yaml      \# The core configuration file for the contest
 ├── index.md          \# (Optional) Detailed contest description in Markdown
 └── p1001-aplusb/     \# A problem directory; the name is arbitrary
-└── ...
 
 ```
 

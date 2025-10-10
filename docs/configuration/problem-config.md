@@ -9,19 +9,19 @@ A problem directory must contain a `problem.yaml` file and may optionally includ
 ```
 
 ...
-└── p1001-aplusb/
 ├── problem.yaml    \# The core configuration file for the problem
 ├── index.md        \# (Optional) The problem statement in Markdown
 └── index.assets/   \#(Optional) Static assets (e.g., images) referenced in the statement
-└── image.png
 
 ```
 
 ---
 
-## `problem.yaml` Example
+## `problem.yaml` Examples
 
-This is a configuration example for a classic A+B problem.
+### Example 1: Standard File Upload
+
+This is a configuration for a classic A+B problem using the file upload method.
 
 ```yaml
 # The unique ID for the problem
@@ -40,8 +40,8 @@ max_submissions: 10
 
 # Limits on user-uploaded files (optional)
 upload:
-  maxnum: 1    # Maximum number of files allowed
-  maxsize: 64  # Maximum size (in KB) for each file
+  maxnum: 2    # Max number of files allowed
+  maxsize: 1   # Max total size for all files in MB
 
 # Judging resource configuration
 cluster: "default-cluster"  # Specifies which cluster to judge on
@@ -51,31 +51,66 @@ memory: 256                 # Amount of memory (in MB) to request for judging
 # The judging workflow
 workflow:
   # Step 1: Compile the C++ code
-  - name: "Compile"             # (Optional) Name for this step
-    image: "gcc:latest"         # The Docker image to use
-    root: false                 # Whether to run the container as the root user
-    timeout: 10                 # Timeout for this step in seconds
-    show: true                  # Whether to allow users to see the log for this step
+  - name: "Compile"
+    image: "gcc:latest"
+    root: false
+    timeout: 10
+    show: true
     steps:
       - ["g++", "main.cpp", "-o", "main"]
 
   # Step 2: Run and judge
-  - name: "Run & Judge"         # (Optional) Name for this step
-    image: "zjusct/oj-judger:latest" # Use an image with judging tools
+  - name: "Run & Judge"
+    image: "zjusct/oj-judger:latest"
     root: false
     timeout: 5
-    show: false                 # Judge logs are usually not shown to users
-    network: false              # (Optional) Disable network for this container
-    mounts:                     # (Optional) Extra volume mounts
+    show: false
+    network: false
+    mounts:
       - type: bind
         source: "/etc/csoj/testcases/aplusb" # Path on the judger node
         target: "/data"                     # Path inside the container
-        readonly: true                      # Mount as read-only
+        readonly: true
     steps:
-      # This is a hypothetical judging command
-      # It reads standard input, runs the user's program, compares the output,
-      # and prints the result (in JSON format) to standard output.
+      # This hypothetical command runs the user's program and prints the result JSON to stdout.
       - ["/judge", "--input", "/data/input.txt", "--ans", "/data/ans.txt", "./main"]
+```
+
+### Example 2: Online Editor
+
+This problem is configured to use the online editor in the frontend.
+
+```yaml
+id: "online-edit-example"
+name: "Online Editor Problem"
+max_submissions: 5
+cluster: "default-cluster"
+cpu: 1
+memory: 256
+
+# Configure the online editor
+upload:
+  editor: true
+  editor_files:
+    - "main.cpp"
+    - "CMakeLists.txt"
+  maxsize: 1 # Max total size of 1 MB for all editor content
+
+workflow:
+  # The workflow remains the same. The judge will receive the editor content
+  # as files with the names specified in `editor_files`.
+  - name: "Compile"
+    image: "gcc:latest"
+    timeout: 10
+    show: true
+    steps:
+      - ["g++", "main.cpp", "-o", "main"]
+  - name: "Judge"
+    image: "zjusct/oj-judger:latest"
+    timeout: 5
+    show: false
+    steps:
+      - ["/judge", "./main"]
 ```
 
 -----
@@ -118,9 +153,11 @@ workflow:
 
   - **Type**: `object`
   - **Required**: No
-  - **Description**: Defines limits for user-uploaded files.
+  - **Description**: Configures the submission method and its limits.
       - `maxnum`: (integer) The maximum number of files a user can upload in a single submission.
-      - `maxsize`: (integer) The maximum size in kilobytes (KB) for each individual file.
+      - `maxsize`: (integer) The maximum **total size** in **megabytes (MB)** for all files in a single submission.
+      - `editor`: (boolean, optional) If set to `true`, the frontend will display an online code editor instead of a file upload interface. Defaults to `false`.
+      - `editor_files`: (array of strings, optional) When `editor` is `true`, this lists the filenames that will be shown as tabs in the online editor. The content from these editors will be submitted as files with these names.
 
 -----
 
