@@ -10,6 +10,11 @@ type CORS struct {
 	AllowedOrigins []string `yaml:"allowed_origins"`
 }
 
+type Link struct {
+	Name string `yaml:"name" json:"name"`
+	URL  string `yaml:"url"  json:"url"`
+}
+
 type Config struct {
 	Cluster []Cluster `yaml:"cluster"`
 	Contest []string  `yaml:"contest"`
@@ -19,6 +24,7 @@ type Config struct {
 	Listen  string    `yaml:"listen"`
 	Admin   Admin     `yaml:"admin"`
 	CORS    CORS      `yaml:"cors"`
+	Links   []Link    `yaml:"links"`
 }
 
 type Cluster struct {

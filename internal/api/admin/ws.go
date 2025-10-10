@@ -98,9 +98,8 @@ func (h *Handler) handleAdminContainerWs(c *gin.Context) {
 
 		scanner := bufio.NewScanner(file)
 		for scanner.Scan() {
-			// Replay the raw log file line by line, classifying it as stdout for the client
-			msg := pubsub.FormatMessage("stdout", scanner.Text())
-			if err := conn.WriteMessage(websocket.TextMessage, msg); err != nil {
+			// The file content is already NDJSON, send it directly
+			if err := conn.WriteMessage(websocket.TextMessage, scanner.Bytes()); err != nil {
 				return // Client disconnected
 			}
 		}

@@ -19,7 +19,6 @@ var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
 	CheckOrigin: func(r *http.Request) bool {
-		// TODO: implement a proper origin check in production
 		return true
 	},
 }
@@ -134,7 +133,7 @@ func (h *Handler) handleUserContainerWs(c *gin.Context) {
 
 		scanner := bufio.NewScanner(file)
 		for scanner.Scan() {
-			msg := pubsub.FormatMessage("stdout", scanner.Text())
+			msg := scanner.Bytes() // The file content is already NDJSON
 			if err := conn.WriteMessage(websocket.TextMessage, msg); err != nil {
 				return // Client disconnected
 			}

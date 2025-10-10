@@ -47,6 +47,19 @@ func (h *Handler) submitToProblem(c *gin.Context) {
 		return
 	}
 
+	// Check if user is registered for the contest
+	isRegistered, err := database.IsUserRegisteredForContest(h.db, user.ID, parentContest.ID)
+	if err != nil {
+		h.appState.RUnlock()
+		util.Error(c, http.StatusInternalServerError, fmt.Errorf("failed to check contest registration: %w", err))
+		return
+	}
+	if !isRegistered {
+		h.appState.RUnlock()
+		util.Error(c, http.StatusForbidden, fmt.Errorf("you must register for the contest before submitting"))
+		return
+	}
+
 	// Check time restrictions for submission
 	now := time.Now()
 	if now.Before(parentContest.StartTime) || now.After(parentContest.EndTime) {
@@ -89,7 +102,27 @@ func (h *Handler) submitToProblem(c *gin.Context) {
 	}
 
 	for _, file := range files {
-		dst := filepath.Join(submissionPath, file.Filename)
+		relativePath := filepath.Clean(file.Filename)
+
+		if filepath.IsAbs(relativePath) || strings.HasPrefix(relativePath, "..") {
+			util.Error(c, http.StatusBadRequest, fmt.Sprintf("invalid file path: %s", file.Filename))
+			return
+		}
+
+		dst := filepath.Join(submissionPath, relativePath)
+
+		dst = filepath.Clean(dst)
+
+		if !strings.HasPrefix(dst, submissionPath) {
+			util.Error(c, http.StatusBadRequest, fmt.Sprintf("invalid file path after join: %s", file.Filename))
+			return
+		}
+
+		if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+			util.Error(c, http.StatusInternalServerError, fmt.Errorf("failed to create directory: %w", err))
+			return
+		}
+
 		if err := c.SaveUploadedFile(file, dst); err != nil {
 			util.Error(c, http.StatusInternalServerError, err)
 			return
@@ -420,6 +453,6 @@ func (h *Handler) getContainerLog(c *gin.Context) {
 	}
 	defer file.Close()
 
-	c.Header("Content-Type", "text/plain; charset=utf-8")
+	c.Header("Content-Type", "application/x-ndjson; charset=utf-8")
 	io.Copy(c.Writer, file)
 }

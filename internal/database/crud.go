@@ -276,6 +276,17 @@ func RegisterForContest(db *gorm.DB, userID, contestID string) error {
 	return db.Create(&history).Error
 }
 
+func IsUserRegisteredForContest(db *gorm.DB, userID, contestID string) (bool, error) {
+	var count int64
+	err := db.Model(&models.ContestScoreHistory{}).
+		Where("user_id = ? AND contest_id = ?", userID, contestID).
+		Count(&count).Error
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
 func GetSubmissionCount(db *gorm.DB, userID, contestID, problemID string) (int, error) {
 	var scoreRecord models.UserProblemBestScore
 	err := db.Where("user_id = ? AND contest_id = ? AND problem_id = ?", userID, contestID, problemID).

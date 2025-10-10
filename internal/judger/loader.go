@@ -20,8 +20,10 @@ type Contest struct {
 }
 
 type UploadLimit struct {
-	MaxNum  int `yaml:"maxnum" json:"max_num"`
-	MaxSize int `yaml:"maxsize" json:"max_size"`
+	MaxNum      int      `yaml:"maxnum" json:"max_num"`
+	MaxSize     int      `yaml:"maxsize" json:"max_size"`
+	Editor      bool     `yaml:"editor" json:"editor"`
+	EditorFiles []string `yaml:"editor_files" json:"editor_files"`
 }
 
 type Mount struct {
