@@ -123,13 +123,14 @@ func UpdateContainer(db *gorm.DB, container *models.Container) error {
 // Score & Leaderboard
 
 type LeaderboardEntry struct {
-	UserID        string         `json:"user_id"`
-	Username      string         `json:"username"`
-	Nickname      string         `json:"nickname"`
-	AvatarURL     string         `json:"avatar_url"`
-	TotalScore    int            `json:"total_score"`
-	ProblemScores map[string]int `json:"problem_scores"`
-	lastScoreTime time.Time
+	UserID           string         `json:"user_id"`
+	Username         string         `json:"username"`
+	Nickname         string         `json:"nickname"`
+	AvatarURL        string         `json:"avatar_url"`
+	TotalScore       int            `json:"total_score"`
+	ProblemScores    map[string]int `json:"problem_scores"`
+	lastScoreTime    time.Time
+	registrationTime time.Time
 }
 
 // UserScoreHistoryPoint represents a single point in a user's score history for a contest.
@@ -140,54 +141,76 @@ type UserScoreHistoryPoint struct {
 }
 
 func GetLeaderboard(db *gorm.DB, contestID string) ([]LeaderboardEntry, error) {
-	// Intermediate struct for scanning the raw query result
+	// --- Step 1: Get all registered users and their registration time as a string ---
+	type registeredUser struct {
+		UserID           string
+		Username         string
+		Nickname         string
+		AvatarURL        string
+		RegistrationTime string // Read time as a string from DB
+	}
+	var users []registeredUser
+	err := db.Table("contest_score_histories").
+		Select("users.id as user_id, users.username, users.nickname, users.avatar_url, datetime(MIN(contest_score_histories.created_at)) as registration_time").
+		Joins("join users on users.id = contest_score_histories.user_id").
+		Where("contest_score_histories.contest_id = ?", contestID).
+		Group("users.id, users.username, users.nickname, users.avatar_url").
+		Scan(&users).Error
+	if err != nil {
+		return nil, fmt.Errorf("failed to get registered users: %w", err)
+	}
+
+	// --- Step 2: Get all best scores for the contest ---
 	type scoreRow struct {
 		UserID        string
-		Username      string
-		Nickname      string
-		AvatarURL     string
 		ProblemID     string
 		Score         int
 		LastScoreTime time.Time
 	}
-	var rows []scoreRow
-	err := db.Table("user_problem_best_scores").
-		Select("users.id as user_id, users.username, users.nickname, users.avatar_url, user_problem_best_scores.problem_id, user_problem_best_scores.score, user_problem_best_scores.last_score_time").
-		Joins("join users on users.id = user_problem_best_scores.user_id").
-		Where("user_problem_best_scores.contest_id = ?", contestID).
-		Scan(&rows).Error
-
+	var scores []scoreRow
+	err = db.Table("user_problem_best_scores").
+		Select("user_id, problem_id, score, last_score_time").
+		Where("contest_id = ?", contestID).
+		Scan(&scores).Error
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to get scores: %w", err)
 	}
 
-	// Process rows into a map for easy aggregation
+	// --- Step 3: Combine users and scores ---
 	resultsMap := make(map[string]*LeaderboardEntry)
-	for _, row := range rows {
-		// If user is not yet in the map, create a new entry
-		if _, ok := resultsMap[row.UserID]; !ok {
 
-			if row.AvatarURL != "" && !strings.HasPrefix(row.AvatarURL, "http") {
-				row.AvatarURL = fmt.Sprintf("/api/v1/assets/avatars/%s", row.AvatarURL)
-			}
-
-			resultsMap[row.UserID] = &LeaderboardEntry{
-				UserID:        row.UserID,
-				Username:      row.Username,
-				Nickname:      row.Nickname,
-				AvatarURL:     row.AvatarURL,
-				TotalScore:    0,
-				ProblemScores: make(map[string]int),
-			}
+	// Initialize map with all registered users, default score 0
+	for _, user := range users {
+		// Manually parse the time string. The format from SQLite's datetime() is "2006-01-02 15:04:05"
+		regTime, parseErr := time.Parse("2006-01-02 15:04:05", user.RegistrationTime)
+		if parseErr != nil {
+			return nil, fmt.Errorf("failed to parse registration time for user %s ('%s'): %w", user.UserID, user.RegistrationTime, parseErr)
 		}
-		// Add problem score, update total score, and track the latest time
-		entry := resultsMap[row.UserID]
-		entry.ProblemScores[row.ProblemID] = row.Score
-		entry.TotalScore += row.Score
 
-		// For tie-breaking, the time is the latest time any of their scores were improved.
-		if row.LastScoreTime.After(entry.lastScoreTime) {
-			entry.lastScoreTime = row.LastScoreTime
+		avatarURL := user.AvatarURL
+		if avatarURL != "" && !strings.HasPrefix(avatarURL, "http") {
+			avatarURL = fmt.Sprintf("/api/v1/assets/avatars/%s", avatarURL)
+		}
+		resultsMap[user.UserID] = &LeaderboardEntry{
+			UserID:           user.UserID,
+			Username:         user.Username,
+			Nickname:         user.Nickname,
+			AvatarURL:        avatarURL,
+			TotalScore:       0,
+			ProblemScores:    make(map[string]int),
+			lastScoreTime:    time.Time{}, // Zero value for time
+			registrationTime: regTime,     // Use the parsed time object
+		}
+	}
+
+	// Populate scores for users who have submitted
+	for _, score := range scores {
+		if entry, ok := resultsMap[score.UserID]; ok {
+			entry.ProblemScores[score.ProblemID] = score.Score
+			entry.TotalScore += score.Score
+			if score.LastScoreTime.After(entry.lastScoreTime) {
+				entry.lastScoreTime = score.LastScoreTime
+			}
 		}
 	}
 
@@ -197,12 +220,20 @@ func GetLeaderboard(db *gorm.DB, contestID string) ([]LeaderboardEntry, error) {
 		results = append(results, *entry)
 	}
 
-	// Sort the final slice by total score descending, then by time ascending for ties
+	// Sort the final slice
 	sort.Slice(results, func(i, j int) bool {
+		// Primary sort: Total Score (desc)
 		if results[i].TotalScore != results[j].TotalScore {
 			return results[i].TotalScore > results[j].TotalScore
 		}
-		// If scores are equal, the one with the earlier time is better (ranks higher).
+
+		// Scores are equal.
+		// If score is 0, tie-break by registration time (asc - earlier is better).
+		if results[i].TotalScore == 0 {
+			return results[i].registrationTime.Before(results[j].registrationTime)
+		}
+
+		// If score is > 0, tie-break by last score time (asc - earlier is better).
 		if results[i].lastScoreTime.IsZero() {
 			return false
 		}
