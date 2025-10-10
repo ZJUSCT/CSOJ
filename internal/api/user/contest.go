@@ -10,6 +10,15 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+func (h *Handler) getLinks(c *gin.Context) {
+	if h.cfg.Links == nil {
+		// Ensure we return an empty array instead of null if links are not configured
+		util.Success(c, []interface{}{}, "Links retrieved successfully")
+		return
+	}
+	util.Success(c, h.cfg.Links, "Links retrieved successfully")
+}
+
 func (h *Handler) getAllContests(c *gin.Context) {
 	h.appState.RLock()
 	defer h.appState.RUnlock()

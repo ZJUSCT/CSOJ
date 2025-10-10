@@ -46,6 +46,7 @@ func NewUserRouter(
 		v1.GET("/ws/submissions/:subID/containers/:conID/logs", h.handleUserContainerWs)
 
 		// Publicly accessible info
+		v1.GET("/links", h.getLinks)
 		v1.GET("/contests", h.getAllContests)
 		v1.GET("/contests/:id", h.getContest)
 		v1.GET("/contests/:id/leaderboard", h.getContestLeaderboard)
