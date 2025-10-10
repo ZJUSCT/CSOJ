@@ -8,3 +8,7 @@ CSOJ
 CSOJ.exe
 
 venv
+
+internal/embedui/ui
+
+*.log
