@@ -14,7 +14,8 @@ type Contest struct {
 	Name        string    `yaml:"name" json:"name"`
 	StartTime   time.Time `yaml:"starttime" json:"starttime"`
 	EndTime     time.Time `yaml:"endtime" json:"endtime"`
-	ProblemIDs  []string  `yaml:"problems" json:"problem_ids"`
+	ProblemDirs []string  `yaml:"problems" json:"problem_dirs"`
+	ProblemIDs  []string  `yaml:"problem_ids" json:"problem_ids"`
 	Description string    `json:"description"`
 	BasePath    string    `json:"-"` // Store the base path to find assets
 }
@@ -109,12 +110,13 @@ func loadContest(dir string) (*Contest, []*Problem, error) {
 	contest.Description = string(desc)
 
 	var loadedProblems []*Problem
-	for _, problemDirName := range contest.ProblemIDs {
+	for _, problemDirName := range contest.ProblemDirs {
 		problem, err := loadProblem(filepath.Join(dir, problemDirName))
 		if err != nil {
 			zap.S().Warnf("failed to load problem %s in contest %s: %v", problemDirName, contest.ID, err)
 			continue
 		}
+		contest.ProblemIDs = append(contest.ProblemIDs, problem.ID)
 		loadedProblems = append(loadedProblems, problem)
 	}
 	return &contest, loadedProblems, nil
