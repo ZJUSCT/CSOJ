@@ -346,28 +346,34 @@ func (h *Handler) updateSubmissionValidity(c *gin.Context) {
 		return
 	}
 
+	// First, apply the validity change to the submission
 	if err := database.UpdateSubmissionValidity(h.db, subID, reqBody.IsValid); err != nil {
 		util.Error(c, http.StatusInternalServerError, err)
 		return
 	}
 
-	// If a submission is marked as invalid, trigger score recalculation
-	if !reqBody.IsValid {
-		h.appState.RLock()
-		contest, ok := h.appState.ProblemToContestMap[sub.ProblemID]
-		problem, probOk := h.appState.Problems[sub.ProblemID]
-		h.appState.RUnlock()
-		if !ok || !probOk {
-			// This should not happen in a consistent system, but handle it
-			zap.S().Errorf("failed to find parent contest or problem %s during score recalculation for submission %s", sub.ProblemID, sub.ID)
-		} else {
-			if err := database.RecalculateScoresForUserProblem(h.db, sub.UserID, sub.ProblemID, contest.ID, sub.ID, problem.Score.Mode, problem.Score.MaxPerformanceScore); err != nil {
-				util.Error(c, http.StatusInternalServerError, fmt.Errorf("failed to recalculate scores: %w", err))
-				return
-			}
-		}
+	// Now, unconditionally trigger the score recalculation logic.
+	// Get contest and problem info needed for the recalculation function.
+	h.appState.RLock()
+	contest, ok := h.appState.ProblemToContestMap[sub.ProblemID]
+	problem, probOk := h.appState.Problems[sub.ProblemID]
+	h.appState.RUnlock()
+	if !ok || !probOk {
+		// This should not happen in a consistent system, but handle it
+		zap.S().Errorf("failed to find parent contest or problem %s during score recalculation for submission %s", sub.ProblemID, sub.ID)
+		// Even if we can't find the problem definition, we proceed to send a success message because the validity itself was updated.
+		// The error is logged for the admin to investigate.
+		util.Success(c, nil, "Submission validity updated, but failed to trigger score recalculation: problem/contest definition not found.")
+		return
 	}
-	util.Success(c, nil, fmt.Sprintf("Submission marked as %v and scores updated if necessary", reqBody.IsValid))
+
+	// Trigger the comprehensive recalculation logic
+	if err := database.RecalculateScoresForUserProblem(h.db, sub.UserID, sub.ProblemID, contest.ID, sub.ID, problem.Score.Mode, problem.Score.MaxPerformanceScore); err != nil {
+		util.Error(c, http.StatusInternalServerError, fmt.Errorf("submission validity updated, but failed to recalculate scores: %w", err))
+		return
+	}
+
+	util.Success(c, nil, "Submission validity updated and scores recalculated successfully.")
 }
 
 func (h *Handler) interruptSubmission(c *gin.Context) {

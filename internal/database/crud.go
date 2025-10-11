@@ -438,36 +438,18 @@ func createScoreHistory(tx *gorm.DB, userID, contestID, problemID, submissionID 
 	return tx.Create(&history).Error
 }
 
-// RecalculateScoresForUserProblem recalculates the best score for a given user/problem,
-// and updates the total contest score if necessary. This is typically called after a
-// submission is marked as invalid.
+// RecalculateScoresForUserProblem recalculates scores after a submission's validity has changed.
+// It implements distinct, comprehensive logic for both "score" and "performance" modes.
+// sourceSubmissionID is the ID of the submission whose validity was just changed.
 func RecalculateScoresForUserProblem(db *gorm.DB, userID, problemID, contestID, sourceSubmissionID string, scoreMode string, maxPerformanceScore int) error {
 	return db.Transaction(func(tx *gorm.DB) error {
-		// --- Common logic for both modes ---
-		// First, determine if the submission being invalidated was the current best score for the user.
-		// This is the key to fixing the bug.
-		var oldBestScore models.UserProblemBestScore
-		err := tx.Where("user_id = ? AND contest_id = ? AND problem_id = ?", userID, contestID, problemID).First(&oldBestScore).Error
-		wasSourceTheBest := false
-		if err == nil {
-			// A best score record exists. Check if it's from the submission being invalidated.
-			if oldBestScore.SubmissionID == sourceSubmissionID {
-				wasSourceTheBest = true
-			}
-		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
-			return err // A real database error occurred.
-		}
-		// If err is gorm.ErrRecordNotFound, it means the user had no previous best score,
-		// so wasSourceTheBest remains false, which is correct.
-
-		// --- Mode-specific logic ---
-		if scoreMode == "performance" {
-			// --- Performance Mode Recalculation ---
-
-			// Find the new best valid submission for the user whose submission was invalidated.
+		// --- SCORE MODE LOGIC ---
+		// Recalculates score only for the triggering user and creates one history record for them.
+		if scoreMode != "performance" {
+			// Find the new best valid submission for this user on this problem.
 			var newBestSub models.Submission
 			err := tx.Where("user_id = ? AND problem_id = ? AND is_valid = ?", userID, problemID, true).
-				Order("performance desc, created_at asc").
+				Order("score desc, created_at asc").
 				First(&newBestSub).Error
 
 			if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -479,21 +461,63 @@ func RecalculateScoresForUserProblem(db *gorm.DB, userID, problemID, contestID, 
 			} else if err != nil {
 				return err // A different database error.
 			} else {
-				// A new best valid submission was found. Update the user's best score entry.
-				// Score will be recalculated later. Just update performance and submission ID.
-				// LastScoreTime is also updated because this is now their best attempt.
-				if err := tx.Model(&models.UserProblemBestScore{}).
-					Where("user_id = ? AND contest_id = ? AND problem_id = ?", userID, contestID, problemID).
-					Updates(map[string]interface{}{
-						"performance":     newBestSub.Performance,
-						"submission_id":   newBestSub.ID,
-						"last_score_time": newBestSub.CreatedAt,
-					}).Error; err != nil {
+				// A new best valid submission was found. Update or create the user's best score entry.
+				bestScore := models.UserProblemBestScore{
+					UserID:        userID,
+					ContestID:     contestID,
+					ProblemID:     problemID,
+					Score:         newBestSub.Score,
+					SubmissionID:  newBestSub.ID,
+					LastScoreTime: newBestSub.CreatedAt,
+				}
+				if err := tx.Clauses(clause.OnConflict{
+					Columns:   []clause.Column{{Name: "user_id"}, {Name: "contest_id"}, {Name: "problem_id"}},
+					DoUpdates: clause.AssignmentColumns([]string{"score", "submission_id", "last_score_time"}),
+				}).Create(&bestScore).Error; err != nil {
 					return err
 				}
 			}
 
-			// Find the new global max performance for the problem.
+			// Unconditionally create a new score history record for the user.
+			return createScoreHistory(tx, userID, contestID, problemID, sourceSubmissionID)
+		}
+
+		// --- PERFORMANCE MODE LOGIC ---
+		// Recalculates scores for ALL users on this problem and creates a history record for EACH of them.
+		if scoreMode == "performance" {
+			// First, update the best performance record for the triggering user specifically.
+			var newBestPerfSub models.Submission
+			err := tx.Where("user_id = ? AND problem_id = ? AND is_valid = ?", userID, problemID, true).
+				Order("performance desc, created_at asc").
+				First(&newBestPerfSub).Error
+
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				// No valid submissions left. Delete their best score record.
+				if err := tx.Where("user_id = ? AND contest_id = ? AND problem_id = ?", userID, contestID, problemID).
+					Delete(&models.UserProblemBestScore{}).Error; err != nil {
+					return err
+				}
+			} else if err != nil {
+				return err // A different database error.
+			} else {
+				// New best performance found. Update/create their record. Score will be recalculated below.
+				bestScore := models.UserProblemBestScore{
+					UserID:        userID,
+					ContestID:     contestID,
+					ProblemID:     problemID,
+					Performance:   newBestPerfSub.Performance,
+					SubmissionID:  newBestPerfSub.ID,
+					LastScoreTime: newBestPerfSub.CreatedAt,
+				}
+				if err := tx.Clauses(clause.OnConflict{
+					Columns:   []clause.Column{{Name: "user_id"}, {Name: "contest_id"}, {Name: "problem_id"}},
+					DoUpdates: clause.AssignmentColumns([]string{"performance", "submission_id", "last_score_time"}),
+				}).Create(&bestScore).Error; err != nil {
+					return err
+				}
+			}
+
+			// Find the new GLOBAL max performance for the problem across all users.
 			var newMaxPerformance struct {
 				Performance float64
 			}
@@ -511,103 +535,29 @@ func RecalculateScoresForUserProblem(db *gorm.DB, userID, problemID, contestID, 
 				return err
 			}
 
+			// Loop through every user, recalculate their score, update it, and create a history record for them.
 			for _, userScore := range allUserScores {
 				var newScore int
 				if newMaxPerformance.Performance > 0 {
 					newScore = int(math.Round(float64(maxPerformanceScore) * userScore.Performance / newMaxPerformance.Performance))
-				} // If max performance is 0 or less, score is 0.
+				} // If max performance is 0 or less, score defaults to 0.
 
-				scoreChanged := userScore.Score != newScore
-				isTriggeringUser := userScore.UserID == userID
-
-				// Only perform a DB write if the score actually changed.
-				if scoreChanged {
+				// Only update the score in the DB if it has actually changed.
+				if userScore.Score != newScore {
 					if err := tx.Model(&userScore).Update("score", newScore).Error; err != nil {
 						return err
 					}
 				}
 
-				// Create a history entry if the score changed, OR if this is the user
-				// whose best submission was just invalidated.
-				if scoreChanged || (isTriggeringUser && wasSourceTheBest) {
-					if err := createScoreHistory(tx, userScore.UserID, contestID, problemID, sourceSubmissionID); err != nil {
-						return err
-					}
-				}
-			}
-			return nil
-
-		} else {
-			// --- Default "score" Mode Recalculation ---
-			var oldTotalScore int
-			if err := tx.Model(&models.ContestScoreHistory{}).
-				Select("total_score_after_change").
-				Where("user_id = ? AND contest_id = ?", userID, contestID).
-				Order("created_at desc").
-				Limit(1).
-				Scan(&oldTotalScore).Error; err != nil {
-				if !errors.Is(err, gorm.ErrRecordNotFound) {
-					return err
-				}
-				oldTotalScore = 0
-			}
-
-			var newBestSub models.Submission
-			err := tx.Where("user_id = ? AND problem_id = ? AND is_valid = ?", userID, problemID, true).
-				Order("score desc, created_at asc").
-				First(&newBestSub).Error
-
-			if err != nil {
-				if errors.Is(err, gorm.ErrRecordNotFound) {
-					// No valid submissions left, so delete the best score record.
-					if err := tx.Where("user_id = ? AND contest_id = ? AND problem_id = ?", userID, contestID, problemID).
-						Delete(&models.UserProblemBestScore{}).Error; err != nil {
-						return err
-					}
-				} else {
-					return err // Other DB error.
-				}
-			} else {
-				// A new best submission was found, update/create the best score record.
-				bestScore := models.UserProblemBestScore{
-					UserID:        userID,
-					ContestID:     contestID,
-					ProblemID:     problemID,
-					Score:         newBestSub.Score,
-					SubmissionID:  newBestSub.ID,
-					LastScoreTime: newBestSub.CreatedAt,
-				}
-				if err := tx.Clauses(clause.OnConflict{
-					Columns:   []clause.Column{{Name: "user_id"}, {Name: "contest_id"}, {Name: "problem_id"}},
-					DoUpdates: clause.AssignmentColumns([]string{"score", "submission_id", "last_score_time"}),
-				}).Create(&bestScore).Error; err != nil {
-					return err
-				}
-			}
-
-			var newTotalScore int
-			if err := tx.Model(&models.UserProblemBestScore{}).
-				Select("COALESCE(SUM(score), 0)").
-				Where("user_id = ? AND contest_id = ?", userID, contestID).
-				Scan(&newTotalScore).Error; err != nil {
-				return err
-			}
-
-			// This is the fix: create history if total score changed OR if the invalidated submission was the best one.
-			if newTotalScore != oldTotalScore || wasSourceTheBest {
-				history := models.ContestScoreHistory{
-					UserID:                    userID,
-					ContestID:                 contestID,
-					ProblemID:                 problemID, // The problem that triggered the change
-					TotalScoreAfterChange:     newTotalScore,
-					LastEffectiveSubmissionID: sourceSubmissionID, // The submission that was invalidated
-				}
-				if err := tx.Create(&history).Error; err != nil {
+				// As per the requirement, create a history record for EVERY user affected by this global recalculation.
+				if err := createScoreHistory(tx, userScore.UserID, contestID, problemID, sourceSubmissionID); err != nil {
 					return err
 				}
 			}
 			return nil
 		}
+
+		return nil
 	})
 }
 

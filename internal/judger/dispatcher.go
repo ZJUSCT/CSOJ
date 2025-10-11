@@ -186,6 +186,9 @@ func (d *Dispatcher) runWorkflowStep(docker *DockerManager, sub *models.Submissi
 		var err error
 		cid, err = docker.CreateContainer(flow.Image, remoteWorkDir, prob.CPU, cpusetCpus, prob.Memory, flow.Root, flow.Mounts, flow.Network)
 		if err != nil {
+			logMsg := pubsub.FormatMessage("error", fmt.Sprintf("Failed to create container: %v", err))
+			d.failContainer(cont, -1, string(logMsg)) // Set exit code to -1 for system errors
+
 			doneChan <- result{Err: fmt.Errorf("failed to create container: %w", err)}
 			return
 		}
