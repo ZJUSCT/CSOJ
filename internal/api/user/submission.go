@@ -22,6 +22,38 @@ import (
 	"gorm.io/gorm"
 )
 
+// containerResponse defines the structure for a container in a submission API response.
+// It omits fields like image name and log file path for user-facing endpoints.
+type containerResponse struct {
+	ID         string        `json:"id"`
+	CreatedAt  time.Time     `json:"CreatedAt"`
+	UpdatedAt  time.Time     `json:"UpdatedAt"`
+	Status     models.Status `json:"status"`
+	ExitCode   int           `json:"exit_code"`
+	StartedAt  time.Time     `json:"started_at"`
+	FinishedAt time.Time     `json:"finished_at"`
+}
+
+// submissionResponse defines the structure for a submission API response, using containerResponse.
+type submissionResponse struct {
+	ID             string              `json:"id"`
+	CreatedAt      time.Time           `json:"CreatedAt"`
+	UpdatedAt      time.Time           `json:"UpdatedAt"`
+	ProblemID      string              `json:"problem_id"`
+	UserID         string              `json:"user_id"`
+	User           models.User         `json:"user"`
+	Status         models.Status       `json:"status"`
+	CurrentStep    int                 `json:"current_step"`
+	Cluster        string              `json:"cluster"`
+	Node           string              `json:"node"`
+	AllocatedCores string              `json:"allocated_cores"`
+	Score          int                 `json:"score"`
+	Performance    float64             `json:"performance"`
+	Info           models.JSONMap      `json:"info"`
+	IsValid        bool                `json:"is_valid"`
+	Containers     []containerResponse `json:"containers"`
+}
+
 func (h *Handler) submitToProblem(c *gin.Context) {
 	userID := c.GetString("userID")
 	problemID := c.Param("id")
@@ -218,7 +250,7 @@ func (h *Handler) getUserSubmissions(c *gin.Context) {
 func (h *Handler) getUserSubmission(c *gin.Context) {
 	subID := c.Param("id")
 	userID := c.GetString("userID")
-	user, err := database.GetUserByID(h.db, userID)
+	_, err := database.GetUserByID(h.db, userID)
 	if err != nil {
 		util.Error(c, http.StatusNotFound, err)
 		return
@@ -228,11 +260,44 @@ func (h *Handler) getUserSubmission(c *gin.Context) {
 		util.Error(c, http.StatusNotFound, err)
 		return
 	}
-	if sub.UserID != user.ID {
+	if sub.UserID != userID {
 		util.Error(c, http.StatusForbidden, fmt.Errorf("you can only view your own submissions"))
 		return
 	}
-	util.Success(c, sub, "ok")
+
+	// Build custom response to hide certain container fields
+	respContainers := make([]containerResponse, len(sub.Containers))
+	for i, cont := range sub.Containers {
+		respContainers[i] = containerResponse{
+			ID:         cont.ID,
+			CreatedAt:  cont.CreatedAt,
+			UpdatedAt:  cont.UpdatedAt,
+			Status:     cont.Status,
+			ExitCode:   cont.ExitCode,
+			StartedAt:  cont.StartedAt,
+			FinishedAt: cont.FinishedAt,
+		}
+	}
+
+	resp := submissionResponse{
+		ID:             sub.ID,
+		CreatedAt:      sub.CreatedAt,
+		UpdatedAt:      sub.UpdatedAt,
+		ProblemID:      sub.ProblemID,
+		UserID:         sub.UserID,
+		User:           sub.User,
+		Status:         sub.Status,
+		CurrentStep:    sub.CurrentStep,
+		Cluster:        sub.Cluster,
+		Node:           sub.Node,
+		AllocatedCores: sub.AllocatedCores,
+		Score:          sub.Score,
+		Performance:    sub.Performance,
+		Info:           sub.Info,
+		IsValid:        sub.IsValid,
+		Containers:     respContainers,
+	}
+	util.Success(c, resp, "ok")
 }
 
 func (h *Handler) interruptSubmission(c *gin.Context) {
