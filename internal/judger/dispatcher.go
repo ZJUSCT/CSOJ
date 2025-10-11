@@ -183,7 +183,6 @@ func (d *Dispatcher) runWorkflowStep(docker *DockerManager, sub *models.Submissi
 
 	var envs = []string{
 		"CSOJ_SUBMIT_DIR=/mnt/work",
-		"CSOJ_WORK_DIR=/mnt/work",
 		"CSOJ_USERNAME=" + user.Username,
 	}
 

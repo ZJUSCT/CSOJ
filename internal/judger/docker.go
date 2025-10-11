@@ -53,7 +53,6 @@ func (m *DockerManager) CreateContainer(image, workDir string, cpu int, cpusetCp
 
 	config := &container.Config{
 		Image:           image,
-		WorkingDir:      "/mnt/work",
 		Tty:             false, // Tty must be false to multiplex stdout/stderr
 		OpenStdin:       true,
 		AttachStdin:     true,
