@@ -176,7 +176,7 @@ func (m *DockerManager) CleanupContainer(containerID string) {
 		return
 	}
 
-	timeoutSeconds := 5
+	timeoutSeconds := 0
 	stopOptions := container.StopOptions{Timeout: &timeoutSeconds}
 	if err := m.cli.ContainerStop(ctx, containerID, stopOptions); err != nil {
 		zap.S().Warnf("failed to stop container %s: %v", containerID, err)
