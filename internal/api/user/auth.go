@@ -14,6 +14,12 @@ import (
 	"gorm.io/gorm"
 )
 
+func (h *Handler) getAuthStatus(c *gin.Context) {
+	util.Success(c, gin.H{
+		"local_auth_enabled": h.cfg.Auth.Local.Enabled,
+	}, "Auth status retrieved")
+}
+
 func (h *Handler) localRegister(c *gin.Context) {
 	var req struct {
 		Username string `json:"username" binding:"required"`

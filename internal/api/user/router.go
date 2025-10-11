@@ -27,6 +27,7 @@ func NewUserRouter(
 		// Auth
 		authGroup := v1.Group("/auth")
 		{
+			authGroup.GET("/status", h.getAuthStatus)
 			// GitLab Auth
 			gitlabGroup := authGroup.Group("/gitlab")
 			gitlabGroup.GET("/login", h.gitlabAuthHandler.Login)
