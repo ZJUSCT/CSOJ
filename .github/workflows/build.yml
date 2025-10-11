@@ -79,8 +79,14 @@ jobs:
       
       - name: Download WebUI
         run: |
-          wget https://github.com/ZJUSCT/CSOJ-WebUI/releases/latest/download/site.tar.gz
-          tar -xzf site.tar.gz -C ./internal/embedui/sites/user
+          wget -O webui.tar.gz https://github.com/ZJUSCT/CSOJ-WebUI/releases/latest/download/site.tar.gz
+          tar -xzf webui.tar.gz -C ./internal/embedui/sites/user
+
+
+      - name: Download AdminPanel
+        run: |
+          wget -O adminpanel.tar.gz https://github.com/ZJUSCT/CSOJ-AdminPanel/releases/latest/download/site.tar.gz
+          tar -xzf adminpanel.tar.gz -C ./internal/embedui/sites/admin
 
       - name: Set up Go
         uses: actions/setup-go@v5

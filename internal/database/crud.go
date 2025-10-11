@@ -3,6 +3,7 @@ package database
 import (
 	"errors"
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 	"time"
@@ -110,7 +111,7 @@ func CreateContainer(db *gorm.DB, container *models.Container) error {
 
 func GetContainer(db *gorm.DB, id string) (*models.Container, error) {
 	var container models.Container
-	if err := db.Where("id = ?", id).First(&container).Error; err != nil {
+	if err := db.Preload("User").Where("id = ?", id).First(&container).Error; err != nil {
 		return nil, err
 	}
 	return &container, nil
@@ -120,16 +121,37 @@ func UpdateContainer(db *gorm.DB, container *models.Container) error {
 	return db.Save(container).Error
 }
 
-func GetAllContainers(db *gorm.DB, filters map[string]string) ([]models.Container, error) {
+func GetAllContainers(db *gorm.DB, filters map[string]string, limit, offset int) ([]models.Container, int64, error) {
 	var containers []models.Container
-	query := db.Order("created_at desc")
-	for key, value := range filters {
-		query = query.Where(fmt.Sprintf("%s = ?", key), value)
+	var totalItems int64
+
+	// Using Model is important for Count to work correctly on the right table
+	query := db.Model(&models.Container{})
+
+	if submissionID := filters["submission_id"]; submissionID != "" {
+		// Scoping to containers table to avoid ambiguous column name error
+		query = query.Where("containers.submission_id = ?", submissionID)
 	}
-	if err := query.Find(&containers).Error; err != nil {
-		return nil, err
+	if status := filters["status"]; status != "" {
+		query = query.Where("containers.status = ?", status)
 	}
-	return containers, nil
+	if userQuery := filters["user_query"]; userQuery != "" {
+		likeQuery := "%" + userQuery + "%"
+		query = query.Joins("JOIN users ON users.id = containers.user_id").
+			Where("users.id = ? OR users.username LIKE ? OR users.nickname LIKE ?", userQuery, likeQuery, likeQuery)
+	}
+
+	// Important to run Count() on the filtered query *before* applying limit/offset
+	if err := query.Count(&totalItems).Error; err != nil {
+		return nil, 0, err
+	}
+
+	// Apply ordering, pagination and execute the final query
+	if err := query.Preload("User").Order("containers.created_at DESC").Offset(offset).Limit(limit).Find(&containers).Error; err != nil {
+		return nil, 0, err
+	}
+
+	return containers, totalItems, nil
 }
 
 // Score & Leaderboard
@@ -609,7 +631,7 @@ func UpdateScoresForPerformanceSubmission(db *gorm.DB, sub *models.Submission, c
 			// Not a new best for the user. Calculate their score based on current max and update the submission object, then we are done.
 			score := 0
 			if currentMaxPerformance.Performance > 0 {
-				score = int(float64(maxPerformanceScore) * sub.Performance / currentMaxPerformance.Performance)
+				score = int(math.Round(float64(maxPerformanceScore) * sub.Performance / currentMaxPerformance.Performance))
 			}
 			return tx.Model(sub).Update("score", score).Error
 		}
@@ -652,7 +674,7 @@ func UpdateScoresForPerformanceSubmission(db *gorm.DB, sub *models.Submission, c
 				return err
 			}
 			for _, otherUser := range otherUserScores {
-				newScore := int(float64(maxPerformanceScore) * otherUser.Performance / newMaxPerformance)
+				newScore := int(math.Round(float64(maxPerformanceScore) * otherUser.Performance / newMaxPerformance))
 				if otherUser.Score != newScore {
 					// Score changed, update it. Do NOT update LastScoreTime.
 					if err := tx.Model(&otherUser).Update("score", newScore).Error; err != nil {
@@ -665,7 +687,7 @@ func UpdateScoresForPerformanceSubmission(db *gorm.DB, sub *models.Submission, c
 			}
 		} else { // Case 2: Not a new global max.
 			// Calculate this user's score based on the existing max performance.
-			newScore := int(float64(maxPerformanceScore) * sub.Performance / currentMaxPerformance.Performance)
+			newScore := int(math.Round(float64(maxPerformanceScore) * sub.Performance / currentMaxPerformance.Performance))
 			if newScore > userBestScore.Score {
 				// Score increased, update score and time.
 				if err := tx.Model(&userBestScore).Updates(map[string]interface{}{"score": newScore, "last_score_time": sub.CreatedAt}).Error; err != nil {

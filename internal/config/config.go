@@ -28,15 +28,15 @@ type Config struct {
 }
 
 type Cluster struct {
-	Name  string `yaml:"name"`
-	Nodes []Node `yaml:"node"`
+	Name  string `yaml:"name" json:"name"`
+	Nodes []Node `yaml:"node" json:"node"`
 }
 
 type Node struct {
-	Name   string `yaml:"name"`
-	CPU    int    `yaml:"cpu"`
-	Memory int64  `yaml:"memory"`
-	Docker string `yaml:"docker"`
+	Name   string `yaml:"name" json:"name"`
+	CPU    int    `yaml:"cpu" json:"cpu"`
+	Memory int64  `yaml:"memory" json:"memory"`
+	Docker string `yaml:"docker" json:"docker"`
 }
 
 type Logger struct {

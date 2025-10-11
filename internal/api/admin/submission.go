@@ -1,8 +1,12 @@
 package admin
 
 import (
+	"archive/zip"
+	"bytes"
 	"fmt"
 	"io"
+	"io/fs"
+	"math"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -21,25 +25,68 @@ import (
 )
 
 func (h *Handler) getAllSubmissions(c *gin.Context) {
-	// Add filtering capabilities
-	query := h.db.Preload("User").Order("created_at desc")
-	if userID := c.Query("user_id"); userID != "" {
-		query = query.Where("user_id = ?", userID)
-	}
-	if problemID := c.Query("problem_id"); problemID != "" {
-		query = query.Where("problem_id = ?", problemID)
-	}
-	if status := c.Query("status"); status != "" {
-		query = query.Where("status = ?", status)
+	// Pagination parameters
+	pageStr := c.DefaultQuery("page", "1")
+	limitStr := c.DefaultQuery("limit", "20")
+
+	page, err := strconv.Atoi(pageStr)
+	if err != nil || page < 1 {
+		page = 1
 	}
 
-	var subs []models.Submission
-	if err := query.Find(&subs).Error; err != nil {
+	limit, err := strconv.Atoi(limitStr)
+	if err != nil || limit <= 0 {
+		limit = 20
+	}
+	if limit > 100 { // Add a reasonable upper bound for limit
+		limit = 100
+	}
+
+	offset := (page - 1) * limit
+
+	// Base query for filtering
+	query := h.db.Model(&models.Submission{})
+
+	if problemID := c.Query("problem_id"); problemID != "" {
+		query = query.Where("submissions.problem_id = ?", problemID)
+	}
+	if status := c.Query("status"); status != "" {
+		query = query.Where("submissions.status = ?", status)
+	}
+	if userQuery := c.Query("user_query"); userQuery != "" {
+		likeQuery := "%" + userQuery + "%"
+		// Join with users table to filter by user attributes
+		query = query.Joins("JOIN users ON users.id = submissions.user_id").
+			Where("users.id = ? OR users.username LIKE ? OR users.nickname LIKE ?", userQuery, likeQuery, likeQuery)
+	}
+
+	// Get total count
+	var totalItems int64
+	if err := query.Count(&totalItems).Error; err != nil {
 		util.Error(c, http.StatusInternalServerError, err)
 		return
 	}
 
-	util.Success(c, subs, "Submissions retrieved successfully")
+	// Get paginated results
+	var subs []models.Submission
+	// We need to apply the same joins for the final query as for the count query
+	// but the `query` variable already has them. We just need to add the preload and specify the table for ordering.
+	if err := query.Preload("User").Order("submissions.created_at DESC").Offset(offset).Limit(limit).Find(&subs).Error; err != nil {
+		util.Error(c, http.StatusInternalServerError, err)
+		return
+	}
+
+	totalPages := int(math.Ceil(float64(totalItems) / float64(limit)))
+
+	response := gin.H{
+		"items":        subs,
+		"total_items":  totalItems,
+		"total_pages":  totalPages,
+		"current_page": page,
+		"per_page":     limit,
+	}
+
+	util.Success(c, response, "Submissions retrieved successfully")
 }
 
 func (h *Handler) getSubmission(c *gin.Context) {
@@ -49,6 +96,96 @@ func (h *Handler) getSubmission(c *gin.Context) {
 		return
 	}
 	util.Success(c, sub, "ok")
+}
+
+func (h *Handler) getSubmissionContent(c *gin.Context) {
+	subID := c.Param("id")
+
+	// Check if submission exists
+	_, err := database.GetSubmission(h.db, subID)
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			util.Error(c, http.StatusNotFound, "submission not found")
+		} else {
+			util.Error(c, http.StatusInternalServerError, err)
+		}
+		return
+	}
+
+	submissionPath := filepath.Join(h.cfg.Storage.SubmissionContent, subID)
+
+	// Check if the directory exists
+	info, err := os.Stat(submissionPath)
+	if os.IsNotExist(err) || !info.IsDir() {
+		util.Error(c, http.StatusNotFound, "submission content not found on disk")
+		return
+	}
+
+	// Create a buffer to write our archive to.
+	buf := new(bytes.Buffer)
+	zipWriter := zip.NewWriter(buf)
+
+	// Walk the directory and add files to the zip.
+	err = filepath.Walk(submissionPath, func(path string, info fs.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		// Create a proper zip header
+		header, err := zip.FileInfoHeader(info)
+		if err != nil {
+			return err
+		}
+
+		// Update the header name to be relative to the submission directory
+		relPath, err := filepath.Rel(submissionPath, path)
+		if err != nil {
+			return err
+		}
+		header.Name = filepath.ToSlash(relPath) // Use forward slashes in zip
+
+		// If it's a directory, just create the header
+		if info.IsDir() {
+			header.Name += "/"
+		} else {
+			// Set compression method
+			header.Method = zip.Deflate
+		}
+
+		writer, err := zipWriter.CreateHeader(header)
+		if err != nil {
+			return err
+		}
+
+		// If it's a file, write its content to the zip
+		if !info.IsDir() {
+			file, err := os.Open(path)
+			if err != nil {
+				return err
+			}
+			defer file.Close()
+			_, err = io.Copy(writer, file)
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+
+	if err != nil {
+		zap.S().Errorf("failed to create zip archive for submission %s: %v", subID, err)
+		util.Error(c, http.StatusInternalServerError, "failed to create zip archive")
+		return
+	}
+
+	// Close the zip writer to finalize the archive
+	zipWriter.Close()
+
+	// Set headers for file download
+	c.Header("Content-Description", "File Transfer")
+	c.Header("Content-Type", "application/zip")
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"submission_%s.zip\"", subID))
+	c.Data(http.StatusOK, "application/zip", buf.Bytes())
 }
 
 func (h *Handler) updateSubmission(c *gin.Context) {

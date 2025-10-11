@@ -49,6 +49,7 @@ func NewAdminRouter(
 		{
 			submissions.GET("", h.getAllSubmissions)
 			submissions.GET("/:id", h.getSubmission)
+			submissions.GET("/:id/content", h.getSubmissionContent)
 			submissions.PATCH("/:id", h.updateSubmission)
 			submissions.DELETE("/:id", h.deleteSubmission)
 			submissions.GET("/:id/containers/:conID/log", h.getContainerLog)
