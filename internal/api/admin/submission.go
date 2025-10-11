@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/ZJUSCT/CSOJ/internal/config"
 	"github.com/ZJUSCT/CSOJ/internal/database"
 	"github.com/ZJUSCT/CSOJ/internal/database/models"
 	"github.com/ZJUSCT/CSOJ/internal/judger"
@@ -410,12 +411,14 @@ func (h *Handler) interruptSubmission(c *gin.Context) {
 			return
 		}
 
-		var nodeDockerHost string
+		var dockerCfg config.DockerConfig
+		var nodeCfgFound bool
 		for _, clusterCfg := range h.cfg.Cluster {
 			if clusterCfg.Name == sub.Cluster {
 				for _, nodeCfg := range clusterCfg.Nodes {
 					if nodeCfg.Name == sub.Node {
-						nodeDockerHost = nodeCfg.Docker
+						dockerCfg = nodeCfg.Docker
+						nodeCfgFound = true
 						break
 					}
 				}
@@ -423,10 +426,10 @@ func (h *Handler) interruptSubmission(c *gin.Context) {
 			}
 		}
 
-		if nodeDockerHost == "" {
+		if !nodeCfgFound {
 			zap.S().Errorf("node config '%s'/'%s' not found for sub %s, cannot stop container but will mark as failed", sub.Cluster, sub.Node, sub.ID)
 		} else {
-			docker, err := judger.NewDockerManager(nodeDockerHost)
+			docker, err := judger.NewDockerManager(dockerCfg)
 			if err != nil {
 				util.Error(c, http.StatusInternalServerError, fmt.Errorf("failed to connect to docker on node %s: %w", sub.Node, err))
 				return

@@ -32,11 +32,19 @@ type Cluster struct {
 	Nodes []Node `yaml:"node" json:"node"`
 }
 
+type DockerConfig struct {
+	Host      string `yaml:"host"`
+	TLSVerify bool   `yaml:"tls_verify"`
+	CACert    string `yaml:"ca_cert"`
+	Cert      string `yaml:"cert"`
+	Key       string `yaml:"key"`
+}
+
 type Node struct {
-	Name   string `yaml:"name" json:"name"`
-	CPU    int    `yaml:"cpu" json:"cpu"`
-	Memory int64  `yaml:"memory" json:"memory"`
-	Docker string `yaml:"docker" json:"docker"`
+	Name   string       `yaml:"name" json:"name"`
+	CPU    int          `yaml:"cpu" json:"cpu"`
+	Memory int64        `yaml:"memory" json:"memory"`
+	Docker DockerConfig `yaml:"docker" json:"docker"`
 }
 
 type Logger struct {

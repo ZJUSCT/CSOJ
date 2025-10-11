@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/ZJUSCT/CSOJ/internal/config"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/client"
@@ -27,8 +28,20 @@ type ExecResult struct {
 	ExitCode int
 }
 
-func NewDockerManager(host string) (*DockerManager, error) {
-	cli, err := client.NewClientWithOpts(client.WithHost(host), client.WithAPIVersionNegotiation())
+func NewDockerManager(cfg config.DockerConfig) (*DockerManager, error) {
+	opts := []client.Opt{
+		client.WithHost(cfg.Host),
+		client.WithAPIVersionNegotiation(),
+	}
+
+	if cfg.TLSVerify {
+		// client.WithTLSClientConfig can create the http.Client with TLS config
+		// from the given paths.
+		tlsOpts := client.WithTLSClientConfig(cfg.CACert, cfg.Cert, cfg.Key)
+		opts = append(opts, tlsOpts)
+	}
+
+	cli, err := client.NewClientWithOpts(opts...)
 	if err != nil {
 		return nil, err
 	}

@@ -37,8 +37,8 @@ func RecoverAndCleanup(db *gorm.DB, cfg *config.Config) error {
 		}
 	}
 
-	// 按 Docker Host 对所有需要清理的容器进行分组
-	containersByHost := make(map[string][]*models.Container)
+	// 按 Docker 配置对所有需要清理的容器进行分组
+	containersByDockerConfig := make(map[config.DockerConfig][]*models.Container)
 	var submissionIDs []string
 
 	for _, sub := range interruptedSubs {
@@ -59,21 +59,22 @@ func RecoverAndCleanup(db *gorm.DB, cfg *config.Config) error {
 			zap.S().Warnf("node '%s' for submission %s not found in config, cannot clean up containers", sub.Node, sub.ID)
 			continue
 		}
-		dockerHost := node.Docker
+		dockerCfg := node.Docker
 
 		// 将该提交下所有拥有 DockerID 的容器加入对应 Host 的清理列表
 		for i := range sub.Containers {
 			container := sub.Containers[i]
 			if container.DockerID != "" {
-				containersByHost[dockerHost] = append(containersByHost[dockerHost], &container)
+				containersByDockerConfig[dockerCfg] = append(containersByDockerConfig[dockerCfg], &container)
 			}
 		}
 	}
 
 	// 执行清理操作
-	for host, containers := range containersByHost {
+	for dockerCfg, containers := range containersByDockerConfig {
+		host := dockerCfg.Host
 		zap.S().Infof("connecting to Docker host %s to clean up %d containers", host, len(containers))
-		docker, err := NewDockerManager(host)
+		docker, err := NewDockerManager(dockerCfg)
 		if err != nil {
 			zap.S().Errorf("failed to create Docker manager for host %s: %v. Skipping cleanup for this host.", host, err)
 			continue
