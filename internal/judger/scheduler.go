@@ -26,7 +26,7 @@ type NodeState struct {
 	sync.Mutex
 	*config.Node
 	UsedMemory int64  `json:"used_memory"`
-	UsedCores  []bool `json:"-"`
+	UsedCores  []bool `json:"used_cores"`
 	IsPaused   bool   `json:"is_paused"`
 }
 
@@ -134,6 +134,7 @@ func (s *Scheduler) GetClusterStates() map[string]ClusterState {
 				Node:       &nodeStateCopy,
 				UsedMemory: node.UsedMemory,
 				IsPaused:   node.IsPaused,
+				UsedCores:  append([]bool(nil), node.UsedCores...),
 			}
 			node.Unlock()
 		}

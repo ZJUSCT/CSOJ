@@ -3,6 +3,7 @@ package database
 import (
 	"errors"
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 	"time"
@@ -609,7 +610,7 @@ func UpdateScoresForPerformanceSubmission(db *gorm.DB, sub *models.Submission, c
 			// Not a new best for the user. Calculate their score based on current max and update the submission object, then we are done.
 			score := 0
 			if currentMaxPerformance.Performance > 0 {
-				score = int(float64(maxPerformanceScore) * sub.Performance / currentMaxPerformance.Performance)
+				score = int(math.Round(float64(maxPerformanceScore) * sub.Performance / currentMaxPerformance.Performance))
 			}
 			return tx.Model(sub).Update("score", score).Error
 		}
@@ -652,7 +653,7 @@ func UpdateScoresForPerformanceSubmission(db *gorm.DB, sub *models.Submission, c
 				return err
 			}
 			for _, otherUser := range otherUserScores {
-				newScore := int(float64(maxPerformanceScore) * otherUser.Performance / newMaxPerformance)
+				newScore := int(math.Round(float64(maxPerformanceScore) * otherUser.Performance / newMaxPerformance))
 				if otherUser.Score != newScore {
 					// Score changed, update it. Do NOT update LastScoreTime.
 					if err := tx.Model(&otherUser).Update("score", newScore).Error; err != nil {
@@ -665,7 +666,7 @@ func UpdateScoresForPerformanceSubmission(db *gorm.DB, sub *models.Submission, c
 			}
 		} else { // Case 2: Not a new global max.
 			// Calculate this user's score based on the existing max performance.
-			newScore := int(float64(maxPerformanceScore) * sub.Performance / currentMaxPerformance.Performance)
+			newScore := int(math.Round(float64(maxPerformanceScore) * sub.Performance / currentMaxPerformance.Performance))
 			if newScore > userBestScore.Score {
 				// Score increased, update score and time.
 				if err := tx.Model(&userBestScore).Updates(map[string]interface{}{"score": newScore, "last_score_time": sub.CreatedAt}).Error; err != nil {

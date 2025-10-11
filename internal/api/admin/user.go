@@ -15,27 +15,20 @@ import (
 )
 
 func (h *Handler) getAllUsers(c *gin.Context) {
-	// Add filtering by username
-	username := c.Query("username")
-	if username != "" {
-		user, err := database.GetUserByUsername(h.db, username)
-		if err != nil {
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				util.Error(c, http.StatusNotFound, "user not found")
-			} else {
-				util.Error(c, http.StatusInternalServerError, err)
-			}
-			return
-		}
-		util.Success(c, []models.User{*user}, "User retrieved successfully")
-		return
+	searchQuery := c.Query("query")
+	dbQuery := h.db
+
+	if searchQuery != "" {
+		likeQuery := "%" + searchQuery + "%"
+		dbQuery = dbQuery.Where("id = ? OR username LIKE ? OR nickname LIKE ?", searchQuery, likeQuery, likeQuery)
 	}
 
-	users, err := database.GetAllUsers(h.db)
-	if err != nil {
+	var users []models.User
+	if err := dbQuery.Find(&users).Error; err != nil {
 		util.Error(c, http.StatusInternalServerError, err)
 		return
 	}
+
 	util.Success(c, users, "Users retrieved successfully")
 }
 

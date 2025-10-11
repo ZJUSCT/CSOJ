@@ -22,16 +22,22 @@ import (
 
 func (h *Handler) getAllSubmissions(c *gin.Context) {
 	// Add filtering capabilities
-	query := h.db.Preload("User").Order("created_at desc")
-	if userID := c.Query("user_id"); userID != "" {
-		query = query.Where("user_id = ?", userID)
-	}
+	query := h.db.Preload("User")
+
 	if problemID := c.Query("problem_id"); problemID != "" {
-		query = query.Where("problem_id = ?", problemID)
+		query = query.Where("submissions.problem_id = ?", problemID)
 	}
 	if status := c.Query("status"); status != "" {
-		query = query.Where("status = ?", status)
+		query = query.Where("submissions.status = ?", status)
 	}
+	if userQuery := c.Query("user_query"); userQuery != "" {
+		likeQuery := "%" + userQuery + "%"
+		// Join with users table to filter by user attributes
+		query = query.Joins("JOIN users ON users.id = submissions.user_id").
+			Where("users.id = ? OR users.username LIKE ? OR users.nickname LIKE ?", userQuery, likeQuery, likeQuery)
+	}
+
+	query = query.Order("created_at DESC")
 
 	var subs []models.Submission
 	if err := query.Find(&subs).Error; err != nil {
