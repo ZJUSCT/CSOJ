@@ -75,7 +75,8 @@ type Container struct {
 	UpdatedAt time.Time
 
 	SubmissionID string `gorm:"index" json:"submission_id"`
-	UserID       string `gorm:"index" json:"-"`
+	UserID       string `gorm:"index" json:"user_id"`
+	User         User   `gorm:"foreignKey:UserID" json:"user"`
 
 	DockerID    string    `json:"-"`
 	Image       string    `json:"image"`
@@ -87,9 +88,8 @@ type Container struct {
 }
 
 type ContestScoreHistory struct {
-	ID        uint `gorm:"primaryKey"`
-	CreatedAt time.Time
-
+	ID                        uint `gorm:"primaryKey"`
+	CreatedAt                 time.Time
 	UserID                    string
 	ContestID                 string
 	ProblemID                 string

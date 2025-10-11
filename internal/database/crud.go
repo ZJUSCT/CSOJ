@@ -111,7 +111,7 @@ func CreateContainer(db *gorm.DB, container *models.Container) error {
 
 func GetContainer(db *gorm.DB, id string) (*models.Container, error) {
 	var container models.Container
-	if err := db.Where("id = ?", id).First(&container).Error; err != nil {
+	if err := db.Preload("User").Where("id = ?", id).First(&container).Error; err != nil {
 		return nil, err
 	}
 	return &container, nil
@@ -121,16 +121,37 @@ func UpdateContainer(db *gorm.DB, container *models.Container) error {
 	return db.Save(container).Error
 }
 
-func GetAllContainers(db *gorm.DB, filters map[string]string) ([]models.Container, error) {
+func GetAllContainers(db *gorm.DB, filters map[string]string, limit, offset int) ([]models.Container, int64, error) {
 	var containers []models.Container
-	query := db.Order("created_at desc")
-	for key, value := range filters {
-		query = query.Where(fmt.Sprintf("%s = ?", key), value)
+	var totalItems int64
+
+	// Using Model is important for Count to work correctly on the right table
+	query := db.Model(&models.Container{})
+
+	if submissionID := filters["submission_id"]; submissionID != "" {
+		// Scoping to containers table to avoid ambiguous column name error
+		query = query.Where("containers.submission_id = ?", submissionID)
 	}
-	if err := query.Find(&containers).Error; err != nil {
-		return nil, err
+	if status := filters["status"]; status != "" {
+		query = query.Where("containers.status = ?", status)
 	}
-	return containers, nil
+	if userQuery := filters["user_query"]; userQuery != "" {
+		likeQuery := "%" + userQuery + "%"
+		query = query.Joins("JOIN users ON users.id = containers.user_id").
+			Where("users.id = ? OR users.username LIKE ? OR users.nickname LIKE ?", userQuery, likeQuery, likeQuery)
+	}
+
+	// Important to run Count() on the filtered query *before* applying limit/offset
+	if err := query.Count(&totalItems).Error; err != nil {
+		return nil, 0, err
+	}
+
+	// Apply ordering, pagination and execute the final query
+	if err := query.Preload("User").Order("containers.created_at DESC").Offset(offset).Limit(limit).Find(&containers).Error; err != nil {
+		return nil, 0, err
+	}
+
+	return containers, totalItems, nil
 }
 
 // Score & Leaderboard
