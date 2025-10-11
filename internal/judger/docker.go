@@ -35,7 +35,7 @@ func NewDockerManager(host string) (*DockerManager, error) {
 	return &DockerManager{cli: cli}, nil
 }
 
-func (m *DockerManager) CreateContainer(image, workDir string, cpu int, cpusetCpus string, memory int64, asRoot bool, mounts []Mount, networkEnabled bool) (string, error) {
+func (m *DockerManager) CreateContainer(image, workDir string, cpu int, cpusetCpus string, memory int64, asRoot bool, mounts []Mount, networkEnabled bool, envs []string) (string, error) {
 	ctx := context.Background()
 
 	config := &container.Config{
@@ -47,6 +47,7 @@ func (m *DockerManager) CreateContainer(image, workDir string, cpu int, cpusetCp
 		AttachStdout:    true,
 		AttachStderr:    true,
 		NetworkDisabled: !networkEnabled,
+		Env:             envs,
 	}
 
 	if !asRoot {

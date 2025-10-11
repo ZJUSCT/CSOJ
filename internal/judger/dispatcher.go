@@ -170,6 +170,23 @@ func (d *Dispatcher) runWorkflowStep(docker *DockerManager, sub *models.Submissi
 	doneChan := make(chan result, 1)
 	cidChan := make(chan string, 1)
 
+	user, err := database.GetUserByID(d.db, sub.UserID)
+
+	if err != nil {
+		zap.S().Errorf("failed to get user %s: %v", sub.UserID, err)
+		msg := pubsub.FormatMessage("error", fmt.Sprintf("Failed to fetch user: %v", err))
+		d.failContainer(cont, -1, string(msg))
+		cont.FinishedAt = time.Now()
+		_ = database.UpdateContainer(d.db, cont)
+		return "", "", "", fmt.Errorf("failed to get user: %w", err)
+	}
+
+	var envs = []string{
+		"CSOJ_SUBMIT_DIR=/mnt/work",
+		"CSOJ_WORK_DIR=/mnt/work",
+		"CSOJ_USERNAME=" + user.Username,
+	}
+
 	go func() {
 		var execStdout, execStderr string
 		var cid string
@@ -184,7 +201,7 @@ func (d *Dispatcher) runWorkflowStep(docker *DockerManager, sub *models.Submissi
 
 		remoteWorkDir := filepath.Join("/tmp", "submission", sub.ID)
 		var err error
-		cid, err = docker.CreateContainer(flow.Image, remoteWorkDir, prob.CPU, cpusetCpus, prob.Memory, flow.Root, flow.Mounts, flow.Network)
+		cid, err = docker.CreateContainer(flow.Image, remoteWorkDir, prob.CPU, cpusetCpus, prob.Memory, flow.Root, flow.Mounts, flow.Network, envs)
 		if err != nil {
 			logMsg := pubsub.FormatMessage("error", fmt.Sprintf("Failed to create container: %v", err))
 			d.failContainer(cont, -1, string(logMsg)) // Set exit code to -1 for system errors
