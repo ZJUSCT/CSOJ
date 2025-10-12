@@ -62,15 +62,29 @@ func NewAdminRouter(
 		contests := v1.Group("/contests")
 		{
 			contests.GET("", h.getAllContests)
+			contests.POST("", h.createContest)
 			contests.GET("/:id", h.getContest)
+			contests.PUT("/:id", h.updateContest)
+			contests.DELETE("/:id", h.deleteContest)
 			contests.GET("/:id/leaderboard", h.getContestLeaderboard)
 			contests.GET("/:id/trend", h.getContestTrend)
+			contests.POST("/:id/problems", h.createProblemInContest)
+			// Contest Assets
+			contests.GET("/:id/assets", h.handleListContestAssets)
+			contests.POST("/:id/assets", h.handleUploadContestAssets)
+			contests.DELETE("/:id/assets", h.handleDeleteContestAsset)
 		}
 
 		problems := v1.Group("/problems")
 		{
 			problems.GET("", h.getAllProblems)
 			problems.GET("/:id", h.getProblem)
+			problems.PUT("/:id", h.updateProblem)
+			problems.DELETE("/:id", h.deleteProblem)
+			// Problem Assets
+			problems.GET("/:id/assets", h.handleListProblemAssets)
+			problems.POST("/:id/assets", h.handleUploadProblemAssets)
+			problems.DELETE("/:id/assets", h.handleDeleteProblemAsset)
 		}
 
 		// Score Management

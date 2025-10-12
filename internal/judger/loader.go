@@ -14,10 +14,10 @@ type Contest struct {
 	Name        string    `yaml:"name" json:"name"`
 	StartTime   time.Time `yaml:"starttime" json:"starttime"`
 	EndTime     time.Time `yaml:"endtime" json:"endtime"`
-	ProblemDirs []string  `yaml:"problems" json:"problem_dirs"`
-	ProblemIDs  []string  `yaml:"problem_ids" json:"problem_ids"`
+	ProblemDirs []string  `yaml:"problems" json:"-"` // Renamed from ProblemDirs to problems in YAML, hide from JSON
+	ProblemIDs  []string  `json:"problem_ids"`
 	Description string    `json:"description"`
-	BasePath    string    `json:"-"` // Store the base path to find assets
+	BasePath    string    `yaml:"-" json:"-"` // Store the base path to find assets, hide from both
 }
 
 type UploadLimit struct {
@@ -64,7 +64,7 @@ type Problem struct {
 	Workflow       []WorkflowStep `yaml:"workflow" json:"workflow"`
 	Score          ScoreConfig    `yaml:"score" json:"score"`
 	Description    string         `json:"description"`
-	BasePath       string         `json:"-"` // Store the base path to find assets
+	BasePath       string         `yaml:"-" json:"-"` // Store the base path to find assets, hide from both
 }
 
 func LoadAllContestsAndProblems(contestDirs []string) (map[string]*Contest, map[string]*Problem, error) {
@@ -78,7 +78,7 @@ func LoadAllContestsAndProblems(contestDirs []string) (map[string]*Contest, map[
 			continue
 		}
 		if _, exists := contests[contest.ID]; exists {
-			zap.S().Warnf("duplicate contest ID %s found, skipping", contest.ID)
+			zap.S().Warnf("duplicate contest ID %s found, skipping", dir)
 			continue
 		}
 		contests[contest.ID] = contest

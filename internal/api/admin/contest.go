@@ -1,12 +1,15 @@
 package admin
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 
 	"github.com/ZJUSCT/CSOJ/internal/database"
+	"github.com/ZJUSCT/CSOJ/internal/judger"
 	"github.com/ZJUSCT/CSOJ/internal/util"
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 )
 
 // getAllContests returns a list of all loaded contests, regardless of their start/end times.
@@ -31,6 +34,120 @@ func (h *Handler) getContest(c *gin.Context) {
 	}
 	// Unlike the user API, the admin API returns full contest details at all times.
 	util.Success(c, contest, "Contest details retrieved")
+}
+
+func (h *Handler) createContest(c *gin.Context) {
+	var newContest judger.Contest
+	if err := c.ShouldBindJSON(&newContest); err != nil {
+		util.Error(c, http.StatusBadRequest, err)
+		return
+	}
+
+	h.appState.RLock()
+	_, exists := h.appState.Contests[newContest.ID]
+	h.appState.RUnlock()
+	if exists {
+		util.Error(c, http.StatusConflict, "a contest with this ID already exists")
+		return
+	}
+
+	if len(h.cfg.Contest) == 0 {
+		util.Error(c, http.StatusInternalServerError, "no contest directories configured on the server")
+		return
+	}
+	baseDir := h.cfg.Contest[0] // Assume new contests are created in the first configured directory
+
+	if err := judger.CreateContest(baseDir, &newContest); err != nil {
+		util.Error(c, http.StatusInternalServerError, fmt.Errorf("failed to create contest files: %w", err))
+		return
+	}
+	zap.S().Infof("admin created contest '%s'", newContest.ID)
+
+	// Reload state and respond
+	h.reload(c)
+}
+
+func (h *Handler) updateContest(c *gin.Context) {
+	contestID := c.Param("id")
+	var updatedContest judger.Contest
+	if err := c.ShouldBindJSON(&updatedContest); err != nil {
+		util.Error(c, http.StatusBadRequest, err)
+		return
+	}
+
+	if contestID != updatedContest.ID {
+		util.Error(c, http.StatusBadRequest, "contest ID in path does not match contest ID in body")
+		return
+	}
+
+	h.appState.RLock()
+	existingContest, ok := h.appState.Contests[contestID]
+	h.appState.RUnlock()
+	if !ok {
+		util.Error(c, http.StatusNotFound, "contest not found")
+		return
+	}
+
+	// Preserve internal fields that are not part of the request body
+	updatedContest.BasePath = existingContest.BasePath
+	updatedContest.ProblemDirs = existingContest.ProblemDirs // Problem list is managed via problem endpoints
+
+	if err := judger.UpdateContest(&updatedContest); err != nil {
+		util.Error(c, http.StatusInternalServerError, fmt.Errorf("failed to update contest files: %w", err))
+		return
+	}
+	zap.S().Infof("admin updated contest '%s'", updatedContest.ID)
+	h.reload(c)
+}
+
+func (h *Handler) deleteContest(c *gin.Context) {
+	contestID := c.Param("id")
+
+	h.appState.RLock()
+	contest, ok := h.appState.Contests[contestID]
+	h.appState.RUnlock()
+	if !ok {
+		util.Error(c, http.StatusNotFound, "contest not found")
+		return
+	}
+
+	if err := judger.DeleteContest(contest); err != nil {
+		util.Error(c, http.StatusInternalServerError, fmt.Errorf("failed to delete contest files: %w", err))
+		return
+	}
+	zap.S().Warnf("admin deleted contest '%s'", contestID)
+	h.reload(c)
+}
+
+func (h *Handler) createProblemInContest(c *gin.Context) {
+	contestID := c.Param("id")
+	var newProblem judger.Problem
+	if err := c.ShouldBindJSON(&newProblem); err != nil {
+		util.Error(c, http.StatusBadRequest, err)
+		return
+	}
+
+	h.appState.RLock()
+	contest, ok := h.appState.Contests[contestID]
+	if !ok {
+		h.appState.RUnlock()
+		util.Error(c, http.StatusNotFound, "parent contest not found")
+		return
+	}
+	_, problemExists := h.appState.Problems[newProblem.ID]
+	h.appState.RUnlock()
+
+	if problemExists {
+		util.Error(c, http.StatusConflict, "a problem with this ID already exists")
+		return
+	}
+
+	if err := judger.CreateProblem(contest, &newProblem); err != nil {
+		util.Error(c, http.StatusInternalServerError, fmt.Errorf("failed to create problem files: %w", err))
+		return
+	}
+	zap.S().Infof("admin created problem '%s' in contest '%s'", newProblem.ID, contestID)
+	h.reload(c)
 }
 
 // getContestLeaderboard provides an admin-accessible endpoint for the contest leaderboard.
