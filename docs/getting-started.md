@@ -66,7 +66,7 @@ links:
     url: "[https://github.com/ZJUSCT/CSOJ](https://github.com/ZJUSCT/CSOJ)"
 ```
 
-For more details on configuration files, please refer to the **[Configuration Guides](https://www.google.com/search?q=./configuration/main-config.md)**.
+For more details on configuration files, please refer to the **[Configuration Guides](./configuration/main-config.md)**.
 
 ## 4\. Prepare Contest and Problem Files
 
@@ -84,7 +84,7 @@ Based on the `contest` configuration in `config.yaml`, create the corresponding 
 └── ...
 ```
 
-To learn how to write `contest.yaml` and `problem.yaml`, see **[Contest Config](https://www.google.com/search?q=./configuration/contest-config.md)** and **[Problem Config](https://www.google.com/search?q=./configuration/problem-config.md)**.
+To learn how to write `contest.yaml` and `problem.yaml`, see **[Contest Config](./configuration/contest-config.md)** and **[Problem Config](./configuration/problem-config.md)**.
 
 ## 5\. Run the Service
 

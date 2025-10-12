@@ -37,7 +37,7 @@ workflow:
 
 ### How It Works
 
-  - **File System Persistence**: For each submission, the system creates a temporary working directory on the host judger node (e.g., `/tmp/submission/<submission-id>`). This host directory is then bind-mounted into the working directory (`/mnt/work/`) of **every container** in the workflow. This ensures that any files created or modified in one step (like a compiled binary) are available to all subsequent steps.
+  - **File System Persistence**: For each submission, the system creates a temporary working directory on the host judger node. This host directory is then bind-mounted into the working directory (`/mnt/work/`) of **every container** in the workflow. This ensures that any files created or modified in one step (like a compiled binary) are available to all subsequent steps.
   - **Step 1 (Compilation)**:
       - A container is created from the `gcc:latest` image.
       - The user's submitted files are copied from storage into the host working directory, which is then mounted into the container at `/mnt/work/`.
@@ -54,9 +54,12 @@ The **final step** of the workflow has a special responsibility: it must report 
 
 ### Result JSON Format
 
+The system parses a JSON object with the following structure:
+
 ```json
 {
   "score": 100,
+  "performance": 123.45,
   "info": {
     "message": "Accepted",
     "time": "54ms",
@@ -65,8 +68,9 @@ The **final step** of the workflow has a special responsibility: it must report 
 }
 ```
 
-  - `score` (integer, required): The final score for the submission.
-  - `info` (object, required): A map containing any other relevant details. This data is stored in the submission record and can be displayed to the user.
+  - `score` (integer): Used when the problem's `score.mode` is `"score"`.
+  - `performance` (number): Used when the problem's `score.mode` is `"performance"`.
+  - `info` (object, optional): A map containing any other relevant details. This data is stored in the submission record and can be displayed to the user.
 
 If the final step exits with a non-zero status code or fails to produce a valid JSON output, the submission will be marked as `Failed`.
 

@@ -37,7 +37,7 @@ auth:
   
   # GitLab OAuth2 authentication
   gitlab:
-    url: "https://gitlab.com"
+    url: "[https://gitlab.com](https://gitlab.com)"
     client_id: "YOUR_GITLAB_CLIENT_ID"
     client_secret: "YOUR_GITLAB_CLIENT_SECRET"
     redirect_uri: "http://localhost:8080/api/v1/auth/gitlab/callback"
@@ -63,11 +63,17 @@ cluster:
       - name: "node-1"
         cpu: 4           # Total CPU cores available for judging
         memory: 4096       # Total memory (in MB) available for judging
-        docker: "tcp://192.168.1.101:2375" # Docker Daemon address for this node
+        docker: # Docker Daemon connection settings for this node
+          host: "tcp://192.168.1.101:2375"
+          tls_verify: false
+          # ca_cert: "/path/to/ca.pem"
+          # cert: "/path/to/cert.pem"
+          # key: "/path/to/key.pem"
       - name: "node-2"
         cpu: 8
         memory: 8192
-        docker: "tcp://192.168.1.102:2375"
+        docker:
+          host: "tcp://192.168.1.102:2375"
 
 # List of paths to contest configuration directories
 contest:
@@ -103,7 +109,7 @@ contest:
   - **Required**: Yes
   - **Description**: Configuration for the logging system.
       - `level`: (string) Log level. `debug` provides more verbose output, while `production` is more concise.
-      - `file`: (string) Path to a log file. If left empty, logs are written to standard error (the console).
+      - `file`: (string) Path to a log file. If left empty, logs are written to standard output/error (the console).
 
 -----
 
@@ -130,7 +136,7 @@ contest:
       - `local`: (object)
           - `enabled`: (boolean) Whether to enable the local username and password registration/login feature.
       - `gitlab`: (object)
-          - `url`: (string) The URL of your GitLab instance.
+          - `url`: (string) The URL of your GitLab instance's OIDC provider.
           - `client_id`: (string) The Client ID obtained after creating an application in GitLab.
           - `client_secret`: (string) The Client Secret obtained after creating an application in GitLab.
           - `redirect_uri`: (string) The callback URL configured in your GitLab application, which must exactly match this URI.
@@ -154,14 +160,6 @@ contest:
   - **Description**: Defines a list of dynamic links to be displayed in the frontend's main navigation bar.
       - `name`: (string) The text to display for the link.
       - `url`: (string) The destination URL. Can be an internal path (e.g., `/about`) or an external URL (e.g., `https://github.com/ZJUSCT/CSOJ`).
-  - **Example**:
-    ```yaml
-    links:
-      - name: "Project Source"
-        url: "[https://github.com/ZJUSCT/CSOJ](https://github.com/ZJUSCT/CSOJ)"
-      - name: "About"
-        url: "/about"
-    ```
 
 -----
 
@@ -173,9 +171,12 @@ contest:
       - `name`: (string) A unique name for the cluster. This name is used in problem configurations to specify which cluster to use for judging.
       - `node`: (array of objects) The list of judger nodes in this cluster.
           - `name`: (string) A unique name for the node.
-          - `cpu`: (integer) The total number of CPU cores that the scheduler can use on this node. The scheduler ensures that the total CPU requested by concurrently running tasks does not exceed this value.
+          - `cpu`: (integer) The total number of CPU cores that the scheduler can use on this node.
           - `memory`: (integer) The total amount of memory (in MB) that the scheduler can use on this node.
-          - `docker`: (string) The API address of the Docker Daemon on this node, typically a TCP address. **Ensure the Docker Daemon is configured to listen on this TCP port and is reachable over the network.**
+          - `docker`: (object) The connection settings for the Docker Daemon on this node.
+              - `host`: (string) The API address, typically a TCP address like `tcp://127.0.0.1:2375`.
+              - `tls_verify`: (boolean, optional) Whether to use TLS to connect to the daemon.
+              - `ca_cert`, `cert`, `key`: (string, optional) Paths to TLS certificate files if `tls_verify` is true.
 
 -----
 
