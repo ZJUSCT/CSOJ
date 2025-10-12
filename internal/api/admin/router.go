@@ -73,6 +73,11 @@ func NewAdminRouter(
 			contests.GET("/:id/assets", h.handleListContestAssets)
 			contests.POST("/:id/assets", h.handleUploadContestAssets)
 			contests.DELETE("/:id/assets", h.handleDeleteContestAsset)
+			// Contest Announcements
+			contests.GET("/:id/announcements", h.handleGetContestAnnouncements)
+			contests.POST("/:id/announcements", h.handleCreateContestAnnouncement)
+			contests.PUT("/:id/announcements/:announcementId", h.handleUpdateContestAnnouncement)
+			contests.DELETE("/:id/announcements/:announcementId", h.handleDeleteContestAnnouncement)
 		}
 
 		problems := v1.Group("/problems")

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/ZJUSCT/CSOJ/internal/database"
+	"github.com/ZJUSCT/CSOJ/internal/judger"
 	"github.com/ZJUSCT/CSOJ/internal/util"
 	"github.com/gin-gonic/gin"
 )
@@ -46,6 +47,26 @@ func (h *Handler) getContest(c *gin.Context) {
 		return
 	}
 	util.Success(c, contest, "Contest found")
+}
+
+func (h *Handler) getContestAnnouncements(c *gin.Context) {
+	contestID := c.Param("id")
+	h.appState.RLock()
+	contest, ok := h.appState.Contests[contestID]
+	h.appState.RUnlock()
+
+	if !ok {
+		util.Error(c, http.StatusNotFound, "contest not found")
+		return
+	}
+
+	// Only show announcements after the contest has started
+	if time.Now().Before(contest.StartTime) {
+		util.Success(c, []*judger.Announcement{}, "Contest has not started yet")
+		return
+	}
+
+	util.Success(c, contest.Announcements, "Announcements retrieved successfully")
 }
 
 func (h *Handler) getContestLeaderboard(c *gin.Context) {

@@ -4,21 +4,31 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"time"
 
 	"go.uber.org/zap"
 	"gopkg.in/yaml.v3"
 )
 
-type Contest struct {
+type Announcement struct {
 	ID          string    `yaml:"id" json:"id"`
-	Name        string    `yaml:"name" json:"name"`
-	StartTime   time.Time `yaml:"starttime" json:"starttime"`
-	EndTime     time.Time `yaml:"endtime" json:"endtime"`
-	ProblemDirs []string  `yaml:"problems" json:"-"` // Renamed from ProblemDirs to problems in YAML, hide from JSON
-	ProblemIDs  []string  `json:"problem_ids"`
-	Description string    `json:"description"`
-	BasePath    string    `yaml:"-" json:"-"` // Store the base path to find assets, hide from both
+	Title       string    `yaml:"title" json:"title"`
+	CreatedAt   time.Time `yaml:"created_at" json:"created_at"`
+	UpdatedAt   time.Time `yaml:"updated_at" json:"updated_at"`
+	Description string    `yaml:"description" json:"description"`
+}
+
+type Contest struct {
+	ID            string          `yaml:"id" json:"id"`
+	Name          string          `yaml:"name" json:"name"`
+	StartTime     time.Time       `yaml:"starttime" json:"starttime"`
+	EndTime       time.Time       `yaml:"endtime" json:"endtime"`
+	ProblemDirs   []string        `yaml:"problems" json:"-"` // Renamed from ProblemDirs to problems in YAML, hide from JSON
+	ProblemIDs    []string        `json:"problem_ids"`
+	Description   string          `json:"description"`
+	BasePath      string          `yaml:"-" json:"-"`             // Store the base path to find assets, hide from both
+	Announcements []*Announcement `yaml:"-" json:"announcements"` // Loaded from announcements.yaml, hidden from contest.yaml
 }
 
 type UploadLimit struct {
@@ -131,6 +141,21 @@ func loadContest(dir string) (*Contest, []*Problem, error) {
 	// Load contest description
 	desc, _ := os.ReadFile(filepath.Join(dir, "index.md"))
 	contest.Description = string(desc)
+
+	// Load announcements
+	announcementsPath := filepath.Join(dir, "announcements.yaml")
+	if annData, err := os.ReadFile(announcementsPath); err == nil {
+		var announcements []*Announcement
+		if err := yaml.Unmarshal(annData, &announcements); err == nil {
+			// Sort announcements by CreatedAt descending (newest first)
+			sort.Slice(announcements, func(i, j int) bool {
+				return announcements[i].CreatedAt.After(announcements[j].CreatedAt)
+			})
+			contest.Announcements = announcements
+		} else {
+			zap.S().Warnf("failed to parse announcements.yaml for contest %s: %v", contest.ID, err)
+		}
+	}
 
 	var loadedProblems []*Problem
 	for _, problemDirName := range contest.ProblemDirs {
