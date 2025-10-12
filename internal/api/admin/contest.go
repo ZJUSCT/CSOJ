@@ -51,11 +51,11 @@ func (h *Handler) createContest(c *gin.Context) {
 		return
 	}
 
-	if len(h.cfg.Contest) == 0 {
-		util.Error(c, http.StatusInternalServerError, "no contest directories configured on the server")
+	if h.cfg.ContestsRoot == "" {
+		util.Error(c, http.StatusInternalServerError, "contests_root is not configured on the server")
 		return
 	}
-	baseDir := h.cfg.Contest[0] // Assume new contests are created in the first configured directory
+	baseDir := h.cfg.ContestsRoot
 
 	if err := judger.CreateContest(baseDir, &newContest); err != nil {
 		util.Error(c, http.StatusInternalServerError, fmt.Errorf("failed to create contest files: %w", err))

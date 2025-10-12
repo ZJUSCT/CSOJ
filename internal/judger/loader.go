@@ -1,6 +1,7 @@
 package judger
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"time"
@@ -65,6 +66,27 @@ type Problem struct {
 	Score          ScoreConfig    `yaml:"score" json:"score"`
 	Description    string         `json:"description"`
 	BasePath       string         `yaml:"-" json:"-"` // Store the base path to find assets, hide from both
+}
+
+// FindContestDirs scans a root directory and returns a slice of all its immediate subdirectories.
+func FindContestDirs(rootPath string) ([]string, error) {
+	if rootPath == "" {
+		zap.S().Warn("contests_root is not configured. No contests will be loaded.")
+		return []string{}, nil
+	}
+
+	entries, err := os.ReadDir(rootPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read contests_root directory '%s': %w", rootPath, err)
+	}
+
+	var dirs []string
+	for _, entry := range entries {
+		if entry.IsDir() {
+			dirs = append(dirs, filepath.Join(rootPath, entry.Name()))
+		}
+	}
+	return dirs, nil
 }
 
 func LoadAllContestsAndProblems(contestDirs []string) (map[string]*Contest, map[string]*Problem, error) {

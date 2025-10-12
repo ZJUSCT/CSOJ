@@ -16,15 +16,15 @@ type Link struct {
 }
 
 type Config struct {
-	Cluster []Cluster `yaml:"cluster"`
-	Contest []string  `yaml:"contest"`
-	Logger  Logger    `yaml:"logger"`
-	Storage Storage   `yaml:"storage"`
-	Auth    Auth      `yaml:"auth"`
-	Listen  string    `yaml:"listen"`
-	Admin   Admin     `yaml:"admin"`
-	CORS    CORS      `yaml:"cors"`
-	Links   []Link    `yaml:"links"`
+	Cluster      []Cluster `yaml:"cluster"`
+	ContestsRoot string    `yaml:"contests_root"`
+	Logger       Logger    `yaml:"logger"`
+	Storage      Storage   `yaml:"storage"`
+	Auth         Auth      `yaml:"auth"`
+	Listen       string    `yaml:"listen"`
+	Admin        Admin     `yaml:"admin"`
+	CORS         CORS      `yaml:"cors"`
+	Links        []Link    `yaml:"links"`
 }
 
 type Cluster struct {

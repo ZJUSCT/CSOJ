@@ -83,7 +83,13 @@ func main() {
 	}
 
 	// contests and problems
-	contests, problems, err := judger.LoadAllContestsAndProblems(cfg.Contest)
+	contestDirs, err := judger.FindContestDirs(cfg.ContestsRoot)
+	if err != nil {
+		zap.S().Fatalf("failed to scan contests_root directory: %v", err)
+	}
+	zap.S().Infof("found %d contest directories in '%s'", len(contestDirs), cfg.ContestsRoot)
+
+	contests, problems, err := judger.LoadAllContestsAndProblems(contestDirs)
 	if err != nil {
 		zap.S().Fatalf("failed to load contests and problems: %v", err)
 	}

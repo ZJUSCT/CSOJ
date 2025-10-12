@@ -17,7 +17,17 @@ import (
 func (h *Handler) reload(c *gin.Context) {
 	// Load new data into temporary variables
 	zap.S().Info("starting reload process...")
-	newContests, newProblems, err := judger.LoadAllContestsAndProblems(h.cfg.Contest)
+
+	// Find contest directories from the root
+	contestDirs, err := judger.FindContestDirs(h.cfg.ContestsRoot)
+	if err != nil {
+		util.Error(c, http.StatusInternalServerError, fmt.Errorf("failed to scan contests_root directory: %w", err))
+		return
+	}
+	zap.S().Infof("found %d contest directories in '%s'", len(contestDirs), h.cfg.ContestsRoot)
+
+	// Load all contests and problems from the found directories
+	newContests, newProblems, err := judger.LoadAllContestsAndProblems(contestDirs)
 	if err != nil {
 		util.Error(c, http.StatusInternalServerError, fmt.Errorf("failed to load new contests/problems: %w", err))
 		return
