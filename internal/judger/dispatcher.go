@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -30,6 +31,12 @@ type Dispatcher struct {
 
 type JudgeResult struct {
 	Score       int                    `json:"score"`
+	Performance float64                `json:"performance"`
+	Info        map[string]interface{} `json:"info"`
+}
+
+type tempJudgeResult struct {
+	Score       float64                `json:"score"`
 	Performance float64                `json:"performance"`
 	Info        map[string]interface{} `json:"info"`
 }
@@ -91,11 +98,17 @@ func (d *Dispatcher) Dispatch(sub *models.Submission, prob *Problem, node *NodeS
 		}
 	}()
 
-	var result JudgeResult
-	if err := json.Unmarshal([]byte(lastStdout), &result); err != nil {
+	var tempResult tempJudgeResult
+	if err := json.Unmarshal([]byte(lastStdout), &tempResult); err != nil {
 		d.failSubmission(sub, fmt.Sprintf("failed to parse judge result: %v. Raw output: %s", err, lastStdout))
 		pubsub.GetBroker().CloseTopic(sub.ID)
 		return
+	}
+
+	result := JudgeResult{
+		Score:       int(math.Round((tempResult.Score))),
+		Performance: tempResult.Performance,
+		Info:        tempResult.Info,
 	}
 
 	contestID := d.findContestIDForProblem(prob.ID)
