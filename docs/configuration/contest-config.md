@@ -15,7 +15,7 @@ contests/sample-contest/
 ├── index.assets/        \# (Managed by API) Static assets for the description
 └── p1001-aplusb/        \# A problem directory; the name is arbitrary
 
-````
+```
 
 ---
 
