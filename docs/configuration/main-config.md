@@ -75,10 +75,8 @@ cluster:
         docker:
           host: "tcp://192.168.1.102:2375"
 
-# List of paths to contest configuration directories
-contest:
-  - "contests/intro-contest"
-  - "contests/final-contest"
+# Path to the root directory containing all contest folders
+contests_root: "contests"
 ```
 
 -----
@@ -180,8 +178,8 @@ contest:
 
 -----
 
-### `contest`
+### `contests_root`
 
-  - **Type**: `array of strings`
+  - **Type**: `string`
   - **Required**: Yes
-  - **Description**: A list of paths to all contest configuration directories. CSOJ scans these directories on startup to load contest and problem information.
+  - **Description**: The path to the root directory that contains all contest configuration directories. CSOJ scans this directory on startup to load contest and problem information.

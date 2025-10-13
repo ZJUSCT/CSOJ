@@ -33,6 +33,7 @@ listen: ":8080" # Listen address for the user-facing API service
 
 logger:
   level: "debug" # Log level (can be "debug" or "production")
+  file: "csoj.log" # (Optional) Path to log file.
 
 storage:
   database: "data/csoj.db" # Path to the SQLite database file
@@ -54,23 +55,23 @@ cluster:
       - name: "local-node"
         cpu: 4 # Total CPU cores available for judging on this node
         memory: 4096 # Total memory (in MB) available for judging
-        docker: "tcp://127.0.0.1:2375" # Address of the Docker Daemon
+        docker:
+          host: "tcp://127.0.0.1:2375" # Address of the Docker Daemon
 
-# Paths to contest and problem configuration files
-contest:
-  - "contests/sample-contest"
+# Path to the root directory containing all contest folders
+contests_root: "contests"
 
 # (Optional) Dynamic links for the frontend navigation bar
 links:
   - name: "Project Source"
-    url: "[https://github.com/ZJUSCT/CSOJ](https://github.com/ZJUSCT/CSOJ)"
+    url: "https://github.com/ZJUSCT/CSOJ"
 ```
 
 For more details on configuration files, please refer to the **[Configuration Guides](./configuration/main-config.md)**.
 
 ## 4\. Prepare Contest and Problem Files
 
-Based on the `contest` configuration in `config.yaml`, create the corresponding directories and files. For the example above, you would need the following structure:
+Based on the `contests_root` configuration in `config.yaml`, create the corresponding directories and files. For the example above, you would need the following structure:
 
 ```
 .
@@ -102,6 +103,7 @@ ZJUSCT CSOJ dev-build - Fully Containerized Secure Online Judgement
 
 {"level":"info","ts":...,"caller":"...","msg":"database initialized successfully"}
 {"level":"info","ts":...,"caller":"...","msg":"successfully recovered and cleaned up interrupted tasks"}
+{"level":"info","ts":...,"caller":"...","msg":"found 1 contest directories in 'contests'"}
 {"level":"info","ts":...,"caller":"...","msg":"loaded 1 contests and 1 problems"}
 {"level":"info","ts":...,"caller":"...","msg":"judger scheduler started"}
 {"level":"info","ts":...,"caller":"...","msg":"starting user server at :8080"}

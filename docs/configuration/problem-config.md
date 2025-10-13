@@ -2,7 +2,7 @@
 
 Each problem is defined by a separate directory, the path of which must be declared in the `problems` list of its parent `contest.yaml` file.
 
-A problem directory must contain a `problem.yaml` file and may optionally include an `index.md` file for the problem statement.
+A problem directory must contain a `problem.yaml` file and an `index.md` file for the problem statement. It may also contain an `index.assets/` directory for static files (e.g., images referenced in the statement), which is managed via the Admin API.
 
 ## Directory Structure Example
 
@@ -10,12 +10,12 @@ A problem directory must contain a `problem.yaml` file and may optionally includ
 
 ...
 ├── problem.yaml   \# The core configuration file for the problem
-├── index.md       \# (Optional) The problem statement in Markdown
-└── index.assets/  \#(Optional) Static assets (e.g., images) referenced in the statement
+├── index.md       \# The problem statement in Markdown
+└── index.assets/  \# (Managed by API) Static assets for the statement
 
 ```
 
------
+---
 
 ## `problem.yaml` Examples
 
@@ -44,6 +44,7 @@ score:
 
 # Limits on user-uploaded files (optional)
 upload:
+  upload_form: true # Enables the file upload component on the frontend
   maxnum: 2    # Max number of files allowed
   maxsize: 1   # Max total size for all files in MB
 
@@ -60,6 +61,7 @@ workflow:
     root: false
     timeout: 10
     show: true
+    network: false
     steps:
       - ["g++", "main.cpp", "-o", "main"]
 
@@ -130,105 +132,103 @@ workflow:
 
 ### `id`
 
-  * **Type**: `string`
-  * **Required**: Yes
-  * **Description**: A globally unique identifier for the problem.
+  - **Type**: `string`
+  - **Required**: Yes
+  - **Description**: A globally unique identifier for the problem.
 
 -----
 
 ### `name`
 
-  * **Type**: `string`
-  * **Required**: Yes
-  * **Description**: The display name of the problem.
+  - **Type**: `string`
+  - **Required**: Yes
+  - **Description**: The display name of the problem.
 
 -----
 
 ### `starttime` / `endtime`
 
-  * **Type**: `string` (ISO 8601 format)
-  * **Required**: No
-  * **Description**: The independent start/end time for the problem. This is useful for contests where problems are unlocked in stages. If set, this time window must be within the parent contest's `starttime` and `endtime`.
+  - **Type**: `string` (ISO 8601 format)
+  - **Required**: No
+  - **Description**: The independent start/end time for the problem. This is useful for contests where problems are unlocked in stages. If set, this time window must be within the parent contest's `starttime` and `endtime`.
 
 -----
 
 ### `max_submissions`
 
-  * **Type**: `integer`
-  * **Required**: No
-  * **Default**: `0` (unlimited)
-  * **Description**: Limits the number of valid submissions a user can make for this problem.
+  - **Type**: `integer`
+  - **Required**: No
+  - **Default**: `0` (unlimited)
+  - **Description**: Limits the number of valid submissions a user can make for this problem.
 
 -----
 
 ### `score`
 
-  * **Type**: `object`
-  * **Required**: No
-  * **Description**: Configures the scoring mechanism for the problem.
-      * `mode`: (string) The scoring mode to use.
-          * `"score"`: (Default) The judger directly returns a `score` value.
-          * `"performance"`: The judger returns a `performance` value (a number), and the system calculates the score based on the ratio of the user's performance to the current best performance across all users.
-      * `max_performance_score`: (integer) **Required** when `mode` is `"performance"`. This is the score awarded to the submission with the highest performance.
+  - **Type**: `object`
+  - **Required**: No
+  - **Description**: Configures the scoring mechanism for the problem.
+      - `mode`: (string) The scoring mode to use.
+          - `"score"`: (Default) The judger directly returns a `score` value.
+          - `"performance"`: The judger returns a `performance` value (a number), and the system calculates the score based on the ratio of the user's performance to the current best performance across all users.
+      - `max_performance_score`: (integer) **Required** when `mode` is `"performance"`. This is the score awarded to the submission with the highest performance.
 
 -----
 
 ### `upload`
 
-  * **Type**: `object`
-  * **Required**: No
-  * **Description**: Configures the submission method and its limits.
-      * `maxnum`: (integer) The maximum number of files a user can upload in a single submission.
-      * `maxsize`: (integer) The maximum **total size** in **megabytes (MB)** for all files in a single submission.
-      * `editor`: (boolean) If `true`, the frontend will display an online code editor instead of a file upload interface. Defaults to `false`.
-      * `editor_files`: (array of strings) When `editor` is `true`, this lists the filenames that will be shown as tabs in the online editor. The content from these editors will be submitted as files with these names.
+  - **Type**: `object`
+  - **Required**: No
+  - **Description**: Configures the submission method and its limits. One of `upload_form` or `editor` should be true.
+      - `upload_form`: (boolean) If `true`, the frontend will display a file upload interface. Defaults to `false`.
+      - `editor`: (boolean) If `true`, the frontend will display an online code editor. Defaults to `false`.
+      - `editor_files`: (array of strings) When `editor` is `true`, this lists the filenames that will be shown as tabs in the online editor. The content from these editors will be submitted as files with these names.
+      - `maxnum`: (integer) The maximum number of files a user can upload in a single submission.
+      - `maxsize`: (integer) The maximum **total size** in **megabytes (MB)** for all files in a single submission.
 
 -----
 
 ### `cluster`
 
-  * **Type**: `string`
-  * **Required**: Yes
-
-<!-- end list -->
-
+  - **Type**: `string`
+  - **Required**: Yes
   - **Description**: Specifies which cluster the judging tasks for this problem should be scheduled to. This name must match a `name` defined in the `cluster` section of `config.yaml`.
 
 -----
 
 ### `cpu`
 
-  * **Type**: `integer`
-  * **Required**: Yes
-  * **Description**: The number of CPU cores to request from the scheduler for a judging task.
+  - **Type**: `integer`
+  - **Required**: Yes
+  - **Description**: The number of CPU cores to request from the scheduler for a judging task.
 
 -----
 
 ### `memory`
 
-  * **Type**: `integer`
-  * **Required**: Yes
-  * **Description**: The amount of memory (in MB) to request from the scheduler for a judging task.
+  - **Type**: `integer`
+  - **Required**: Yes
+  - **Description**: The amount of memory (in MB) to request from the scheduler for a judging task.
 
 -----
 
 ### `workflow`
 
-  * **Type**: `array of objects`
-  * **Required**: Yes
-  * **Description**: Defines the core judging process as an array of steps that are executed sequentially. Each object in the array represents a step with the following fields:
-      * `name`: (string) An optional name for the step (e.g., "Compile", "Judge").
-      * `image`: (string, required) The Docker image to be used for this step.
-      * `root`: (boolean) Whether commands inside the container run as the `root` user. For security, this should be `false` whenever possible. Defaults to `false`.
-      * `timeout`: (integer, required) The total timeout for this step, in seconds.
-      * `show`: (boolean) Whether to allow regular users to view the logs for this step. Typically, compile logs are public (`true`), while judge logs (which might contain test case info) should be hidden (`false`). Defaults to `false`.
-      * `network`: (boolean) Whether to enable network access for this step's container. Defaults to `false` (network disabled).
-      * `steps`: (array of arrays of strings, required) A list of commands to be executed sequentially inside the container. Each command is an array of strings, like `["command", "arg1", "arg2"]`.
-      * `mounts`: (array of objects, optional) A list of additional volumes to mount into the container. Each mount object has:
-          * `type`: (string, optional) The mount type. Defaults to `bind`.
-          * `source`: (string, required) The path on the host machine (the judger node).
-          * `target`: (string, required) The path inside the container.
-          * `readonly`: (boolean, optional) Whether to mount the volume as read-only. Defaults to `true`.
+  - **Type**: `array of objects`
+  - **Required**: Yes
+  - **Description**: Defines the core judging process as an array of steps that are executed sequentially. Each object in the array represents a step with the following fields:
+      - `name`: (string) An optional name for the step (e.g., "Compile", "Judge").
+      - `image`: (string, required) The Docker image to be used for this step.
+      - `root`: (boolean) Whether commands inside the container run as the `root` user. For security, this should be `false` whenever possible. Defaults to `false`.
+      - `timeout`: (integer, required) The total timeout for this step, in seconds.
+      - `show`: (boolean) Whether to allow regular users to view the logs for this step. Typically, compile logs are public (`true`), while judge logs (which might contain test case info) should be hidden (`false`). Defaults to `false`.
+      - `network`: (boolean) Whether to enable network access for this step's container. Defaults to `false` (network disabled).
+      - `steps`: (array of arrays of strings, required) A list of commands to be executed sequentially inside the container. Each command is an array of strings, like `["command", "arg1", "arg2"]`.
+      - `mounts`: (array of objects, optional) A list of additional volumes to mount into the container. Each mount object has:
+          - `type`: (string, optional) The mount type. Defaults to `bind`.
+          - `source`: (string, required) The path on the host machine (the judger node).
+          - `target`: (string, required) The path inside the container.
+          - `readonly`: (boolean, optional) Whether to mount the volume as read-only. Defaults to `true`.
 
 -----
 
@@ -251,8 +251,8 @@ The JSON must contain a `score` field. A `performance` field can be included but
 }
 ```
 
-  * `score`: (integer, required) The final score awarded for this submission.
-  * `info`: (object, optional) Any additional information you wish to store and display.
+  - `score`: (integer, required) The final score awarded for this submission.
+  - `info`: (object, optional) Any additional information you wish to store and display.
 
 #### `score.mode: "performance"`
 
@@ -269,5 +269,5 @@ The JSON must contain a `performance` field. A `score` field can be included but
 }
 ```
 
-  * `performance`: (number, required) A metric indicating the quality of the solution. A higher value is considered better. The system will automatically calculate the final `score` based on this value relative to other users.
-  * `info`: (object, optional) Any additional information to store and display.
+  - `performance`: (number, required) A metric indicating the quality of the solution. A higher value is considered better. The system will automatically calculate the final `score` based on this value relative to other users.
+  - `info`: (object, optional) Any additional information to store and display.

@@ -1,19 +1,21 @@
 # Contest Config (contest.yaml)
 
-Each contest is defined by a separate directory, the path of which must be declared in the `contest` list in the main `config.yaml` file.
+Each contest is defined by a separate directory. All such directories should be placed inside the path specified by `contests_root` in the main `config.yaml` file.
 
-A contest directory must contain a `contest.yaml` file and may optionally include an `index.md` file for the contest description.
+A contest directory must contain a `contest.yaml` file and an `index.md` file for the contest description. It may also contain an `announcements.yaml` file and an `index.assets/` directory for static files, which are managed via the Admin API.
 
 ## Directory Structure Example
 
 ```
 
 contests/sample-contest/
-├── contest.yaml      \# The core configuration file for the contest
-├── index.md          \# (Optional) Detailed contest description in Markdown
-└── p1001-aplusb/     \# A problem directory; the name is arbitrary
+├── contest.yaml         \# The core configuration file for the contest
+├── index.md             \# Detailed contest description in Markdown
+├── announcements.yaml   \# (Managed by API) Stores contest announcements
+├── index.assets/        \# (Managed by API) Static assets for the description
+└── p1001-aplusb/        \# A problem directory; the name is arbitrary
 
-```
+````
 
 ---
 
@@ -37,8 +39,7 @@ endtime: "2025-10-01T12:00:00+08:00"
 problems:
   - "p1001-aplusb"
   - "p1002-fizzbuzz"
-
-```
+````
 
 -----
 
