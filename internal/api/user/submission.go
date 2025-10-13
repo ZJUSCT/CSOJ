@@ -127,6 +127,26 @@ func (h *Handler) submitToProblem(c *gin.Context) {
 	}
 	files := form.File["files"]
 
+	if problem.Upload.MaxNum > 0 && len(files) > problem.Upload.MaxNum {
+		msg := fmt.Sprintf("too many files uploaded. The maximum is %d, but you provided %d", problem.Upload.MaxNum, len(files))
+		util.Error(c, http.StatusBadRequest, msg)
+		return
+	}
+
+	if problem.Upload.MaxSize > 0 {
+		var totalSize int64
+		for _, file := range files {
+			totalSize += file.Size
+		}
+
+		maxSizeBytes := int64(problem.Upload.MaxSize) * 1024 * 1024
+		if totalSize > maxSizeBytes {
+			msg := fmt.Sprintf("total file size exceeds the limit of %d MB", problem.Upload.MaxSize)
+			util.Error(c, http.StatusRequestEntityTooLarge, msg)
+			return
+		}
+	}
+
 	submissionID := uuid.New().String()
 	submissionPath := filepath.Join(h.cfg.Storage.SubmissionContent, submissionID)
 	if err := os.MkdirAll(submissionPath, 0755); err != nil {
