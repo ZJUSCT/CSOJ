@@ -3,10 +3,13 @@ package api
 import (
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/ZJUSCT/CSOJ/internal/auth"
 	"github.com/ZJUSCT/CSOJ/internal/config"
+	"github.com/ZJUSCT/CSOJ/internal/database"
 	"github.com/ZJUSCT/CSOJ/internal/util"
+	"gorm.io/gorm"
 
 	"github.com/gin-gonic/gin"
 )
@@ -51,7 +54,7 @@ func CORSMiddleware(cfg config.CORS) gin.HandlerFunc {
 	}
 }
 
-func AuthMiddleware(secret string) gin.HandlerFunc {
+func AuthMiddleware(secret string, db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		authHeader := c.GetHeader("Authorization")
 		if authHeader == "" {
@@ -71,6 +74,27 @@ func AuthMiddleware(secret string) gin.HandlerFunc {
 		claims, err := auth.ValidateJWT(tokenString, secret)
 		if err != nil {
 			util.Error(c, http.StatusUnauthorized, err.Error())
+			c.Abort()
+			return
+		}
+
+		userID := claims.Subject
+		user, err := database.GetUserByID(db, userID)
+		if err != nil {
+			util.Error(c, http.StatusUnauthorized, "User not found")
+			c.Abort()
+			return
+		}
+
+		if user.BannedUntil != nil && time.Now().Before(*user.BannedUntil) {
+			c.JSON(http.StatusForbidden, gin.H{
+				"code":    -1,
+				"message": "You have been banned from this service.",
+				"data": gin.H{
+					"ban_reason":   user.BanReason,
+					"banned_until": user.BannedUntil.Format(time.RFC3339),
+				},
+			})
 			c.Abort()
 			return
 		}

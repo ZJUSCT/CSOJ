@@ -3,6 +3,7 @@ package user
 import (
 	"errors"
 	"net/http"
+	"time"
 
 	"github.com/ZJUSCT/CSOJ/internal/auth"
 	"github.com/ZJUSCT/CSOJ/internal/database"
@@ -83,6 +84,18 @@ func (h *Handler) localLogin(c *gin.Context) {
 		} else {
 			util.Error(c, http.StatusInternalServerError, "database error")
 		}
+		return
+	}
+
+	if user.BannedUntil != nil && time.Now().Before(*user.BannedUntil) {
+		c.JSON(http.StatusForbidden, gin.H{
+			"code":    -1,
+			"message": "You are banned from this service.",
+			"data": gin.H{
+				"ban_reason":   user.BanReason,
+				"banned_until": user.BannedUntil.Format(time.RFC3339),
+			},
+		})
 		return
 	}
 

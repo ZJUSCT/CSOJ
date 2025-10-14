@@ -61,7 +61,7 @@ func NewUserRouter(
 
 		// Authenticated routes
 		authed := v1.Group("/")
-		authed.Use(api.AuthMiddleware(cfg.Auth.JWT.Secret))
+		authed.Use(api.AuthMiddleware(cfg.Auth.JWT.Secret, db))
 		{
 			// User Profile
 			profile := authed.Group("/user")

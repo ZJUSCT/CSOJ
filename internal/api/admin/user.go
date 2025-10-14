@@ -3,6 +3,7 @@ package admin
 import (
 	"errors"
 	"net/http"
+	"time"
 
 	"github.com/ZJUSCT/CSOJ/internal/auth"
 	"github.com/ZJUSCT/CSOJ/internal/database"
@@ -59,8 +60,10 @@ func (h *Handler) updateUser(c *gin.Context) {
 	}
 
 	var reqBody struct {
-		Nickname  *string `json:"nickname"`
-		Signature *string `json:"signature"`
+		Nickname    *string `json:"nickname"`
+		Signature   *string `json:"signature"`
+		BanReason   *string `json:"ban_reason"`
+		BannedUntil *string `json:"banned_until"` // Receive as string to handle null/empty
 	}
 
 	if err := c.ShouldBindJSON(&reqBody); err != nil {
@@ -73,6 +76,29 @@ func (h *Handler) updateUser(c *gin.Context) {
 	}
 	if reqBody.Signature != nil {
 		user.Signature = *reqBody.Signature
+	}
+
+	// Handle ban logic
+	if reqBody.BanReason != nil {
+		user.BanReason = *reqBody.BanReason
+	}
+	if reqBody.BannedUntil != nil {
+		if *reqBody.BannedUntil == "" {
+			user.BannedUntil = nil // Unban by sending empty string
+			user.BanReason = ""    // Clear reason on unban
+		} else {
+			// Parse the time string. `time.RFC3339` is the standard for JS `toISOString()`
+			t, err := time.Parse(time.RFC3339, *reqBody.BannedUntil)
+			if err != nil {
+				// Fallback for HTML datetime-local input which doesn't include timezone
+				t, err = time.Parse("2006-01-02T15:04", *reqBody.BannedUntil)
+				if err != nil {
+					util.Error(c, http.StatusBadRequest, "invalid banned_until time format")
+					return
+				}
+			}
+			user.BannedUntil = &t
+		}
 	}
 
 	if err := database.UpdateUser(h.db, user); err != nil {
