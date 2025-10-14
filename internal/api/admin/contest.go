@@ -100,6 +100,77 @@ func (h *Handler) updateContest(c *gin.Context) {
 	h.reload(c)
 }
 
+// handleUpdateContestProblemOrder updates the order of problems in a contest.
+func (h *Handler) handleUpdateContestProblemOrder(c *gin.Context) {
+	contestID := c.Param("id")
+	var req struct {
+		ProblemIDs []string `json:"problem_ids" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		util.Error(c, http.StatusBadRequest, err)
+		return
+	}
+
+	h.appState.RLock()
+	contest, ok := h.appState.Contests[contestID]
+	h.appState.RUnlock()
+	if !ok {
+		util.Error(c, http.StatusNotFound, "contest not found")
+		return
+	}
+
+	// Basic validation: ensure all provided IDs are actual problems in the contest
+	// and check for duplicates in the request.
+	newProblemSet := make(map[string]struct{})
+	for _, pid := range req.ProblemIDs {
+		if _, exists := newProblemSet[pid]; exists {
+			util.Error(c, http.StatusBadRequest, fmt.Sprintf("duplicate problem ID in request: %s", pid))
+			return
+		}
+		newProblemSet[pid] = struct{}{}
+	}
+
+	originalProblemSet := make(map[string]struct{})
+	for _, pid := range contest.ProblemIDs {
+		originalProblemSet[pid] = struct{}{}
+	}
+
+	if len(newProblemSet) != len(originalProblemSet) {
+		util.Error(c, http.StatusBadRequest, "number of problems does not match original")
+		return
+	}
+
+	for pid := range newProblemSet {
+		if _, exists := originalProblemSet[pid]; !exists {
+			util.Error(c, http.StatusBadRequest, fmt.Sprintf("problem ID %s not found in original contest", pid))
+			return
+		}
+	}
+
+	// The `ProblemIDs` is for the API response. We should update both to keep the in-memory state consistent before reload.
+	// The `ProblemDirs` field is what's written to contest.yaml as `problems`.
+	contest.ProblemIDs = req.ProblemIDs
+
+	newProblemDirs := make([]string, len(req.ProblemIDs))
+	for i, pid := range req.ProblemIDs {
+		// Find the corresponding problem dir for this problem ID
+		for j, origPID := range contest.ProblemIDs {
+			if pid == origPID {
+				newProblemDirs[i] = contest.ProblemDirs[j]
+				break
+			}
+		}
+	}
+	contest.ProblemDirs = newProblemDirs
+
+	if err := judger.UpdateContest(contest); err != nil {
+		util.Error(c, http.StatusInternalServerError, fmt.Errorf("failed to update contest file: %w", err))
+		return
+	}
+	zap.S().Infof("admin updated problem order for contest '%s'", contestID)
+	h.reload(c)
+}
+
 func (h *Handler) deleteContest(c *gin.Context) {
 	contestID := c.Param("id")
 

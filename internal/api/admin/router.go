@@ -69,6 +69,7 @@ func NewAdminRouter(
 			contests.GET("/:id/leaderboard", h.getContestLeaderboard)
 			contests.GET("/:id/trend", h.getContestTrend)
 			contests.POST("/:id/problems", h.createProblemInContest)
+			contests.PUT("/:id/problems/order", h.handleUpdateContestProblemOrder)
 			// Contest Assets
 			contests.GET("/:id/assets", h.handleListContestAssets)
 			contests.POST("/:id/assets", h.handleUploadContestAssets)
