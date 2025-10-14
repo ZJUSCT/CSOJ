@@ -18,6 +18,7 @@ type WorkflowStepResponse struct {
 type ProblemResponse struct {
 	ID             string                 `json:"id"`
 	Name           string                 `json:"name"`
+	Level          string                 `yaml:"level" json:"level"`
 	StartTime      time.Time              `json:"starttime"`
 	EndTime        time.Time              `json:"endtime"`
 	MaxSubmissions int                    `json:"max_submissions"`
@@ -69,6 +70,7 @@ func (h *Handler) getProblem(c *gin.Context) {
 	response := ProblemResponse{
 		ID:             problem.ID,
 		Name:           problem.Name,
+		Level:          problem.Level,
 		StartTime:      problem.StartTime,
 		EndTime:        problem.EndTime,
 		MaxSubmissions: problem.MaxSubmissions,

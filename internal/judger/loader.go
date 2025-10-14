@@ -66,6 +66,7 @@ type ScoreConfig struct {
 type Problem struct {
 	ID             string         `yaml:"id" json:"id"`
 	Name           string         `yaml:"name" json:"name"`
+	Level          string         `yaml:"level" json:"level"`
 	StartTime      time.Time      `yaml:"starttime" json:"starttime"`
 	EndTime        time.Time      `yaml:"endtime" json:"endtime"`
 	MaxSubmissions int            `yaml:"max_submissions" json:"max_submissions"`
