@@ -8,11 +8,14 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
+	"time"
 
 	"github.com/ZJUSCT/CSOJ/internal/database"
 	"github.com/ZJUSCT/CSOJ/internal/util"
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 	"gorm.io/gorm"
 )
 
@@ -67,6 +70,20 @@ func (h *Handler) getPublicUserProfile(c *gin.Context) {
 	util.Success(c, response, "User profile retrieved successfully")
 }
 
+var maliciousContentRegex = regexp.MustCompile("<[^>]+>")
+
+func containsMaliciousContent(s string) bool {
+	// Check for "javascript:"
+	if strings.Contains(strings.ToLower(s), "javascript:") {
+		return true
+	}
+	// Check for HTML tags
+	if maliciousContentRegex.MatchString(s) {
+		return true
+	}
+	return false
+}
+
 func (h *Handler) updateUserProfile(c *gin.Context) {
 	userID := c.GetString("userID")
 	user, err := database.GetUserByID(h.db, userID)
@@ -80,6 +97,19 @@ func (h *Handler) updateUserProfile(c *gin.Context) {
 	}
 	if err := c.ShouldBindJSON(&reqBody); err != nil {
 		util.Error(c, http.StatusBadRequest, err)
+		return
+	}
+
+	if containsMaliciousContent(reqBody.Nickname) || containsMaliciousContent(reqBody.Signature) {
+		banUntil := time.Now().Add(12 * time.Hour)
+		user.BannedUntil = &banUntil
+		user.BanReason = "Hacking Detected"
+		if err := database.UpdateUser(h.db, user); err != nil {
+			util.Error(c, http.StatusInternalServerError, err)
+			return
+		}
+		zap.S().Warnf("user %s (%s) auto-banned for 12 hours due to suspicious nickname/signature", user.Username, user.ID)
+		util.Error(c, http.StatusForbidden, "Your account has been temporarily banned due to suspicious input.")
 		return
 	}
 
