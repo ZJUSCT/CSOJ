@@ -1,6 +1,7 @@
 package user
 
 import (
+	"encoding/base64"
 	"fmt"
 	"io"
 	"net/http"
@@ -155,7 +156,13 @@ func (h *Handler) submitToProblem(c *gin.Context) {
 	}
 
 	for _, file := range files {
-		relativePath := filepath.Clean(file.Filename)
+		rawBytes, err := base64.StdEncoding.DecodeString(file.Filename)
+		var relativePath string
+		if err == nil {
+			relativePath = filepath.Clean(string(rawBytes))
+		} else {
+			util.Error(c, http.StatusBadRequest, fmt.Sprintf("failed to decode file path: %s", file.Filename))
+		}
 
 		if filepath.IsAbs(relativePath) || strings.HasPrefix(relativePath, "..") {
 			util.Error(c, http.StatusBadRequest, fmt.Sprintf("invalid file path: %s", file.Filename))
