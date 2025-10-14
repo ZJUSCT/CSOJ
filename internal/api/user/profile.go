@@ -82,6 +82,14 @@ func (h *Handler) updateUserProfile(c *gin.Context) {
 		util.Error(c, http.StatusBadRequest, err)
 		return
 	}
+	if len(reqBody.Nickname) == 0 || len(reqBody.Nickname) > 15 {
+		util.Error(c, http.StatusBadRequest, "nickname must be between 1 and 15 characters")
+		return
+	}
+	if len(reqBody.Signature) > 100 {
+		util.Error(c, http.StatusBadRequest, "signature must be at most 40 characters")
+		return
+	}
 	user.Nickname = reqBody.Nickname
 	user.Signature = reqBody.Signature
 	if err := database.UpdateUser(h.db, user); err != nil {
