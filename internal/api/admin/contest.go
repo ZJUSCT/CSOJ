@@ -149,8 +149,6 @@ func (h *Handler) handleUpdateContestProblemOrder(c *gin.Context) {
 
 	// The `ProblemIDs` is for the API response. We should update both to keep the in-memory state consistent before reload.
 	// The `ProblemDirs` field is what's written to contest.yaml as `problems`.
-	contest.ProblemIDs = req.ProblemIDs
-
 	newProblemDirs := make([]string, len(req.ProblemIDs))
 	for i, pid := range req.ProblemIDs {
 		// Find the corresponding problem dir for this problem ID
@@ -161,6 +159,8 @@ func (h *Handler) handleUpdateContestProblemOrder(c *gin.Context) {
 			}
 		}
 	}
+
+	contest.ProblemIDs = req.ProblemIDs
 	contest.ProblemDirs = newProblemDirs
 
 	if err := judger.UpdateContest(contest); err != nil {
