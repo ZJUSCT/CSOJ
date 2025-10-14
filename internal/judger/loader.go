@@ -25,8 +25,8 @@ type Contest struct {
 	StartTime     time.Time       `yaml:"starttime" json:"starttime"`
 	EndTime       time.Time       `yaml:"endtime" json:"endtime"`
 	ProblemDirs   []string        `yaml:"problems" json:"-"` // Renamed from ProblemDirs to problems in YAML, hide from JSON
-	ProblemIDs    []string        `json:"problem_ids"`
-	Description   string          `json:"description"`
+	ProblemIDs    []string        `yaml:"-" json:"problem_ids"`
+	Description   string          `yaml:"-" json:"description"`
 	BasePath      string          `yaml:"-" json:"-"`             // Store the base path to find assets, hide from both
 	Announcements []*Announcement `yaml:"-" json:"announcements"` // Loaded from announcements.yaml, hidden from contest.yaml
 }
