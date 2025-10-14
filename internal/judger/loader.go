@@ -35,6 +35,7 @@ type UploadLimit struct {
 	MaxNum      int      `yaml:"maxnum" json:"max_num"`
 	MaxSize     int      `yaml:"maxsize" json:"max_size"`
 	UploadForm  bool     `yaml:"upload_form" json:"upload_form"`
+	UploadFiles []string `yaml:"upload_files" json:"upload_files"`
 	Editor      bool     `yaml:"editor" json:"editor"`
 	EditorFiles []string `yaml:"editor_files" json:"editor_files"`
 }
