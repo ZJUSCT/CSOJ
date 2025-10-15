@@ -92,6 +92,11 @@ func (m *DockerManager) CreateContainer(image, workDir string, cpu int, cpusetCp
 			Source:   mnt.Source,
 			Target:   mnt.Target,
 			ReadOnly: isReadOnly,
+			TmpfsOptions: &mount.TmpfsOptions{
+				SizeBytes: mnt.TmpfsOption.SizeBytes,
+				Mode:      mnt.TmpfsOption.Mode,
+				Options:   mnt.TmpfsOption.Options,
+			},
 		})
 	}
 	hostConfig.Mounts = dockerMounts

@@ -40,11 +40,18 @@ type UploadLimit struct {
 	EditorFiles []string `yaml:"editor_files" json:"editor_files"`
 }
 
+type TmpfsOptions struct {
+	SizeBytes int64       `yaml:"size_bytes" json:"size_bytes,omitempty"`
+	Mode      os.FileMode `yaml:"mode,omitempty" json:"mode,omitempty"`
+	Options   [][]string  `yaml:"options,omitempty" json:"options,omitempty"`
+}
+
 type Mount struct {
-	Type     string `yaml:"type" json:"type"`
-	Source   string `yaml:"source" json:"source"`
-	Target   string `yaml:"target" json:"target"`
-	ReadOnly *bool  `yaml:"readonly" json:"readonly"`
+	Type        string       `yaml:"type" json:"type"`
+	Source      string       `yaml:"source" json:"source"`
+	Target      string       `yaml:"target" json:"target"`
+	ReadOnly    *bool        `yaml:"readonly" json:"readonly"`
+	TmpfsOption TmpfsOptions `yaml:"tmpfs_options" json:"tmpfs_options,omitempty"`
 }
 
 type WorkflowStep struct {
