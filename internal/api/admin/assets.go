@@ -240,3 +240,81 @@ func (h *Handler) handleDeleteProblemAsset(c *gin.Context) {
 	}
 	h.handleDeleteAsset(c, problem.BasePath)
 }
+
+func (h *Handler) serveContestAsset(c *gin.Context) {
+	contestID := c.Param("id")
+	assetPath := c.Param("assetpath")
+
+	h.appState.RLock()
+	contest, ok := h.appState.Contests[contestID]
+	h.appState.RUnlock()
+	if !ok {
+		util.Error(c, http.StatusNotFound, "contest not found")
+		return
+	}
+
+	// Security: ensure the requested path is within the allowed assets directory
+	baseAssetDir := filepath.Join(contest.BasePath, "index.assets")
+	requestedFile := filepath.Join(contest.BasePath, assetPath)
+
+	safeBase, err := filepath.Abs(baseAssetDir)
+	if err != nil {
+		util.Error(c, http.StatusInternalServerError, "internal server error")
+		return
+	}
+	safeRequested, err := filepath.Abs(requestedFile)
+	if err != nil {
+		util.Error(c, http.StatusInternalServerError, "internal server error")
+		return
+	}
+
+	if !strings.HasPrefix(safeRequested, safeBase) {
+		util.Error(c, http.StatusForbidden, "access denied")
+		return
+	}
+
+	if _, err := os.Stat(safeRequested); os.IsNotExist(err) {
+		util.Error(c, http.StatusNotFound, "asset not found")
+		return
+	}
+	c.File(safeRequested)
+}
+
+func (h *Handler) serveProblemAsset(c *gin.Context) {
+	problemID := c.Param("id")
+	assetPath := c.Param("assetpath")
+
+	h.appState.RLock()
+	problem, ok := h.appState.Problems[problemID]
+	if !ok {
+		h.appState.RUnlock()
+		util.Error(c, http.StatusNotFound, "problem not found")
+		return
+	}
+
+	// --- Security Logic (same as contest assets) ---
+	baseAssetDir := filepath.Join(problem.BasePath, "index.assets")
+	requestedFile := filepath.Join(problem.BasePath, assetPath)
+
+	safeBase, err := filepath.Abs(baseAssetDir)
+	if err != nil {
+		util.Error(c, http.StatusInternalServerError, "internal server error")
+		return
+	}
+	safeRequested, err := filepath.Abs(requestedFile)
+	if err != nil {
+		util.Error(c, http.StatusInternalServerError, "internal server error")
+		return
+	}
+
+	if !strings.HasPrefix(safeRequested, safeBase) {
+		util.Error(c, http.StatusForbidden, "access denied")
+		return
+	}
+
+	if _, err := os.Stat(safeRequested); os.IsNotExist(err) {
+		util.Error(c, http.StatusNotFound, "asset not found")
+		return
+	}
+	c.File(safeRequested)
+}

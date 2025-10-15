@@ -72,6 +72,7 @@ func NewAdminRouter(
 			contests.PUT("/:id/problems/order", h.handleUpdateContestProblemOrder)
 			// Contest Assets
 			contests.GET("/:id/assets", h.handleListContestAssets)
+			contests.GET("/:id/assets/*assetpath", h.serveContestAsset)
 			contests.POST("/:id/assets", h.handleUploadContestAssets)
 			contests.DELETE("/:id/assets", h.handleDeleteContestAsset)
 			// Contest Announcements
@@ -89,6 +90,7 @@ func NewAdminRouter(
 			problems.DELETE("/:id", h.deleteProblem)
 			// Problem Assets
 			problems.GET("/:id/assets", h.handleListProblemAssets)
+			problems.GET("/:id/assets/*assetpath", h.serveProblemAsset)
 			problems.POST("/:id/assets", h.handleUploadProblemAssets)
 			problems.DELETE("/:id/assets", h.handleDeleteProblemAsset)
 		}
