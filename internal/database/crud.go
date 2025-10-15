@@ -497,6 +497,11 @@ func RecalculateScoresForUserProblem(db *gorm.DB, userID, problemID, contestID, 
 					Delete(&models.UserProblemBestScore{}).Error; err != nil {
 					return err
 				}
+
+				if err := createScoreHistory(tx, userID, contestID, problemID, sourceSubmissionID); err != nil {
+					return err
+				}
+
 			} else if err != nil {
 				return err // A different database error.
 			} else {
