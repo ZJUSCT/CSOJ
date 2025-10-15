@@ -164,6 +164,30 @@ func (h *Handler) submitToProblem(c *gin.Context) {
 			util.Error(c, http.StatusBadRequest, fmt.Sprintf("failed to decode file path: %s", file.Filename))
 		}
 
+		// Backend validation against allowed file patterns from problem.yaml
+		if len(problem.Upload.UploadFiles) > 0 {
+			matched := false
+			for _, pattern := range problem.Upload.UploadFiles {
+				if m, _ := filepath.Match(pattern, relativePath); m {
+					matched = true
+					break
+				}
+			}
+			if !matched {
+				// Ban the user for 24 hours for submitting a disallowed file
+				banUntil := time.Now().Add(24 * time.Hour)
+				user.BannedUntil = &banUntil
+				user.BanReason = "Hacking Detected"
+				if err := database.UpdateUser(h.db, user); err != nil {
+					util.Error(c, http.StatusInternalServerError, err)
+					return
+				}
+				zap.S().Warnf("user %s (%s) auto-banned for 24 hours for uploading disallowed file: %s", user.Username, user.ID, relativePath)
+				util.Error(c, http.StatusForbidden, "Your account has been temporarily banned due to suspicious activity.")
+				return
+			}
+		}
+
 		if filepath.IsAbs(relativePath) || strings.HasPrefix(relativePath, "..") {
 			util.Error(c, http.StatusBadRequest, fmt.Sprintf("invalid file path: %s", file.Filename))
 			return
