@@ -27,6 +27,7 @@ type ProblemResponse struct {
 	Memory         int64                  `json:"memory"`
 	Upload         judger.UploadLimit     `json:"upload"`
 	Workflow       []WorkflowStepResponse `json:"workflow"`
+	Score          judger.ScoreConfig     `json:"score"`
 	Description    string                 `json:"description"`
 }
 
@@ -79,6 +80,7 @@ func (h *Handler) getProblem(c *gin.Context) {
 		Memory:         problem.Memory,
 		Upload:         problem.Upload,
 		Workflow:       workflowResponse,
+		Score:  	    problem.Score,
 		Description:    problem.Description,
 	}
 
