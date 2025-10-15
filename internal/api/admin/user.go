@@ -64,6 +64,7 @@ func (h *Handler) updateUser(c *gin.Context) {
 		Signature   *string `json:"signature"`
 		BanReason   *string `json:"ban_reason"`
 		BannedUntil *string `json:"banned_until"` // Receive as string to handle null/empty
+		DisableRank *bool   `json:"disable_rank"`
 	}
 
 	if err := c.ShouldBindJSON(&reqBody); err != nil {
@@ -76,6 +77,9 @@ func (h *Handler) updateUser(c *gin.Context) {
 	}
 	if reqBody.Signature != nil {
 		user.Signature = *reqBody.Signature
+	}
+	if reqBody.DisableRank != nil {
+		user.DisableRank = *reqBody.DisableRank
 	}
 
 	// Handle ban logic

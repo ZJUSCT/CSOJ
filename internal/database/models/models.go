@@ -47,6 +47,7 @@ type User struct {
 	AvatarURL    string     `json:"avatar_url"`
 	BannedUntil  *time.Time `json:"banned_until"`
 	BanReason    string     `json:"ban_reason"`
+	DisableRank  bool       `gorm:"default:false" json:"disable_rank"`
 }
 
 type Submission struct {

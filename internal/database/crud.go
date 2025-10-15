@@ -161,6 +161,7 @@ type LeaderboardEntry struct {
 	Username         string         `json:"username"`
 	Nickname         string         `json:"nickname"`
 	AvatarURL        string         `json:"avatar_url"`
+	DisableRank      bool           `json:"disable_rank"`
 	TotalScore       int            `json:"total_score"`
 	ProblemScores    map[string]int `json:"problem_scores"`
 	lastScoreTime    time.Time
@@ -181,14 +182,15 @@ func GetLeaderboard(db *gorm.DB, contestID string) ([]LeaderboardEntry, error) {
 		Username         string
 		Nickname         string
 		AvatarURL        string
+		DisableRank      bool
 		RegistrationTime string // Read time as a string from DB
 	}
 	var users []registeredUser
 	err := db.Table("contest_score_histories").
-		Select("users.id as user_id, users.username, users.nickname, users.avatar_url, datetime(MIN(contest_score_histories.created_at)) as registration_time").
+		Select("users.id as user_id, users.username, users.nickname, users.avatar_url, users.disable_rank, datetime(MIN(contest_score_histories.created_at)) as registration_time").
 		Joins("join users on users.id = contest_score_histories.user_id").
 		Where("contest_score_histories.contest_id = ?", contestID).
-		Group("users.id, users.username, users.nickname, users.avatar_url").
+		Group("users.id, users.username, users.nickname, users.avatar_url, users.disable_rank").
 		Scan(&users).Error
 	if err != nil {
 		return nil, fmt.Errorf("failed to get registered users: %w", err)
@@ -230,6 +232,7 @@ func GetLeaderboard(db *gorm.DB, contestID string) ([]LeaderboardEntry, error) {
 			Username:         user.Username,
 			Nickname:         user.Nickname,
 			AvatarURL:        avatarURL,
+			DisableRank:      user.DisableRank,
 			TotalScore:       0,
 			ProblemScores:    make(map[string]int),
 			lastScoreTime:    time.Time{}, // Zero value for time
