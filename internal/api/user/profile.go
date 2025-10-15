@@ -101,14 +101,14 @@ func (h *Handler) updateUserProfile(c *gin.Context) {
 	}
 
 	if containsMaliciousContent(reqBody.Nickname) || containsMaliciousContent(reqBody.Signature) {
-		banUntil := time.Now().Add(12 * time.Hour)
+		banUntil := time.Now().Add(24 * time.Hour)
 		user.BannedUntil = &banUntil
 		user.BanReason = "Hacking Detected"
 		if err := database.UpdateUser(h.db, user); err != nil {
 			util.Error(c, http.StatusInternalServerError, err)
 			return
 		}
-		zap.S().Warnf("user %s (%s) auto-banned for 12 hours due to suspicious nickname/signature", user.Username, user.ID)
+		zap.S().Warnf("user %s (%s) auto-banned for 24 hours due to suspicious nickname/signature", user.Username, user.ID)
 		util.Error(c, http.StatusForbidden, "Your account has been temporarily banned due to suspicious input.")
 		return
 	}
