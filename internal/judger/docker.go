@@ -87,16 +87,22 @@ func (m *DockerManager) CreateContainer(image, workDir string, cpu int, cpusetCp
 			isReadOnly = *mnt.ReadOnly
 		}
 
-		dockerMounts = append(dockerMounts, mount.Mount{
-			Type:     mountType,
-			Source:   mnt.Source,
-			Target:   mnt.Target,
-			ReadOnly: isReadOnly,
-			TmpfsOptions: &mount.TmpfsOptions{
+		var tmpfsOptions *mount.TmpfsOptions
+		tmpfsOptions = nil
+		if mountType == mount.TypeTmpfs {
+			tmpfsOptions = &mount.TmpfsOptions{
 				SizeBytes: mnt.TmpfsOption.SizeBytes,
 				Mode:      mnt.TmpfsOption.Mode,
 				Options:   mnt.TmpfsOption.Options,
-			},
+			}
+		}
+
+		dockerMounts = append(dockerMounts, mount.Mount{
+			Type:         mountType,
+			Source:       mnt.Source,
+			Target:       mnt.Target,
+			ReadOnly:     isReadOnly,
+			TmpfsOptions: tmpfsOptions,
 		})
 	}
 	hostConfig.Mounts = dockerMounts
