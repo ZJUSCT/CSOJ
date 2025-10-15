@@ -4,7 +4,7 @@ go 1.24.0
 
 require (
 	github.com/coreos/go-oidc/v3 v3.16.0
-	github.com/docker/docker v28.5.0+incompatible
+	github.com/docker/docker v28.5.1+incompatible
 	github.com/gin-gonic/gin v1.11.0
 	github.com/golang-jwt/jwt/v5 v5.3.0
 	github.com/google/uuid v1.6.0
