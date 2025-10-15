@@ -318,7 +318,7 @@ func (s *Scheduler) findAvailableNode(clusterName string, requiredCPU int, requi
 		if node.Memory-node.UsedMemory >= requiredMemory {
 			startCore := -1
 			if requiredCPU > 0 {
-				for i := 0; i <= len(node.UsedCores)-requiredCPU; i++ {
+				for i := 0; i <= len(node.UsedCores)-requiredCPU; i += requiredCPU {
 					isBlockFree := true
 					for j := 0; j < requiredCPU; j++ {
 						if node.UsedCores[i+j] {
