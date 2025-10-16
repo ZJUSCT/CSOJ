@@ -89,6 +89,9 @@ func (h *Handler) serveContestAsset(c *gin.Context) {
 		util.Error(c, http.StatusNotFound, "asset not found")
 		return
 	}
+
+	fileName := filepath.Base(safeRequested)
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%q", fileName))
 	c.File(safeRequested)
 }
 
@@ -149,5 +152,8 @@ func (h *Handler) serveProblemAsset(c *gin.Context) {
 		util.Error(c, http.StatusNotFound, "asset not found")
 		return
 	}
+
+	fileName := filepath.Base(safeRequested)
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%q", fileName))
 	c.File(safeRequested)
 }
