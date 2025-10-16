@@ -23,7 +23,17 @@ func (h *Handler) getLinks(c *gin.Context) {
 func (h *Handler) getAllContests(c *gin.Context) {
 	h.appState.RLock()
 	defer h.appState.RUnlock()
-	util.Success(c, h.appState.Contests, "Contests loaded")
+
+	// Create a response map to avoid exposing problem IDs in the contest list view.
+	// We create copies to avoid modifying the shared appState.
+	responseContests := make(map[string]judger.Contest, len(h.appState.Contests))
+	for id, contest := range h.appState.Contests {
+		contestCopy := *contest
+		contestCopy.ProblemIDs = []string{} // Always hide problem IDs in the list view
+		responseContests[id] = contestCopy
+	}
+
+	util.Success(c, responseContests, "Contests loaded")
 }
 
 func (h *Handler) getContest(c *gin.Context) {
