@@ -1,9 +1,12 @@
 package user
 
 import (
+	"archive/zip"
+	"bytes"
 	"encoding/base64"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -574,4 +577,102 @@ func (h *Handler) getContainerLog(c *gin.Context) {
 
 	c.Header("Content-Type", "application/x-ndjson; charset=utf-8")
 	io.Copy(c.Writer, file)
+}
+
+func (h *Handler) getUserSubmissionContent(c *gin.Context) {
+	subID := c.Param("id")
+	userID := c.GetString("userID")
+
+	_, err := database.GetUserByID(h.db, userID)
+	if err != nil {
+		util.Error(c, http.StatusNotFound, "user not found")
+		return
+	}
+
+	sub, err := database.GetSubmission(h.db, subID)
+	if err != nil {
+		util.Error(c, http.StatusNotFound, "submission not found")
+		return
+	}
+
+	// Authorization Check : Ownership
+	if sub.UserID != userID {
+		util.Error(c, http.StatusForbidden, "you can only download your own submissions")
+		return
+	}
+
+	submissionPath := filepath.Join(h.cfg.Storage.SubmissionContent, subID)
+
+	// Check if the directory exists
+	info, err := os.Stat(submissionPath)
+	if os.IsNotExist(err) || !info.IsDir() {
+		util.Error(c, http.StatusNotFound, "submission content not found on disk")
+		return
+	}
+
+	// Create a buffer to write our archive to.
+	buf := new(bytes.Buffer)
+	zipWriter := zip.NewWriter(buf)
+
+	// Walk the directory and add files to the zip.
+	err = filepath.Walk(submissionPath, func(path string, info fs.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		// Create a proper zip header
+		header, err := zip.FileInfoHeader(info)
+		if err != nil {
+			return err
+		}
+
+		// Update the header name to be relative to the submission directory
+		relPath, err := filepath.Rel(submissionPath, path)
+		if err != nil {
+			return err
+		}
+		header.Name = filepath.ToSlash(relPath) // Use forward slashes in zip
+
+		// If it's a directory, just create the header
+		if info.IsDir() {
+			header.Name += "/"
+		} else {
+			// Set compression method
+			header.Method = zip.Deflate
+		}
+
+		writer, err := zipWriter.CreateHeader(header)
+		if err != nil {
+			return err
+		}
+
+		// If it's a file, write its content to the zip
+		if !info.IsDir() {
+			file, err := os.Open(path)
+			if err != nil {
+				return err
+			}
+			defer file.Close()
+			_, err = io.Copy(writer, file)
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+
+	if err != nil {
+		zap.S().Errorf("failed to create zip archive for submission %s: %v", subID, err)
+		util.Error(c, http.StatusInternalServerError, "failed to create zip archive")
+		return
+	}
+
+	// Close the zip writer to finalize the archive
+	zipWriter.Close()
+
+	// Set headers for file download
+	c.Header("Content-Description", "File Transfer")
+	c.Header("Content-Type", "application/zip")
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"submission_%s.zip\"", subID))
+	c.Data(http.StatusOK, "application/zip", buf.Bytes())
 }

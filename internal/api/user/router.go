@@ -83,6 +83,7 @@ func NewUserRouter(
 			{
 				submissions.GET("", h.getUserSubmissions)
 				submissions.GET("/:id", h.getUserSubmission)
+				submissions.GET("/:id/content", h.getUserSubmissionContent)
 				submissions.POST("/:id/interrupt", h.interruptSubmission)
 				submissions.GET("/:id/queue_position", h.getSubmissionQueuePosition)
 				submissions.GET("/:id/containers/:conID/log", h.getContainerLog)
