@@ -1,7 +1,11 @@
 package api
 
 import (
+	"crypto/hmac"
+	"crypto/sha512"
+	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -100,6 +104,40 @@ func AuthMiddleware(secret string, db *gorm.DB) gin.HandlerFunc {
 		}
 
 		c.Set("userID", claims.Subject)
+		c.Next()
+	}
+}
+func AssetsAuthMiddleware(secret string, db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		token := c.Query("token")
+		expires := c.Query("expires")
+
+		if token == "" || expires == "" {
+			util.Error(c, http.StatusUnauthorized, "Token and expires query parameters are required")
+			c.Abort()
+			return
+		}
+
+		expireTime, err := strconv.ParseInt(expires, 10, 64)
+		if err != nil || time.Now().Unix() > expireTime {
+			util.Error(c, http.StatusUnauthorized, "Token has expired")
+			c.Abort()
+			return
+		}
+
+		assetPath := c.Request.URL.Path
+		message := fmt.Sprintf("%s|%d", assetPath, expireTime)
+
+		mac := hmac.New(sha512.New, []byte(secret))
+		mac.Write([]byte(message))
+		expectedMAC := fmt.Sprintf("%x", mac.Sum(nil))
+
+		if !hmac.Equal([]byte(expectedMAC), []byte(token)) {
+			util.Error(c, http.StatusUnauthorized, "Invalid token")
+			c.Abort()
+			return
+		}
+
 		c.Next()
 	}
 }

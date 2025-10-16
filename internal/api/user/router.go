@@ -91,10 +91,14 @@ func NewUserRouter(
 			// Authenticated assets
 			assets := authed.Group("/assets")
 			{
-				assets.GET("/contests/:id/*assetpath", h.serveContestAsset)
-				assets.GET("/problems/:id/*assetpath", h.serveProblemAsset)
+				assets.GET("/query_url", h.queryAssetURL)
 			}
 		}
+
+		assetsAuthed := v1.Group("/assets")
+		assetsAuthed.Use(api.AssetsAuthMiddleware(cfg.Auth.JWT.Secret, db))
+		assetsAuthed.GET("/contests/:id/*assetpath", h.serveContestAsset)
+		assetsAuthed.GET("/problems/:id/*assetpath", h.serveProblemAsset)
 	}
 
 	embedui.RegisterUIHandlers(r, "user")

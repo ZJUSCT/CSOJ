@@ -1,6 +1,9 @@
 package user
 
 import (
+	"crypto/hmac"
+	"crypto/sha512"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -27,6 +30,27 @@ func (h *Handler) serveAvatar(c *gin.Context) {
 		return
 	}
 	c.File(fullPath)
+}
+
+func (h *Handler) queryAssetURL(c *gin.Context) {
+	asset := c.Query("asset")
+
+	if !strings.HasPrefix(asset, "/api/v1/assets/") {
+		util.Error(c, http.StatusBadRequest, "invalid asset path")
+		return
+	}
+
+	timeout := time.Now().Add(15 * time.Minute).Unix()
+
+	message := fmt.Sprintf("%s|%d", asset, timeout)
+
+	mac := hmac.New(sha512.New, []byte(h.cfg.Auth.JWT.Secret))
+	mac.Write([]byte(message))
+	token := fmt.Sprintf("%x", mac.Sum(nil))
+
+	signedURL := fmt.Sprintf("%s?token=%s&expires=%d", asset, token, timeout)
+
+	util.Success(c, gin.H{"url": signedURL}, "Asset URL generated")
 }
 
 func (h *Handler) serveContestAsset(c *gin.Context) {
