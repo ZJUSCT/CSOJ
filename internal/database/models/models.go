@@ -80,8 +80,8 @@ type Container struct {
 	SubmissionID string `gorm:"index" json:"submission_id"`
 	UserID       string `gorm:"index" json:"user_id"`
 	User         User   `gorm:"foreignKey:UserID" json:"user"`
+	DockerID     string `gorm:"docker_id" json:"docker_id"`
 
-	DockerID    string    `json:"-"`
 	Image       string    `json:"image"`
 	Status      Status    `json:"status"`
 	ExitCode    int       `json:"exit_code"`

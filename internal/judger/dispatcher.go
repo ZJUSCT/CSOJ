@@ -79,7 +79,7 @@ func (d *Dispatcher) Dispatch(sub *models.Submission, prob *Problem, node *NodeS
 		sub.CurrentStep = i
 		database.UpdateSubmission(d.db, sub)
 
-		containerID, stdout, _, err := d.runWorkflowStep(docker, sub, prob, flow, cpusetCpus, i == 0)
+		containerID, stdout, _, err := d.runWorkflowStep(docker, sub, prob, flow, cpusetCpus, i)
 
 		if err != nil {
 			// runWorkflowStep now handles logging and failure updates internally
@@ -151,7 +151,7 @@ func (d *Dispatcher) Dispatch(sub *models.Submission, prob *Problem, node *NodeS
 	pubsub.GetBroker().CloseTopic(sub.ID)
 }
 
-func (d *Dispatcher) runWorkflowStep(docker *DockerManager, sub *models.Submission, prob *Problem, flow WorkflowStep, cpusetCpus string, isFirstStep bool) (containerID, stdout, stderr string, err error) {
+func (d *Dispatcher) runWorkflowStep(docker *DockerManager, sub *models.Submission, prob *Problem, flow WorkflowStep, cpusetCpus string, step int) (containerID, stdout, stderr string, err error) {
 	zap.S().Debugf("Creating timeout context for step. Raw timeout value from config: %d seconds", flow.Timeout)
 	stepCtx, cancel := context.WithTimeout(context.Background(), time.Duration(flow.Timeout)*time.Second)
 	defer cancel()
@@ -194,7 +194,7 @@ func (d *Dispatcher) runWorkflowStep(docker *DockerManager, sub *models.Submissi
 		return "", "", "", fmt.Errorf("failed to get user: %w", err)
 	}
 
-	var envs = []string{
+	var containerEnvs = []string{
 		"CSOJ_SUBMIT_DIR=/mnt/work",
 		"CSOJ_USERNAME=" + user.Username,
 	}
@@ -211,9 +211,11 @@ func (d *Dispatcher) runWorkflowStep(docker *DockerManager, sub *models.Submissi
 			}
 		}()
 
+		var containerName = sub.ID + "-" + strconv.Itoa(step)
+
 		remoteWorkDir := filepath.Join("/tmp", "submission", sub.ID)
 		var err error
-		cid, err = docker.CreateContainer(flow.Image, remoteWorkDir, prob.CPU, cpusetCpus, prob.Memory, flow.Root, flow.Mounts, flow.Network, envs)
+		cid, err = docker.CreateContainer(flow.Image, remoteWorkDir, prob.CPU, cpusetCpus, prob.Memory, flow.Root, flow.Mounts, flow.Network, containerName, containerEnvs)
 		if err != nil {
 			logMsg := pubsub.FormatMessage("error", fmt.Sprintf("Failed to create container: %v", err))
 			d.failContainer(cont, -1, string(logMsg)) // Set exit code to -1 for system errors
@@ -231,7 +233,7 @@ func (d *Dispatcher) runWorkflowStep(docker *DockerManager, sub *models.Submissi
 			return
 		}
 
-		if isFirstStep {
+		if step == 0 {
 			localWorkDir := filepath.Join(d.cfg.Storage.SubmissionContent, sub.ID)
 			zap.S().Infof("copying files from %s to container %s:/mnt/work/", localWorkDir, cid)
 			if err := docker.CopyToContainer(cid, localWorkDir, "/mnt/work/"); err != nil {
