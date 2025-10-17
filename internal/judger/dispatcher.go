@@ -223,6 +223,7 @@ func (d *Dispatcher) runWorkflowStep(docker *DockerManager, sub *models.Submissi
 			doneChan <- result{Err: fmt.Errorf("failed to create container: %w", err)}
 			return
 		}
+		zap.S().Infof("created container %s for submission %s step %d", cid, sub.ID, step)
 
 		cidChan <- cid
 		cont.DockerID = cid
@@ -300,18 +301,11 @@ func (d *Dispatcher) runWorkflowStep(docker *DockerManager, sub *models.Submissi
 		zap.S().Debugf("DONE_CHAN (early) branch selected for submission %s. Error from goroutine: %v", sub.ID, finalRes.Err)
 	}
 
-	// Process the final result
-	if finalRes.Err != nil {
-		if finalRes.ContainerID != "" {
-			docker.CleanupContainer(finalRes.ContainerID)
-		}
-		return finalRes.ContainerID, finalRes.Stdout, finalRes.Stderr, finalRes.Err
-	}
-
 	cont.Status = models.StatusSuccess
+	docker.CleanupContainer(finalRes.ContainerID)
 	cont.FinishedAt = time.Now()
 	database.UpdateContainer(d.db, cont)
-	return finalRes.ContainerID, finalRes.Stdout, finalRes.Stderr, nil
+	return finalRes.ContainerID, finalRes.Stdout, finalRes.Stderr, finalRes.Err
 }
 
 func (d *Dispatcher) findContestIDForProblem(problemID string) string {
