@@ -13,6 +13,7 @@ import (
 	"github.com/ZJUSCT/CSOJ/internal/config"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/mount"
+	"github.com/docker/docker/api/types/volume"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/stdcopy"
 	"go.uber.org/zap"
@@ -48,7 +49,19 @@ func NewDockerManager(cfg config.DockerConfig) (*DockerManager, error) {
 	return &DockerManager{cli: cli}, nil
 }
 
-func (m *DockerManager) CreateContainer(image, workDir string, cpu int, cpusetCpus string, memory int64, asRoot bool, mounts []Mount, networkEnabled bool, name string, envs []string) (string, error) {
+func (m *DockerManager) CreateVolume(name string) error {
+	_, err := m.cli.VolumeCreate(context.Background(), volume.CreateOptions{
+		Name: name,
+	})
+	return err
+}
+
+func (m *DockerManager) RemoveVolume(name string) error {
+	// The 'force' parameter allows removing the volume even if it's in use by a stopped container.
+	return m.cli.VolumeRemove(context.Background(), name, true)
+}
+
+func (m *DockerManager) CreateContainer(image, volumeName string, cpu int, cpusetCpus string, memory int64, asRoot bool, customMounts []Mount, networkEnabled bool, name string, envs []string) (string, error) {
 	ctx := context.Background()
 
 	config := &container.Config{
@@ -66,8 +79,16 @@ func (m *DockerManager) CreateContainer(image, workDir string, cpu int, cpusetCp
 		config.User = "1000:1000"
 	}
 
+	// Initialize dockerMounts with the main submission volume
+	dockerMounts := []mount.Mount{
+		{
+			Type:   mount.TypeVolume,
+			Source: volumeName,
+			Target: "/mnt/work",
+		},
+	}
+
 	hostConfig := &container.HostConfig{
-		Binds: []string{workDir + ":/mnt/work"},
 		Resources: container.Resources{
 			NanoCPUs:   int64(cpu) * 1e9,
 			Memory:     memory * 1024 * 1024,
@@ -75,8 +96,8 @@ func (m *DockerManager) CreateContainer(image, workDir string, cpu int, cpusetCp
 		},
 	}
 
-	dockerMounts := []mount.Mount{}
-	for _, mnt := range mounts {
+	// Append custom mounts from problem.yaml
+	for _, mnt := range customMounts {
 		mountType := mount.TypeBind
 		if mnt.Type != "" {
 			mountType = mount.Type(mnt.Type)

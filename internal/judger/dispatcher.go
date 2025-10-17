@@ -53,12 +53,6 @@ func NewDispatcher(cfg *config.Config, db *gorm.DB, scheduler *Scheduler, appSta
 func (d *Dispatcher) Dispatch(sub *models.Submission, prob *Problem, node *NodeState, allocatedCores []int) {
 	zap.S().Infof("dispatching submission %s to node %s", sub.ID, node.Name)
 
-	// Ensure resources are released
-	defer func() {
-		d.scheduler.ReleaseResources(prob.Cluster, node.Name, allocatedCores, prob.Memory)
-		zap.S().Infof("finished dispatching submission %s", sub.ID)
-	}()
-
 	docker, err := NewDockerManager(node.Docker)
 	if err != nil {
 		d.failSubmission(sub, fmt.Sprintf("failed to create docker client: %v", err))
@@ -66,7 +60,27 @@ func (d *Dispatcher) Dispatch(sub *models.Submission, prob *Problem, node *NodeS
 		return
 	}
 
-	var successfulContainerIDs []string
+	// Create a Docker volume for the submission.
+	submissionVolumeName := sub.ID
+	if err := docker.CreateVolume(submissionVolumeName); err != nil {
+		d.failSubmission(sub, fmt.Sprintf("failed to create docker volume: %v", err))
+		pubsub.GetBroker().CloseTopic(sub.ID)
+		return
+	}
+	zap.S().Infof("created docker volume '%s' for submission %s", submissionVolumeName, sub.ID)
+
+	// Ensure resources are released and the volume is cleaned up.
+	defer func() {
+		// Remove the Docker volume for the submission.
+		if err := docker.RemoveVolume(submissionVolumeName); err != nil {
+			zap.S().Errorf("failed to remove docker volume '%s': %v", submissionVolumeName, err)
+		} else {
+			zap.S().Infof("removed docker volume '%s' for submission %s", submissionVolumeName, sub.ID)
+		}
+
+		d.scheduler.ReleaseResources(prob.Cluster, node.Name, allocatedCores, prob.Memory)
+		zap.S().Infof("finished dispatching submission %s", sub.ID)
+	}()
 
 	var lastStdout string
 	var coreStrs []string
@@ -79,24 +93,17 @@ func (d *Dispatcher) Dispatch(sub *models.Submission, prob *Problem, node *NodeS
 		sub.CurrentStep = i
 		database.UpdateSubmission(d.db, sub)
 
-		containerID, stdout, _, err := d.runWorkflowStep(docker, sub, prob, flow, cpusetCpus, i)
+		_, stdout, _, err := d.runWorkflowStep(docker, sub, prob, flow, cpusetCpus, i)
 
 		if err != nil {
-			// runWorkflowStep now handles logging and failure updates internally
+			// runWorkflowStep cleans its own container; we just need to fail the submission.
 			d.failSubmission(sub, fmt.Sprintf("workflow step %d failed: %v", i+1, err))
 			pubsub.GetBroker().CloseTopic(sub.ID)
-			return
+			return // The main defer will handle volume and resource cleanup.
 		}
 
-		successfulContainerIDs = append(successfulContainerIDs, containerID)
 		lastStdout = stdout
 	}
-
-	defer func() {
-		for _, cid := range successfulContainerIDs {
-			docker.CleanupContainer(cid)
-		}
-	}()
 
 	var tempResult tempJudgeResult
 	if err := json.Unmarshal([]byte(lastStdout), &tempResult); err != nil {
@@ -212,10 +219,9 @@ func (d *Dispatcher) runWorkflowStep(docker *DockerManager, sub *models.Submissi
 		}()
 
 		var containerName = sub.ID + "-" + strconv.Itoa(step)
-
-		remoteWorkDir := filepath.Join("/tmp", "submission", sub.ID)
+		submissionVolumeName := sub.ID
 		var err error
-		cid, err = docker.CreateContainer(flow.Image, remoteWorkDir, prob.CPU, cpusetCpus, prob.Memory, flow.Root, flow.Mounts, flow.Network, containerName, containerEnvs)
+		cid, err = docker.CreateContainer(flow.Image, submissionVolumeName, prob.CPU, cpusetCpus, prob.Memory, flow.Root, flow.Mounts, flow.Network, containerName, containerEnvs)
 		if err != nil {
 			logMsg := pubsub.FormatMessage("error", fmt.Sprintf("Failed to create container: %v", err))
 			d.failContainer(cont, -1, string(logMsg)) // Set exit code to -1 for system errors
@@ -301,8 +307,14 @@ func (d *Dispatcher) runWorkflowStep(docker *DockerManager, sub *models.Submissi
 		zap.S().Debugf("DONE_CHAN (early) branch selected for submission %s. Error from goroutine: %v", sub.ID, finalRes.Err)
 	}
 
-	cont.Status = models.StatusSuccess
-	docker.CleanupContainer(finalRes.ContainerID)
+	// Always clean up the container if it was created, regardless of the outcome.
+	if finalRes.ContainerID != "" {
+		docker.CleanupContainer(finalRes.ContainerID)
+	}
+
+	if finalRes.Err == nil {
+		cont.Status = models.StatusSuccess
+	}
 	cont.FinishedAt = time.Now()
 	database.UpdateContainer(d.db, cont)
 	return finalRes.ContainerID, finalRes.Stdout, finalRes.Stderr, finalRes.Err
