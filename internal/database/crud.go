@@ -15,7 +15,15 @@ import (
 
 // User CRUD
 func CreateUser(db *gorm.DB, user *models.User) error {
-	return db.Create(user).Error
+	return db.Clauses(clause.OnConflict{
+		Columns: []clause.Column{{Name: "username"}},
+		DoUpdates: clause.Assignments(map[string]interface{}{
+			"deleted_at": nil,
+			"nickname":   user.Nickname,
+			"avatar_url": user.AvatarURL,
+			"updated_at": time.Now(),
+		}),
+	}).Create(user).Error
 }
 
 func GetUserByID(db *gorm.DB, id string) (*models.User, error) {
