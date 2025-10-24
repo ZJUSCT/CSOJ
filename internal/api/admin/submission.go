@@ -227,7 +227,23 @@ func (h *Handler) updateSubmission(c *gin.Context) {
 		return
 	}
 	zap.S().Warnf("admin manually updated submission %s", sub.ID)
-	util.Success(c, sub, "Submission manually updated. Note: This does not trigger score recalculation.")
+
+	h.appState.RLock()
+	contest, ok := h.appState.ProblemToContestMap[sub.ProblemID]
+	problem, probOk := h.appState.Problems[sub.ProblemID]
+	h.appState.RUnlock()
+	if !ok || !probOk {
+		zap.S().Errorf("failed to find parent contest or problem %s during score recalculation for submission %s", sub.ProblemID, sub.ID)
+		util.Success(c, sub, "Submission manually updated, but failed to trigger score recalculation: problem/contest definition not found.")
+		return
+	}
+
+	if err := database.RecalculateScoresForUserProblem(h.db, sub.UserID, sub.ProblemID, contest.ID, sub.ID, problem.Score.Mode, problem.Score.MaxPerformanceScore); err != nil {
+		util.Error(c, http.StatusInternalServerError, fmt.Errorf("submission manually updated, but failed to recalculate scores: %w", err))
+		return
+	}
+
+	util.Success(c, sub, "Submission manually updated and scores recalculated successfully.")
 }
 
 func (h *Handler) deleteSubmission(c *gin.Context) {
