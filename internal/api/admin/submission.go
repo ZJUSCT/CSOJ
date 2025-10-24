@@ -198,9 +198,10 @@ func (h *Handler) updateSubmission(c *gin.Context) {
 	}
 
 	var req struct {
-		Status *models.Status  `json:"status"`
-		Score  *int            `json:"score"`
-		Info   *models.JSONMap `json:"info"`
+		Status      *models.Status  `json:"status"`
+		Score       *int            `json:"score"`
+		Performance *float64        `json:"performance"`
+		Info        *models.JSONMap `json:"info"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -213,6 +214,9 @@ func (h *Handler) updateSubmission(c *gin.Context) {
 	}
 	if req.Score != nil {
 		sub.Score = *req.Score
+	}
+	if req.Performance != nil {
+		sub.Performance = *req.Performance
 	}
 	if req.Info != nil {
 		sub.Info = *req.Info
