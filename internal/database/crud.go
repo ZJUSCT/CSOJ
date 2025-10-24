@@ -167,6 +167,7 @@ func GetAllContainers(db *gorm.DB, filters map[string]string, limit, offset int)
 type LeaderboardEntry struct {
 	UserID           string         `json:"user_id"`
 	Username         string         `json:"username"`
+	Tags             string         `json:"tags"`
 	Nickname         string         `json:"nickname"`
 	AvatarURL        string         `json:"avatar_url"`
 	DisableRank      bool           `json:"disable_rank"`
@@ -183,7 +184,10 @@ type UserScoreHistoryPoint struct {
 	ProblemID string    `json:"problem_id"`
 }
 
-func GetLeaderboard(db *gorm.DB, contestID string) ([]LeaderboardEntry, error) {
+// GetLeaderboard retrieves the leaderboard for a contest, optionally filtered by user tags.
+// selectedTags is a comma-separated string of tags. If empty, no tag filtering is applied.
+func GetLeaderboard(db *gorm.DB, contestID string, selectedTags string) ([]LeaderboardEntry, error) {
+
 	// --- Step 1: Get all registered users and their registration time as a string ---
 	type registeredUser struct {
 		UserID           string
@@ -191,13 +195,24 @@ func GetLeaderboard(db *gorm.DB, contestID string) ([]LeaderboardEntry, error) {
 		Nickname         string
 		AvatarURL        string
 		DisableRank      bool
+		Tags             string
 		RegistrationTime string // Read time as a string from DB
 	}
 	var users []registeredUser
-	err := db.Table("contest_score_histories").
-		Select("users.id as user_id, users.username, users.nickname, users.avatar_url, users.disable_rank, datetime(MIN(contest_score_histories.created_at)) as registration_time").
+	query := db.Table("contest_score_histories").
+		Select("users.id as user_id, users.username, users.nickname, users.avatar_url, users.disable_rank, users.tags, datetime(MIN(contest_score_histories.created_at)) as registration_time").
 		Joins("join users on users.id = contest_score_histories.user_id").
-		Where("contest_score_histories.contest_id = ?", contestID).
+		Where("contest_score_histories.contest_id = ?", contestID)
+
+	// Apply tag filtering if tags are provided
+	if selectedTags != "" {
+		tags := strings.Split(selectedTags, ",")
+		for _, tag := range tags {
+			query = query.Where("users.tags LIKE ?", "%"+strings.TrimSpace(tag)+"%")
+		}
+	}
+
+	err := query.
 		Group("users.id, users.username, users.nickname, users.avatar_url, users.disable_rank").
 		Scan(&users).Error
 	if err != nil {
@@ -240,6 +255,7 @@ func GetLeaderboard(db *gorm.DB, contestID string) ([]LeaderboardEntry, error) {
 			Username:         user.Username,
 			Nickname:         user.Nickname,
 			AvatarURL:        avatarURL,
+			Tags:             user.Tags,
 			DisableRank:      user.DisableRank,
 			TotalScore:       0,
 			ProblemScores:    make(map[string]int),

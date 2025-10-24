@@ -225,14 +225,15 @@ func (h *Handler) createProblemInContest(c *gin.Context) {
 func (h *Handler) getContestLeaderboard(c *gin.Context) {
 	contestID := c.Param("id")
 	h.appState.RLock()
+	// Add tag query parameter
+	tags := c.Query("tags") // Comma-separated string of tags
 	_, ok := h.appState.Contests[contestID]
 	h.appState.RUnlock()
 	if !ok {
 		util.Error(c, http.StatusNotFound, "contest not found")
 		return
 	}
-
-	leaderboard, err := database.GetLeaderboard(h.db, contestID)
+	leaderboard, err := database.GetLeaderboard(h.db, contestID, tags)
 	if err != nil {
 		util.Error(c, http.StatusInternalServerError, err)
 		return
@@ -259,7 +260,7 @@ func (h *Handler) getContestTrend(c *gin.Context) {
 		return
 	}
 	// This logic is copied from user/contest.go and is fine for admin use.
-	leaderboard, err := database.GetLeaderboard(h.db, contestID)
+	leaderboard, err := database.GetLeaderboard(h.db, contestID, "") // Trend doesn't support tag filtering for now
 	if err != nil {
 		util.Error(c, http.StatusInternalServerError, err)
 		return

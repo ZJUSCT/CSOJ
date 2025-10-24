@@ -65,6 +65,7 @@ func (h *Handler) updateUser(c *gin.Context) {
 		BanReason   *string `json:"ban_reason"`
 		BannedUntil *string `json:"banned_until"` // Receive as string to handle null/empty
 		DisableRank *bool   `json:"disable_rank"`
+		Tags        *string `json:"tags"`
 	}
 
 	if err := c.ShouldBindJSON(&reqBody); err != nil {
@@ -80,6 +81,9 @@ func (h *Handler) updateUser(c *gin.Context) {
 	}
 	if reqBody.DisableRank != nil {
 		user.DisableRank = *reqBody.DisableRank
+	}
+	if reqBody.Tags != nil {
+		user.Tags = *reqBody.Tags // Store as comma-separated string
 	}
 
 	// Handle ban logic
@@ -118,6 +122,7 @@ func (h *Handler) createUser(c *gin.Context) {
 		util.Error(c, http.StatusBadRequest, err)
 		return
 	}
+
 	user.ID = uuid.NewString()
 	if err := database.CreateUser(h.db, &user); err != nil {
 		util.Error(c, http.StatusInternalServerError, err)

@@ -48,6 +48,7 @@ type User struct {
 	BannedUntil  *time.Time `json:"banned_until"`
 	BanReason    string     `json:"ban_reason"`
 	DisableRank  bool       `gorm:"default:false" json:"disable_rank"`
+	Tags         string     `gorm:"type:text" json:"tags"` // Comma-separated tags
 }
 
 type Submission struct {

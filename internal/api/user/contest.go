@@ -81,7 +81,8 @@ func (h *Handler) getContestAnnouncements(c *gin.Context) {
 
 func (h *Handler) getContestLeaderboard(c *gin.Context) {
 	contestID := c.Param("id")
-	leaderboard, err := database.GetLeaderboard(h.db, contestID)
+	tags := c.Query("tags") // Comma-separated string of tags
+	leaderboard, err := database.GetLeaderboard(h.db, contestID, tags)
 	if err != nil {
 		util.Error(c, http.StatusInternalServerError, err)
 		return
@@ -91,7 +92,7 @@ func (h *Handler) getContestLeaderboard(c *gin.Context) {
 
 func (h *Handler) getContestTrend(c *gin.Context) {
 	contestID := c.Param("id")
-	leaderboard, err := database.GetLeaderboard(h.db, contestID)
+	leaderboard, err := database.GetLeaderboard(h.db, contestID, "")
 	if err != nil {
 		util.Error(c, http.StatusInternalServerError, err)
 		return

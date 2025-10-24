@@ -26,6 +26,7 @@ type PublicProfileResponse struct {
 	Nickname  string `json:"nickname"`
 	Signature string `json:"signature"`
 	AvatarURL string `json:"avatar_url"`
+	Tags      string `json:"tags"`
 }
 
 func (h *Handler) getUserProfile(c *gin.Context) {
@@ -65,6 +66,7 @@ func (h *Handler) getPublicUserProfile(c *gin.Context) {
 		Nickname:  user.Nickname,
 		Signature: user.Signature,
 		AvatarURL: avatarURL,
+		Tags:      user.Tags,
 	}
 
 	util.Success(c, response, "User profile retrieved successfully")
