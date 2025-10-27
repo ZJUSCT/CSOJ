@@ -48,8 +48,8 @@ func (h *Handler) getContest(c *gin.Context) {
 	}
 
 	now := time.Now()
-	// For contests that haven't started or have already ended, hide the problem list.
-	if now.Before(contest.StartTime) || now.After(contest.EndTime) {
+	// For contests that haven't started, hide the problem list.
+	if now.Before(contest.StartTime) {
 		// Create a copy to avoid modifying the original map entry
 		contestCopy := *contest
 		contestCopy.ProblemIDs = []string{} // Empty the problem list
