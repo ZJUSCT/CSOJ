@@ -8,8 +8,10 @@ import (
 	"io"
 	"io/fs"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/ZJUSCT/CSOJ/internal/auth"
@@ -401,10 +403,17 @@ func (h *Handler) handleDownloadSolutions(c *gin.Context) {
 		return
 	}
 
-	zipFileName := fmt.Sprintf("%s-%s-%s.zip", user.Nickname, user.Username, contestID)
+	baseFileName := fmt.Sprintf("%s-%s-%s", user.Nickname, user.Username, contestID)
+
+	fallbackFileName := strings.ReplaceAll(baseFileName, "\"", "_")
+	fallbackFileName = strings.ReplaceAll(fallbackFileName, ";", "_")
+	fallbackFileName = fallbackFileName + ".zip"
+
+	utf8FileName := url.PathEscape(baseFileName + ".zip")
+	disposition := fmt.Sprintf("attachment; filename=\"%s\"; filename*=UTF-8''%s", fallbackFileName, utf8FileName)
 
 	c.Header("Content-Description", "File Transfer")
 	c.Header("Content-Type", "application/zip")
-	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", zipFileName))
+	c.Header("Content-Disposition", disposition)
 	c.Data(http.StatusOK, "application/zip", buf.Bytes())
 }
