@@ -8,6 +8,7 @@ import (
 	"io"
 	"io/fs"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"time"
@@ -401,10 +402,12 @@ func (h *Handler) handleDownloadSolutions(c *gin.Context) {
 		return
 	}
 
-	zipFileName := fmt.Sprintf("%s-%s-%s.zip", user.Nickname, user.Username, contestID)
+	fullFileName := fmt.Sprintf("%s-%s-%s.zip", user.Nickname, user.Username, contestID)
+	encodedFileName := url.PathEscape(fullFileName)
+	disposition := fmt.Sprintf("attachment; filename*=UTF-8''%s", encodedFileName)
 
 	c.Header("Content-Description", "File Transfer")
 	c.Header("Content-Type", "application/zip")
-	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", zipFileName))
+	c.Header("Content-Disposition", disposition)
 	c.Data(http.StatusOK, "application/zip", buf.Bytes())
 }
