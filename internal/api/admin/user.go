@@ -1,8 +1,15 @@
 package admin
 
 import (
+	"archive/zip"
+	"bytes"
 	"errors"
+	"fmt"
+	"io"
+	"io/fs"
 	"net/http"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/ZJUSCT/CSOJ/internal/auth"
@@ -256,4 +263,148 @@ func (h *Handler) getUserScores(c *gin.Context) {
 	}
 
 	util.Success(c, scores, "User best scores retrieved successfully")
+}
+
+func (h *Handler) handleDownloadSolutions(c *gin.Context) {
+	userID := c.Param("id")
+	contestID := c.Param("contest_id")
+
+	user, err := database.GetUserByID(h.db, userID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			util.Error(c, http.StatusNotFound, "user not found")
+		} else {
+			util.Error(c, http.StatusInternalServerError, err)
+		}
+		return
+	}
+
+	h.appState.RLock()
+	contest, ok := h.appState.Contests[contestID]
+	if !ok {
+		h.appState.RUnlock()
+		util.Error(c, http.StatusNotFound, "contest not found")
+		return
+	}
+
+	problemIDs := make([]string, len(contest.ProblemIDs))
+	copy(problemIDs, contest.ProblemIDs)
+	h.appState.RUnlock()
+
+	type BestSubmission struct {
+		Submission models.Submission
+		ProblemID  string
+		ProblemIdx int
+	}
+	var bestSubmissions []BestSubmission
+
+	h.appState.RLock()
+	for i, problemID := range problemIDs {
+		problem, probOk := h.appState.Problems[problemID]
+		if !probOk {
+			zap.S().Warnf("Problem %s in contest %s not found in appState, skipping", problemID, contestID)
+			continue
+		}
+
+		var bestSub models.Submission
+		query := h.db.Where("user_id = ? AND problem_id = ? AND is_valid = ?", userID, problemID, true)
+
+		if problem.Score.Mode == "performance" {
+			query = query.Order("performance DESC, created_at DESC")
+		} else {
+			query = query.Order("score DESC, created_at DESC")
+		}
+
+		err := query.First(&bestSub).Error
+		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				continue
+			}
+			h.appState.RUnlock()
+			util.Error(c, http.StatusInternalServerError, fmt.Errorf("failed to query best submission for problem %s: %w", problemID, err))
+			return
+		}
+
+		bestSubmissions = append(bestSubmissions, BestSubmission{
+			Submission: bestSub,
+			ProblemID:  problemID,
+			ProblemIdx: i + 1,
+		})
+	}
+	h.appState.RUnlock()
+
+	if len(bestSubmissions) == 0 {
+		util.Error(c, http.StatusNotFound, "no valid submissions found for this user in this contest")
+		return
+	}
+
+	buf := new(bytes.Buffer)
+	zipWriter := zip.NewWriter(buf)
+
+	for _, bestSub := range bestSubmissions {
+		subID := bestSub.Submission.ID
+		submissionPath := filepath.Join(h.cfg.Storage.SubmissionContent, subID)
+
+		info, err := os.Stat(submissionPath)
+		if os.IsNotExist(err) || !info.IsDir() {
+			zap.S().Warnf("Submission content for %s not found on disk at %s, skipping", subID, submissionPath)
+			continue
+		}
+
+		zipFolderName := fmt.Sprintf("%d-%s-%s", bestSub.ProblemIdx, bestSub.ProblemID, subID)
+
+		err = filepath.Walk(submissionPath, func(path string, info fs.FileInfo, err error) error {
+			if err != nil {
+				return err
+			}
+			if info.IsDir() {
+				return nil
+			}
+
+			header, err := zip.FileInfoHeader(info)
+			if err != nil {
+				return err
+			}
+
+			relPath, err := filepath.Rel(submissionPath, path)
+			if err != nil {
+				return err
+			}
+
+			header.Name = filepath.Join(zipFolderName, relPath)
+			header.Name = filepath.ToSlash(header.Name)
+			header.Method = zip.Deflate
+
+			writer, err := zipWriter.CreateHeader(header)
+			if err != nil {
+				return err
+			}
+
+			file, err := os.Open(path)
+			if err != nil {
+				return err
+			}
+			defer file.Close()
+			_, err = io.Copy(writer, file)
+			return err
+		})
+
+		if err != nil {
+			zipWriter.Close()
+			util.Error(c, http.StatusInternalServerError, fmt.Errorf("failed to add submission %s to zip: %w", subID, err))
+			return
+		}
+	}
+
+	if err := zipWriter.Close(); err != nil {
+		util.Error(c, http.StatusInternalServerError, "failed to finalize zip archive")
+		return
+	}
+
+	zipFileName := fmt.Sprintf("%s-%s-%s.zip", user.Nickname, user.Username, contestID)
+
+	c.Header("Content-Description", "File Transfer")
+	c.Header("Content-Type", "application/zip")
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", zipFileName))
+	c.Data(http.StatusOK, "application/zip", buf.Bytes())
 }

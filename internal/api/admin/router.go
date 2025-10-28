@@ -42,6 +42,7 @@ func NewAdminRouter(
 			users.POST("/:id/reset-password", h.resetUserPassword)
 			users.POST("/:id/register-contest", h.registerUserForContest)
 			users.GET("/:id/scores", h.getUserScores)
+			users.GET("/:id/download_solutions/:contest_id", h.handleDownloadSolutions)
 		}
 
 		// Submission Management
