@@ -52,6 +52,7 @@ export interface Problem {
     cluster: string;
     cpu: number;
     memory: number;
+    max_submissions?: number;
     upload: {
         max_num: number;
         max_size: number;
