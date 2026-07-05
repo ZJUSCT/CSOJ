@@ -11,5 +11,9 @@ venv
 
 internal/embedui/sites
 
-
 *.log
+
+# Frontend
+frontend/node_modules
+frontend/.next
+frontend/out
