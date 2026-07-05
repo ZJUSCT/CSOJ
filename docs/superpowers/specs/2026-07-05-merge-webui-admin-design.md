@@ -216,7 +216,7 @@ So the admin "Contests" page is `/admin/contests`, distinct from the user `/cont
 
 - `providers/auth-provider.tsx`: `user` now carries `role` (from `/user/profile`). No structural change; `AuthState.user` already typed as `User`.
 - New `hooks/use-auth.ts` exports `useAuth()` (already exists). Add a derived `isAdmin` check where needed.
-- New `components/layout/with-admin.tsx`: an HOC mirroring `with-auth.tsx` that additionally redirects to `/contests` (or shows a 403 page) when `user.role` is not `admin`/`superadmin`. Wrap each admin page's default export. (Admin pages are already behind `withAuth` via the `(main)` layout, so unauthenticated users hit `/login` first; `withAdmin` adds the role check on top.)
+- New `components/layout/with-admin.tsx`: an HOC mirroring `with-auth.tsx` that additionally redirects to `/contests` when `user.role` is not `admin`/`superadmin`. Wrap each admin page's default export. (Admin pages are already behind `withAuth` via the `(main)` layout, so unauthenticated users hit `/login` first; `withAdmin` adds the role check on top.)
 - `components/layout/main-nav.tsx`: add an "Admin" link to `allRoutes` when `user.role ∈ {admin, superadmin}` — `const { user } = useAuth(); ... user?.role === 'admin' || user?.role === 'superadmin'`. Link to `/admin/contests` (the most useful landing page).
 
 ### Admin shell
