@@ -9,6 +9,10 @@ export interface User {
   avatar_url: string;
   tags: string;
   role: "user" | "admin" | "superadmin";
+  // Admin-only fields (used by admin components; absent for regular users)
+  banned_until?: string | null;
+  ban_reason?: string;
+  disable_rank?: boolean;
 }
 
 export interface Announcement {
