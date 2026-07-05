@@ -35,7 +35,13 @@ export interface Contest {
 
 export interface WorkflowStep {
   name: string;
+  image?: string;
+  root?: boolean;
+  timeout?: number;
   show: boolean;
+  steps: string[][];
+  mounts?: any[];
+  network?: boolean;
 }
 
 export interface ScoreConfig {
@@ -78,6 +84,10 @@ export interface Container {
   started_at: string;
   finished_at: string;
   log_file_path: string;
+  user_id: string;
+  user?: User;
+  CreatedAt: string;
+  UpdatedAt: string;
 }
 
 export interface ProblemForSubmission {
