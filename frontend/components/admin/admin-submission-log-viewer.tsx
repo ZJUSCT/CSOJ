@@ -125,10 +125,10 @@ export function AdminSubmissionLogViewer({ submission, problem, onStatusUpdate }
     // If problem info is available, use its workflow. Otherwise, create a default workflow
     // based on the number of containers.
     const workflow = useMemo(() =>
-        problem?.workflow ?? submission.containers.map((_, index) => ({
+        (problem?.workflow ?? submission.containers.map((_, index) => ({
             name: `Step ${index + 1}`,
             show: true, // Admins can always see logs
-        })),
+        }))) as { name: string; show: boolean }[],
     [problem, submission.containers]);
 
     useEffect(() => {

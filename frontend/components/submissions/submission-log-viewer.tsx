@@ -160,11 +160,11 @@ export function SubmissionLogViewer({ submission, problem, onStatusUpdate }: Sub
 
     // If problem info is available, use its workflow. Otherwise, create a default workflow
     // based on the number of containers, assuming all logs are visible.
-    const workflow = useMemo(() => 
-        problem?.workflow ?? submission.containers.map((_, index) => ({
+    const workflow = useMemo(() =>
+        (problem?.workflow ?? submission.containers.map((_, index) => ({
             name: `Step ${index + 1}`,
             show: true,
-        })),
+        }))) as { name: string; show: boolean }[],
     [problem, submission.containers]);
 
     useEffect(() => {
