@@ -12,6 +12,7 @@ import (
 	"github.com/ZJUSCT/CSOJ/internal/auth"
 	"github.com/ZJUSCT/CSOJ/internal/config"
 	"github.com/ZJUSCT/CSOJ/internal/database"
+	"github.com/ZJUSCT/CSOJ/internal/database/models"
 	"github.com/ZJUSCT/CSOJ/internal/util"
 	"gorm.io/gorm"
 
@@ -141,4 +142,79 @@ func AssetsAuthMiddleware(secret string, db *gorm.DB) gin.HandlerFunc {
 
 		c.Next()
 	}
+}
+
+// requireRole is a shared helper that runs JWT auth then enforces a role.
+func requireRole(secret string, db *gorm.DB, allowSuperAdminOnly bool) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		authHeader := c.GetHeader("Authorization")
+		if authHeader == "" {
+			util.Error(c, http.StatusUnauthorized, "Authorization header is required")
+			c.Abort()
+			return
+		}
+
+		parts := strings.Split(authHeader, " ")
+		if len(parts) != 2 || parts[0] != "Bearer" {
+			util.Error(c, http.StatusUnauthorized, "Authorization header format must be Bearer {token}")
+			c.Abort()
+			return
+		}
+
+		claims, err := auth.ValidateJWT(parts[1], secret)
+		if err != nil {
+			util.Error(c, http.StatusUnauthorized, err.Error())
+			c.Abort()
+			return
+		}
+
+		userID := claims.Subject
+		user, err := database.GetUserByID(db, userID)
+		if err != nil {
+			util.Error(c, http.StatusUnauthorized, "User not found")
+			c.Abort()
+			return
+		}
+
+		if user.BannedUntil != nil && time.Now().Before(*user.BannedUntil) {
+			c.JSON(http.StatusForbidden, gin.H{
+				"code":    -1,
+				"message": "You have been banned from this service.",
+				"data": gin.H{
+					"ban_reason":   user.BanReason,
+					"banned_until": user.BannedUntil.Format(time.RFC3339),
+				},
+			})
+			c.Abort()
+			return
+		}
+
+		// Use the DB-loaded role (source of truth), not the JWT claim, so a
+		// demoted admin loses access even with a still-valid token.
+		role := string(user.Role)
+		if role != string(models.RoleAdmin) && role != string(models.RoleSuperAdmin) {
+			util.Error(c, http.StatusForbidden, "admin privileges required")
+			c.Abort()
+			return
+		}
+		if allowSuperAdminOnly && role != string(models.RoleSuperAdmin) {
+			util.Error(c, http.StatusForbidden, "superadmin privileges required")
+			c.Abort()
+			return
+		}
+
+		c.Set("userID", claims.Subject)
+		c.Set("role", role)
+		c.Next()
+	}
+}
+
+// AdminMiddleware allows admin and superadmin users.
+func AdminMiddleware(secret string, db *gorm.DB) gin.HandlerFunc {
+	return requireRole(secret, db, false)
+}
+
+// SuperAdminMiddleware allows only superadmin users.
+func SuperAdminMiddleware(secret string, db *gorm.DB) gin.HandlerFunc {
+	return requireRole(secret, db, true)
 }
