@@ -17,4 +17,4 @@ dev-frontend:
 	cd frontend && pnpm dev
 
 clean:
-	rm -rf frontend/out frontend/node_modules CSOJ
+	rm -rf frontend/out frontend/.next frontend/node_modules CSOJ
