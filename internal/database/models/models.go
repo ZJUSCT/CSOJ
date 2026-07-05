@@ -18,6 +18,14 @@ const (
 	StatusFailed  Status = "Failed"
 )
 
+type Role string
+
+const (
+	RoleUser       Role = "user"
+	RoleAdmin      Role = "admin"
+	RoleSuperAdmin Role = "superadmin"
+)
+
 // JSONMap is a helper type for storing JSON data in the database.
 type JSONMap map[string]interface{}
 
@@ -49,6 +57,7 @@ type User struct {
 	BanReason    string     `json:"ban_reason"`
 	DisableRank  bool       `gorm:"default:false" json:"disable_rank"`
 	Tags         string     `gorm:"type:text" json:"tags"` // Comma-separated tags
+	Role         Role       `gorm:"type:text;default:'user';index" json:"role"`
 }
 
 type Submission struct {
