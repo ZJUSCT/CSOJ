@@ -16,6 +16,4 @@ CSOJ is a fully Containerized Secure Online Judge system.
 
 ## Related Repo
 
-- [ZJUSCT/CSOJ-WebUI](https://github.com/ZJUSCT/CSOJ-WebUI)
-- [ZJUSCT/CSOJ-AdminPanel](https://github.com/ZJUSCT/CSOJ-AdminPanel)
 - [ZJUSCT/CSOJ-cli](https://github.com/ZJUSCT/CSOJ-cli)

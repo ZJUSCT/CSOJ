@@ -1,16 +1,22 @@
 # Admin API Reference
 
-The Admin API provides a set of powerful endpoints for system maintenance and management. By default, the Admin API service is separate from the User API and runs on a different port (which must be enabled and configured in `config.yaml`).
+The Admin API provides a set of powerful endpoints for system maintenance and management. All Admin API routes are mounted under the main CSOJ service and share its listen address (`listen` in `config.yaml`).
 
 ## Authentication
 
-The current version of the Admin API has **no built-in authentication mechanism**. It is crucial to ensure that the Admin API's listen address is **only accessible from trusted network environments (e.g., an internal network or localhost)**, or to add an authentication layer using a reverse proxy.
+All Admin API routes are prefixed with `/api/v1/admin` and require a valid JWT
+belonging to a user with the `admin` or `superadmin` role. Send the token in the
+`Authorization: Bearer <token>` header. Role-management endpoints
+(`PATCH /users/:id/role`) require `superadmin`.
+
+The first user to register (local or GitLab) is automatically granted the
+`superadmin` role.
 
 ---
 
 ### System Management
 
-#### `POST /reload`
+#### `POST /api/v1/admin/reload`
 
 - **Description**: Hot-reloads all contest and problem configurations from disk.
   - The system rescans the directory specified in `contests_root` in `config.yaml`.
@@ -33,11 +39,11 @@ The current version of the Admin API has **no built-in authentication mechanism*
 
 ### User Management
 
-#### `GET /users`
+#### `GET /api/v1/admin/users`
 
   - **Description**: Gets a list of all users. Can be filtered by a `query` parameter that searches User ID, username, and nickname.
 
-#### `POST /users`
+#### `POST /api/v1/admin/users`
 
   - **Description**: Manually creates a new user.
   - **Request Body** (`application/json`):
@@ -49,34 +55,45 @@ The current version of the Admin API has **no built-in authentication mechanism*
     }
     ```
 
-#### `GET /users/:id`
+#### `GET /api/v1/admin/users/:id`
 
   - **Description**: Gets a single user by their ID.
 
-#### `PATCH /users/:id`
+#### `PATCH /api/v1/admin/users/:id`
 
   - **Description**: Updates a user's nickname and signature.
 
-#### `DELETE /users/:id`
+#### `DELETE /api/v1/admin/users/:id`
 
   - **Description**: Deletes a user by their ID.
 
-#### `POST /users/:id/reset-password`
+#### `PATCH /api/v1/admin/users/:id/role`
+
+  - **Description**: Updates a user's role. **Requires the `superadmin` role.**
+  - **Request Body** (`application/json`):
+    ```json
+    {
+      "role": "admin"
+    }
+    ```
+  - **Allowed values**: `"admin"`, `"user"`.
+
+#### `POST /api/v1/admin/users/:id/reset-password`
 
   - **Description**: Resets the password for a local-auth user.
   - **Request Body** (`application/json`): `{"password": "new_secure_password"}`
 
-#### `POST /users/:id/register-contest`
+#### `POST /api/v1/admin/users/:id/register-contest`
 
   - **Description**: Manually registers a user for a specific contest.
   - **Request Body** (`application/json`): `{"contest_id": "contest-id-here"}`
 
-#### `GET /users/:id/history`
+#### `GET /api/v1/admin/users/:id/history`
 
   - **Description**: Gets a user's score history for a specific contest.
   - **Query Parameter**: `contest_id` (required).
 
-#### `GET /users/:id/scores`
+#### `GET /api/v1/admin/users/:id/scores`
 
   - **Description**: Gets a user's best scores for all problems they have submitted to.
 
@@ -84,47 +101,47 @@ The current version of the Admin API has **no built-in authentication mechanism*
 
 ### Contest & Problem Management
 
-#### `GET /contests`
+#### `GET /api/v1/admin/contests`
 
   - **Description**: Gets a list of all loaded contests, regardless of start/end times.
 
-#### `POST /contests`
+#### `POST /api/v1/admin/contests`
 
   - **Description**: Creates a new contest by creating the necessary directory and `contest.yaml` file on disk. Requires a `reload` to be active.
   - **Request Body**: A full `Contest` JSON object.
 
-#### `GET /contests/:id`
+#### `GET /api/v1/admin/contests/:id`
 
   - **Description**: Gets details for a specific contest, regardless of start/end times.
 
-#### `PUT /contests/:id`
+#### `PUT /api/v1/admin/contests/:id`
 
   - **Description**: Updates the `contest.yaml` file for a contest. Triggers a system `reload`.
   - **Request Body**: A full `Contest` JSON object.
 
-#### `DELETE /contests/:id`
+#### `DELETE /api/v1/admin/contests/:id`
 
   - **Description**: Deletes a contest's directory and all its contents from disk. Triggers a system `reload`.
 
-#### `POST /contests/:id/problems`
+#### `POST /api/v1/admin/contests/:id/problems`
 
   - **Description**: Creates a new problem within a contest. Triggers a system `reload`.
   - **Request Body**: A full `Problem` JSON object.
 
-#### `GET /problems`
+#### `GET /api/v1/admin/problems`
 
   - **Description**: Gets a list of all loaded problems.
 
-#### `GET /problems/:id`
+#### `GET /api/v1/admin/problems/:id`
 
   - **Description**: Gets the full definition of a single problem.
 
-#### `PUT /problems/:id`
+#### `PUT /api/v1/admin/problems/:id`
 
   - **Description**: Updates a `problem.yaml` file. Triggers a system `reload`.
   - **Request Body**: A full `Problem` JSON object.
 
-#### `DELETE /problems/:id`
+#### `DELETE /api/v1/admin/problems/:id`
 
   - **Description**: Deletes a problem's directory from disk. Triggers a system `reload`.
 
@@ -132,31 +149,31 @@ The current version of the Admin API has **no built-in authentication mechanism*
 
 ### Contest Assets & Announcements
 
-#### `GET /contests/:id/assets`
+#### `GET /api/v1/admin/contests/:id/assets`
 
   - **Description**: Lists all static assets for a contest.
 
-#### `POST /contests/:id/assets`
+#### `POST /api/v1/admin/contests/:id/assets`
 
   - **Description**: Uploads one or more asset files to a contest's `index.assets` directory.
 
-#### `DELETE /contests/:id/assets`
+#### `DELETE /api/v1/admin/contests/:id/assets`
 
   - **Description**: Deletes an asset (file or directory) from a contest.
 
-#### `GET /contests/:id/announcements`
+#### `GET /api/v1/admin/contests/:id/announcements`
 
   - **Description**: Gets all announcements for a contest.
 
-#### `POST /contests/:id/announcements`
+#### `POST /api/v1/admin/contests/:id/announcements`
 
   - **Description**: Creates a new announcement for a contest.
 
-#### `PUT /contests/:id/announcements/:announcementId`
+#### `PUT /api/v1/admin/contests/:id/announcements/:announcementId`
 
   - **Description**: Updates an existing announcement.
 
-#### `DELETE /contests/:id/announcements/:announcementId`
+#### `DELETE /api/v1/admin/contests/:id/announcements/:announcementId`
 
   - **Description**: Deletes an announcement.
 
@@ -164,15 +181,15 @@ The current version of the Admin API has **no built-in authentication mechanism*
 
 ### Problem Assets
 
-#### `GET /problems/:id/assets`
+#### `GET /api/v1/admin/problems/:id/assets`
 
   - **Description**: Lists all static assets for a problem.
 
-#### `POST /problems/:id/assets`
+#### `POST /api/v1/admin/problems/:id/assets`
 
   - **Description**: Uploads one or more asset files to a problem's `index.assets` directory.
 
-#### `DELETE /problems/:id/assets`
+#### `DELETE /api/v1/admin/problems/:id/assets`
 
   - **Description**: Deletes an asset (file or directory) from a problem.
 
@@ -180,43 +197,43 @@ The current version of the Admin API has **no built-in authentication mechanism*
 
 ### Submission Management
 
-#### `GET /submissions`
+#### `GET /api/v1/admin/submissions`
 
   - **Description**: Gets a paginated list of all submissions. Supports filtering by `problem_id`, `status`, and `user_query`. Supports pagination with `page` and `limit`.
 
-#### `GET /submissions/:id`
+#### `GET /api/v1/admin/submissions/:id`
 
   - **Description**: Gets detailed information for a single submission.
 
-#### `GET /submissions/:id/content`
+#### `GET /api/v1/admin/submissions/:id/content`
 
   - **Description**: Downloads the content of a submission as a zip archive.
 
-#### `PATCH /submissions/:id`
+#### `PATCH /api/v1/admin/submissions/:id`
 
   - **Description**: Manually updates the `status`, `score`, or `info` field of a submission. **Warning: This does not trigger score recalculation.**
 
-#### `DELETE /submissions/:id`
+#### `DELETE /api/v1/admin/submissions/:id`
 
   - **Description**: Permanently deletes a submission record and its content from disk.
 
-#### `POST /submissions/:id/rejudge`
+#### `POST /api/v1/admin/submissions/:id/rejudge`
 
   - **Description**: Re-judges an existing submission.
       - The system marks the original submission as invalid (`is_valid: false`).
       - It then copies the original submission's content, creates a new submission record, and adds it to the judging queue.
       - The scoring system automatically handles score changes resulting from the re-judge.
 
-#### `PATCH /submissions/:id/validity`
+#### `PATCH /api/v1/admin/submissions/:id/validity`
 
   - **Description**: Manually marks a submission as valid or invalid. This **triggers a full score recalculation** for the user on that problem.
   - **Request Body** (`application/json`): `{"is_valid": false}`
 
-#### `POST /submissions/:id/interrupt`
+#### `POST /api/v1/admin/submissions/:id/interrupt`
 
   - **Description**: Forcibly interrupts a queued or running submission, marking it as `Failed`.
 
-#### `GET /submissions/:id/containers/:conID/log`
+#### `GET /api/v1/admin/submissions/:id/containers/:conID/log`
 
   - **Description**: Gets the full log for any step (container) of any submission, regardless of the `show` flag. The log is returned in NDJSON format.
 
@@ -224,16 +241,16 @@ The current version of the Admin API has **no built-in authentication mechanism*
 
 ### Score & Leaderboard Management
 
-#### `POST /scores/recalculate`
+#### `POST /api/v1/admin/scores/recalculate`
 
   - **Description**: Triggers a score recalculation for a specific user on a specific problem.
   - **Request Body** (`application/json`): `{"user_id": "user-uuid", "problem_id": "problem-id"}`
 
-#### `GET /contests/:id/leaderboard`
+#### `GET /api/v1/admin/contests/:id/leaderboard`
 
   - **Description**: Gets the leaderboard for a contest.
 
-#### `GET /contests/:id/trend`
+#### `GET /api/v1/admin/contests/:id/trend`
 
   - **Description**: Gets score trend data for top users. Supports a `maxnum` query parameter to control the number of users.
 
@@ -241,27 +258,27 @@ The current version of the Admin API has **no built-in authentication mechanism*
 
 ### Cluster & Container Management
 
-#### `GET /clusters/status`
+#### `GET /api/v1/admin/clusters/status`
 
   - **Description**: Gets the current resource usage and queue lengths for all configured clusters and nodes.
 
-#### `GET /clusters/:clusterName/nodes/:nodeName`
+#### `GET /api/v1/admin/clusters/:clusterName/nodes/:nodeName`
 
   - **Description**: Gets detailed status for a specific node.
 
-#### `POST /clusters/:clusterName/nodes/:nodeName/pause`
+#### `POST /api/v1/admin/clusters/:clusterName/nodes/:nodeName/pause`
 
   - **Description**: Pauses a node, preventing it from accepting new judging tasks.
 
-#### `POST /clusters/:clusterName/nodes/:nodeName/resume`
+#### `POST /api/v1/admin/clusters/:clusterName/nodes/:nodeName/resume`
 
   - **Description**: Resumes a paused node.
 
-#### `GET /containers`
+#### `GET /api/v1/admin/containers`
 
   - **Description**: Gets a paginated list of all containers. Supports filtering by `submission_id`, `status`, and `user_query`.
 
-#### `GET /containers/:id`
+#### `GET /api/v1/admin/containers/:id`
 
   - **Description**: Gets details for a single container.
 
@@ -269,7 +286,7 @@ The current version of the Admin API has **no built-in authentication mechanism*
 
 ### WebSocket
 
-#### `GET /ws/submissions/:id/containers/:conID/logs`
+#### `GET /api/v1/admin/ws/submissions/:id/containers/:conID/logs`
 
   - **Description**: Establishes a WebSocket connection to stream the complete log for any container. For finished containers, it streams the saved log file. For running containers, it first sends all historical logs from the cache and then continues to stream new logs in real-time. This is available regardless of the `show` flag.
-  - **Authentication**: None.
+  - **Authentication**: Requires a valid admin JWT (passed as a query parameter or header, depending on the client).

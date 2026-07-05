@@ -8,11 +8,6 @@
 # Listen address for the user-facing API
 listen: ":8080"
 
-# Configuration for the Admin API service
-admin:
-  enabled: true
-  listen: ":8081"
-
 # Logger configuration
 logger:
   level: "debug" # Options: "debug", "production"
@@ -88,16 +83,6 @@ contests_root: "contests"
   - **Type**: `string`
   - **Required**: Yes
   - **Description**: The listen address and port for the user-facing API service.
-
------
-
-### `admin`
-
-  - **Type**: `object`
-  - **Required**: No
-  - **Description**: Configuration for the Admin API service.
-      - `enabled`: (boolean) Whether to enable the Admin API service.
-      - `listen`: (string) The listen address and port for the Admin API service.
 
 -----
 

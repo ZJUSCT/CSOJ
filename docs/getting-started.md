@@ -5,17 +5,20 @@ This document will guide you through compiling and running the CSOJ backend serv
 ## 1. Prerequisites
 
 - **Go**: Version `1.20` or higher is recommended.
+- **Node.js**: Version `20` or higher, with `pnpm` installed.
 - **Docker**: The Docker service must be installed and running on the judger nodes. CSOJ communicates with the Docker Daemon via a TCP socket.
 
 ## 2. Compile the Project
 
-After cloning the project repository, execute the following command in the project root to compile the `CSOJ` executable:
+After cloning the project repository, execute the following command in the project root to build the `CSOJ` executable (this also builds and embeds the frontend):
 
 ```bash
-go build -o csoj ./cmd/CSOJ/main.go
+make build
 ````
 
-This will generate an executable file named `csoj` in the project root directory.
+This will generate an executable file named `CSOJ` in the project root directory.
+
+The first registered user becomes the superadmin.
 
 ## 3\. Prepare Configuration Files
 
@@ -93,7 +96,7 @@ Once the above steps are complete, you can start the CSOJ service with the follo
 
 ```bash
 # The -c flag specifies the path to the main configuration file
-./csoj -c configs/config.yaml
+./CSOJ -c configs/config.yaml
 ```
 
 If everything is configured correctly, you should see output similar to this in your console:
