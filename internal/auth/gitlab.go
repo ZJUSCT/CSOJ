@@ -143,7 +143,7 @@ func (h *GitLabHandler) Callback(c *gin.Context) {
 		return
 	}
 
-	jwtToken, err := GenerateJWT(user.ID, h.cfg.Auth.JWT.Secret, h.cfg.Auth.JWT.ExpireHours)
+	jwtToken, err := GenerateJWT(user.ID, string(user.Role), h.cfg.Auth.JWT.Secret, h.cfg.Auth.JWT.ExpireHours)
 	if err != nil {
 		c.Redirect(http.StatusTemporaryRedirect, frontendURL+"jwt_generation_failed")
 		return

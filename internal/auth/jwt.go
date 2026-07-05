@@ -9,6 +9,7 @@ import (
 )
 
 type MyCustomClaims struct {
+	Role string `json:"role,omitempty"`
 	jwt.RegisteredClaims
 }
 
@@ -24,8 +25,9 @@ func CheckPasswordHash(password, hash string) bool {
 	return err == nil
 }
 
-func GenerateJWT(userID, secret string, expireHours int) (string, error) {
+func GenerateJWT(userID, role, secret string, expireHours int) (string, error) {
 	claims := MyCustomClaims{
+		Role: role,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Duration(expireHours) * time.Hour)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),

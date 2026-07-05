@@ -109,7 +109,7 @@ func (h *Handler) localLogin(c *gin.Context) {
 		return
 	}
 
-	jwtToken, err := auth.GenerateJWT(user.ID, h.cfg.Auth.JWT.Secret, h.cfg.Auth.JWT.ExpireHours)
+	jwtToken, err := auth.GenerateJWT(user.ID, string(user.Role), h.cfg.Auth.JWT.Secret, h.cfg.Auth.JWT.ExpireHours)
 	if err != nil {
 		util.Error(c, http.StatusInternalServerError, "failed to generate JWT")
 		return
