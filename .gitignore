@@ -2,7 +2,7 @@ test
 
 configs
 storage
-contests
+/contests/
 
 CSOJ
 CSOJ.exe
@@ -17,3 +17,4 @@ internal/embedui/sites
 frontend/node_modules
 frontend/.next
 frontend/out
+frontend/tsconfig.tsbuildinfo
