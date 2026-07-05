@@ -58,6 +58,12 @@ func GetAllUsers(db *gorm.DB) ([]models.User, error) {
 	return users, nil
 }
 
+func CountUsers(db *gorm.DB) (int64, error) {
+	var count int64
+	err := db.Model(&models.User{}).Count(&count).Error
+	return count, err
+}
+
 func UpdateUser(db *gorm.DB, user *models.User) error {
 	return db.Save(user).Error
 }
