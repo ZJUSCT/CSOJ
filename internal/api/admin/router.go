@@ -3,35 +3,34 @@ package admin
 import (
 	"github.com/ZJUSCT/CSOJ/internal/api"
 	"github.com/ZJUSCT/CSOJ/internal/config"
-	"github.com/ZJUSCT/CSOJ/internal/embedui"
 	"github.com/ZJUSCT/CSOJ/internal/judger"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
 
-// NewAdminRouter creates and configures the admin Gin engine.
-func NewAdminRouter(
+// RegisterRoutes wires the admin API routes onto the shared engine, mounted
+// under /api/v1/admin and guarded by AdminMiddleware. The engine itself and
+// CORS middleware are created in main.go.
+func RegisterRoutes(
+	r *gin.Engine,
 	cfg *config.Config,
 	db *gorm.DB,
 	scheduler *judger.Scheduler,
-	appState *judger.AppState) *gin.Engine {
-
-	r := gin.Default()
-
-	r.Use(api.CORSMiddleware(cfg.CORS))
+	appState *judger.AppState) {
 
 	h := NewHandler(cfg, db, scheduler, appState)
 
-	v1 := r.Group("/api/v1")
+	adminV1 := r.Group("/api/v1/admin")
+	adminV1.Use(api.AdminMiddleware(cfg.Auth.JWT.Secret, db))
 	{
 		// Websocket
-		v1.GET("/ws/submissions/:id/containers/:conID/logs", h.handleAdminContainerWs)
+		adminV1.GET("/ws/submissions/:id/containers/:conID/logs", h.handleAdminContainerWs)
 
 		// Management
-		v1.POST("/reload", h.reload)
+		adminV1.POST("/reload", h.reload)
 
 		// User Management
-		users := v1.Group("/users")
+		users := adminV1.Group("/users")
 		{
 			users.GET("", h.getAllUsers)
 			users.POST("", h.createUser)
@@ -46,7 +45,7 @@ func NewAdminRouter(
 		}
 
 		// Submission Management
-		submissions := v1.Group("/submissions")
+		submissions := adminV1.Group("/submissions")
 		{
 			submissions.GET("", h.getAllSubmissions)
 			submissions.GET("/:id", h.getSubmission)
@@ -60,7 +59,7 @@ func NewAdminRouter(
 		}
 
 		// Contest & Problem Management
-		contests := v1.Group("/contests")
+		contests := adminV1.Group("/contests")
 		{
 			contests.GET("", h.getAllContests)
 			contests.POST("", h.createContest)
@@ -83,7 +82,7 @@ func NewAdminRouter(
 			contests.DELETE("/:id/announcements/:announcementId", h.handleDeleteContestAnnouncement)
 		}
 
-		problems := v1.Group("/problems")
+		problems := adminV1.Group("/problems")
 		{
 			problems.GET("", h.getAllProblems)
 			problems.GET("/:id", h.getProblem)
@@ -97,13 +96,13 @@ func NewAdminRouter(
 		}
 
 		// Score Management
-		scores := v1.Group("/scores")
+		scores := adminV1.Group("/scores")
 		{
 			scores.POST("/recalculate", h.recalculateScore)
 		}
 
 		// Cluster Management
-		clusters := v1.Group("/clusters")
+		clusters := adminV1.Group("/clusters")
 		{
 			clusters.GET("/status", h.getClusterStatus)
 			clusters.GET("/:clusterName/nodes/:nodeName", h.getNodeDetails)
@@ -112,14 +111,18 @@ func NewAdminRouter(
 		}
 
 		// Container Management
-		containers := v1.Group("/containers")
+		containers := adminV1.Group("/containers")
 		{
 			containers.GET("", h.getAllContainers)
 			containers.GET("/:id", h.getContainer)
 		}
 	}
 
-	embedui.RegisterUIHandlers(r, "admin")
-
-	return r
+	// Role management — superadmin only.
+	// Sibling group to avoid stacking SuperAdminMiddleware on top of AdminMiddleware.
+	roleMgmt := r.Group("/api/v1/admin")
+	roleMgmt.Use(api.SuperAdminMiddleware(cfg.Auth.JWT.Secret, db))
+	{
+		roleMgmt.PATCH("/users/:id/role", h.updateUserRole)
+	}
 }

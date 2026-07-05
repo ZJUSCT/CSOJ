@@ -411,3 +411,48 @@ func (h *Handler) handleDownloadSolutions(c *gin.Context) {
 	c.Header("Content-Disposition", disposition)
 	c.Data(http.StatusOK, "application/zip", buf.Bytes())
 }
+
+// updateUserRole lets a superadmin promote a user to admin or demote back to user.
+func (h *Handler) updateUserRole(c *gin.Context) {
+	targetID := c.Param("id")
+	target, err := database.GetUserByID(h.db, targetID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			util.Error(c, http.StatusNotFound, "user not found")
+		} else {
+			util.Error(c, http.StatusInternalServerError, "database error")
+		}
+		return
+	}
+
+	var req struct {
+		Role string `json:"role" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		util.Error(c, http.StatusBadRequest, err)
+		return
+	}
+
+	// Only allow setting admin or user (never superadmin via API).
+	switch models.Role(req.Role) {
+	case models.RoleAdmin, models.RoleUser:
+		// ok
+	default:
+		util.Error(c, http.StatusBadRequest, "role must be 'admin' or 'user'")
+		return
+	}
+
+	// Superadmin cannot demote themselves (prevent lockout).
+	callerID := c.GetString("userID")
+	if callerID == targetID && target.Role == models.RoleSuperAdmin {
+		util.Error(c, http.StatusBadRequest, "you cannot demote yourself")
+		return
+	}
+
+	target.Role = models.Role(req.Role)
+	if err := database.UpdateUser(h.db, target); err != nil {
+		util.Error(c, http.StatusInternalServerError, err)
+		return
+	}
+	util.Success(c, target, "user role updated")
+}
