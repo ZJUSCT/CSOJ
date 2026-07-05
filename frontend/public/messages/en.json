@@ -1,0 +1,378 @@
+{
+  "home": {
+    "power_by": "Powered by <github1>ZJUSCT/CSOJ</github1> & <github2>ZJUSCT/CSOJ-WebUI</github2>",
+    "contests": "Contests",
+    "submissions": "Submissions",
+    "profile": "Profile",
+    "theme": {
+      "toggleTheme": "Toggle theme",
+      "toggleToDark": "Switch to Dark mode",
+      "toggleToLight": "Switch to Light mode",
+      "toggleToSystem": "Switch to System mode"
+    },
+    "user": {
+      "profile": "Profile",
+      "mySubmissions": "My Submissions",
+      "logout": "Log out"
+    }
+  },
+  "contests": {
+    "invalidDuration": "Invalid contest duration.",
+    "starts": "Starts",
+    "ends": "Ends",
+    "to": "to",
+    "viewDetails": "View Details",
+    "registered": "Registered",
+    "checking": "Checking...",
+    "register": "Register",
+    "loading": "Loading...",
+    "registerForContest": "Register for Contest",
+    "status": {
+      "upcoming": "Upcoming",
+      "ongoing": "Ongoing",
+      "finished": "Finished",
+      "ended": "Ended",
+      "live": "Live"
+    },
+    "registration": {
+      "successTitle": "Success",
+      "successDescription": "You have successfully registered for the contest.",
+      "failTitle": "Registration Failed",
+      "unexpectedError": "An unexpected error occurred."
+    },
+    "list": {
+      "loadFail": "Failed to load contests.",
+      "noContests": "No contests available."
+    },
+    "detail": {
+      "loadFail": "Failed to load contest details.",
+      "notFound": "Contest not found."
+    },
+    "description": {
+      "title": "Contest Description"
+    },
+    "problems": {
+      "title": "Problems",
+      "instruction": "Select a problem to view its details and submit your solution.",
+      "none": "This contest is not active or has no problems."
+    },
+    "problemCard": {
+      "id": "Problem",
+      "performance": "Ranking"
+    },
+    "trend": {
+      "title": "Score Trend",
+      "description": "Score progression of top users over time.",
+      "loadFail": "Failed to load trend data.",
+      "none": "No trend data available yet."
+    },
+    "leaderboard": {
+      "title": "Leaderboard",
+      "rank": "Rank",
+      "user": "User",
+      "totalScore": "Total Score",
+      "loadFail": "Failed to load leaderboard data.",
+      "none": "No scores recorded yet.",
+      "contestDetailsFail": "Could not load contest details for leaderboard header.",
+      "filterTags": "Filter by Tags",
+      "noTags": "No tags found on leaderboard."
+    },
+    "tabs": {
+      "problems": "Problems",
+      "leaderboard": "Leaderboard"
+    },
+    "announcements": {
+      "title": "Announcements",
+      "loadFail": "Failed to load announcements.",
+      "none": "No announcements yet."
+    },
+    "userScoreCard": {
+      "title": "Your Score",
+      "description": "Your current performance in this contest.",
+      "rank": "Your Rank",
+      "totalScore": "Total Score",
+      "scoreBreakdown": "Score Breakdown",
+      "problem": "Problem",
+      "score": "Score",
+      "notRanked": "You are not ranked yet. Make a submission to appear on the leaderboard.",
+      "rankDisabled": "Rank Disabled"
+     }
+  },
+  "ProblemDetails": {
+    "noProblem": {
+      "title": "No Problem Selected",
+      "description": "Please select a problem to view its details."
+    },
+    "details": {
+      "loadFail": "Failed to load problem. You may not have access to it yet.",
+      "notFound": "Problem not found.",
+      "id": "Problem"
+    },
+    "submitForm": {
+      "title": "Submit Solution"
+    },
+    "submissions": {
+      "title": "Your Submissions",
+      "none": "You have not made any submissions for this problem yet.",
+      "id": "Submission ID",
+      "status": "Status",
+      "score": "Score",
+      "performance": "Performance",
+      "date": "Date"
+    },
+    "meta": {
+      "core": "Cores",
+      "cluster": "Cluster",
+      "performance": "Ranking",
+      "maxCore": "Max Core Limit",
+      "maxMemory": "Max Memory Limit",
+      "maxScore": "Max Score",
+      "score": "pts",
+      "mode": "Mode",
+      "performanceDialog": {
+        "title": "About Ranking Mode",
+        "description": "In Ranking Mode, the score for each problem is dynamically calculated based on the performance of the participant's program. Each participant's performance score is compared in real time with others: the best-performing participant receives full points, and the rest are awarded proportionally."
+      }
+    }
+  },
+  "Profile": {
+    "avatar": {
+      "title": "Avatar",
+      "description": "Update your profile picture.",
+      "change": "Change Avatar",
+      "uploading": "Uploading...",
+      "uploadSuccess": "Avatar updated successfully!",
+      "uploadFailTitle": "Upload failed",
+      "uploadFailDescription": "Could not upload avatar."
+    },
+    "form": {
+      "title": "Profile Information",
+      "description": "Update your account details. Username cannot be changed.",
+      "username": "Username",
+      "nickname": "Nickname",
+      "nicknamePlaceholder": "Your display name",
+      "signature": "Signature",
+      "signaturePlaceholder": "A short bio",
+      "tags": "Tags",
+      "noTags": "No tags assigned.",
+      "saving": "Saving...",
+      "saveChanges": "Save Changes",
+      "updateSuccess": "Profile updated successfully!",
+      "updateFailTitle": "Update failed",
+      "updateFailDescription": "Could not update profile.",
+      "nicknameRequired": "Nickname is required"
+    },
+    "token": {
+      "title": "Authentication Token",
+      "description": "This is your current session token. Keep it secure and do not share it.",
+      "label": "Your Token",
+      "copySr": "Copy Token",
+      "copySuccessTitle": "Token Copied!",
+      "copySuccessDescription": "The authentication token has been copied to your clipboard.",
+      "expiresAt": "Expires At",
+      "timeRemaining": "Time Remaining",
+      "expired": "Expired"
+    },
+    "logout": "Log Out"
+  },
+  "auth": {
+    "login": {
+      "title": "Login to CSOJ",
+      "loadingDescription": "Checking available login methods...",
+      "descriptionLocal": "Enter your credentials or use an alternative login method.",
+      "descriptionExternal": "Please use an available login method.",
+      "form": {
+        "username": "Username",
+        "password": "Password",
+        "usernameRequired": "Username is required",
+        "passwordRequired": "Password is required",
+        "loginButton": "Login",
+        "loggingIn": "Logging in..."
+      },
+      "separatorText": "Or continue with",
+      "gitlabButton": "Login with GitLab",
+      "noAccount": "Don't have an account?",
+      "registerLink": "Register",
+      "toast": {
+        "successTitle": "Login successful!",
+        "failTitle": "Login failed",
+        "failDefault": "Login failed"
+      }
+    },
+    "register": {
+      "title": "Create an Account",
+      "loadingDescription": "Checking registration availability...",
+      "description": "Enter your details to create a new CSOJ account.",
+      "disabled": {
+        "title": "Registration Disabled",
+        "description": "Account registration with username and password is not available.",
+        "instruction": "Please return to the login page and use an alternative method.",
+        "backToLogin": "Back to Login"
+      },
+      "form": {
+        "username": "Username",
+        "nickname": "Nickname",
+        "password": "Password",
+        "nicknamePlaceholder": "Your display name",
+        "usernameMinLength": "Username must be at least 3 characters",
+        "nicknameRequired": "Nickname is required",
+        "passwordMinLength": "Password must be at least 6 characters",
+        "registerButton": "Register",
+        "creatingAccount": "Creating Account..."
+      },
+      "alreadyHaveAccount": "Already have an account?",
+      "loginLink": "Login",
+      "toast": {
+        "successTitle": "Registration successful!",
+        "successDescription": "You can now log in with your new account.",
+        "failTitle": "Registration failed",
+        "failDefault": "Registration failed"
+      }
+    }
+  },
+  "submissions": {
+    "list": {
+      "title": "My Submissions",
+      "description": "A list of all your submissions.",
+      "loadFail": "Failed to load submissions.",
+      "none": "No submissions yet.",
+      "table": {
+        "id": "Submission ID",
+        "problemId": "Problem",
+        "status": "Status",
+        "score": "Score",
+        "performance": "Performance",
+        "node": "Node",
+        "submittedAt": "Submitted At"
+      }
+    },
+    "details": {
+      "loadFail": "Failed to load submission.",
+      "notFound": "Submission not found.",
+      "log": {
+        "title": "Live Log",
+        "description": "Real-time output from the judge. Select a step to view its log."
+      },
+      "info": {
+        "title": "Submission Info",
+        "status": "Status",
+        "score": "Score",
+        "performance": "Performance Score",
+        "submitted": "Submitted",
+        "problem": "Problem",
+        "user": "User",
+        "cluster": "Cluster",
+        "node": "Node",
+        "stepProgress": "Step {current} of {total}: {name}",
+        "stepProgressNoName": "Step {current} of {total}"
+      },
+      "judgeInfo": {
+        "title": "Judge Info",
+        "description": "This is the raw JSON output from the final step of the judging process."
+      },
+      "queue": {
+        "position": "Queue Position",
+        "info": "#{position} in {cluster} queue"
+      },
+      "interrupt": {
+        "button": "Interrupt",
+        "confirm": "Are you sure you want to interrupt this submission? This action cannot be undone.",
+        "successTitle": "Success",
+        "successDescription": "Submission interruption request sent.",
+        "failTitle": "Error",
+        "failDefault": "Failed to interrupt submission."
+      }
+    },
+    "upload": {
+      "attemptsCounter": {
+        "label": "Attempts: {used} / {limit}",
+        "label_unlimited": "No submission limit",
+        "remaining": "{remaining} remaining",
+        "limitReached": "Limit reached"
+      },
+      "modeTabs": {
+        "editor": "Editor",
+        "upload": "Upload"
+      },
+      "editor": {
+        "emptyContentToast": {
+          "title": "Content is empty",
+          "description": "Please write some code before submitting."
+        }
+      },
+      "uploader": {
+        "dragAndDrop": "Drag & drop files or a folder",
+        "dragActive": "Drop files or a folder here...",
+        "selectFilesButton": "Select Files",
+        "selectFolderButton": "Select Folder",
+        "limits": "Max {maxNum, select, 0 {unlimited files} other {{maxNum} files}}, up to {maxSize, select, 0 {unlimited size} other {{maxSize} MB total}}.",
+        "tooManyFilesToast": {
+          "title": "Too many files",
+          "description": "You can upload a maximum of {maxNum} files."
+        },
+        "selectedFilesHeader": "Selected files:",
+        "fileSizeUnit": "({size} KB)"
+      },
+      "submission": {
+        "submitButton": "Submit",
+        "submittingButton": "Submitting...",
+        "noFilesToast": {
+          "title": "No files selected"
+        },
+        "fileTooLargeToast": {
+          "title": "Files too large",
+          "description": "Total upload size cannot exceed {maxSize} MB."
+        },
+        "successToast": {
+          "title": "Submission successful!",
+          "description": "Your submission ID is {submissionId}"
+        },
+        "failureToast": {
+          "title": "Submission failed",
+          "description": "{message}"
+        },
+        "disabledMessage": "Submissions are not enabled for this problem."
+      }
+    },
+    "logViewer": {
+      "staticLog": {
+        "statusFinished": "Finished",
+        "errorLoading": "Failed to load log."
+      },
+      "realtimeLog": {
+        "statusConnecting": "Connecting...",
+        "statusLive": "Live",
+        "statusClosing": "Closing...",
+        "statusDisconnected": "Disconnected",
+        "statusUninstantiated": "Uninstantiated",
+        "waitingOutput": "Waiting for judge output..."
+      },
+      "mainViewer": {
+        "tabLabel": "Step {step}: {name}",
+        "tabHidden": " (Hidden)",
+        "queueMessage": "Submission is in queue. No logs to display yet.",
+        "hiddenLogMessage": "Log for this step is hidden by the problem author."
+      }
+    },
+    "status": {
+      "Queued": "Queued",
+      "Running": "Running",
+      "Success": "Success",
+      "Failed": "Failed"
+    }
+  },
+  "difficulty": {
+    "platinum": "Platinum",
+    "gold": "Gold",
+    "silver": "Silver",
+    "bronze": "Bronze",
+    "hard": "Hard",
+    "medium": "Medium",
+    "easy": "Easy"
+  },
+  "banAlert": {
+    "title": "Account Banned",
+    "reasonLabel": "Ban Reason:",
+    "untilLabel": "Ban Ends At:"
+  }
+}
