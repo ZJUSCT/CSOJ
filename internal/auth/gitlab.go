@@ -133,6 +133,8 @@ func (h *GitLabHandler) Callback(c *gin.Context) {
 			AvatarURL: claims.Picture,
 		}
 		// Bootstrap: the first registered user becomes superadmin.
+		// Known race: two concurrent first-registrations could both see count==0;
+		// acceptable for bootstrap (one-time event on a fresh DB).
 		count, err := database.CountUsers(h.db)
 		if err != nil {
 			c.Redirect(http.StatusTemporaryRedirect, frontendURL+"database_error")

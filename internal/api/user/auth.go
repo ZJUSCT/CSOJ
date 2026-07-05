@@ -59,6 +59,9 @@ func (h *Handler) localRegister(c *gin.Context) {
 	}
 
 	// Bootstrap: the first registered user becomes superadmin.
+	// Known race: two concurrent first-registrations could both see count==0;
+	// acceptable for bootstrap (one-time event on a fresh DB). The username
+	// unique index ensures only one CreateUser wins; the loser gets "user".
 	count, err := database.CountUsers(h.db)
 	if err != nil {
 		util.Error(c, http.StatusInternalServerError, "database error")
