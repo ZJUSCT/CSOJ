@@ -65,7 +65,7 @@ export function SubmissionTableActions({ submission, mutate }: SubmissionTableAc
                 <Tooltip>
                     <TooltipTrigger asChild>
                         <Button variant="ghost" size="icon" className="h-8 w-8" asChild>
-                             <Link href={`/api/v1/submissions/${submission.id}/content`} download>
+                             <Link href={`/api/v1/admin/submissions/${submission.id}/content`} download>
 								<Download className="h-4 w-4" />
 							</Link>
                         </Button>
