@@ -58,6 +58,17 @@ func (h *Handler) localRegister(c *gin.Context) {
 		newUser.Nickname = newUser.Username
 	}
 
+	// Bootstrap: the first registered user becomes superadmin.
+	count, err := database.CountUsers(h.db)
+	if err != nil {
+		util.Error(c, http.StatusInternalServerError, "database error")
+		return
+	}
+	if count == 0 {
+		newUser.Role = models.RoleSuperAdmin
+		zap.S().Infof("first user registered (%s); granting superadmin", newUser.Username)
+	}
+
 	if err := database.CreateUser(h.db, &newUser); err != nil {
 		util.Error(c, http.StatusInternalServerError, "failed to create user")
 		return
