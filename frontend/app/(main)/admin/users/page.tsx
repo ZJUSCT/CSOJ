@@ -21,6 +21,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import withAdmin from "@/components/layout/with-admin";
 import { AdminSubNav } from "@/components/layout/admin-sub-nav";
+import { useAuth } from "@/hooks/use-auth";
 
 const fetcher = (url: string) => api.get(url).then(res => res.data.data);
 
@@ -42,6 +43,18 @@ function UserList() {
     const [searchQuery, setSearchQuery] = useState('');
     const debouncedSearchQuery = useDebounce(searchQuery, 300);
     const { data: users, error, isLoading, mutate } = useSWR<User[]>(`/admin/users?query=${debouncedSearchQuery}`, fetcher);
+    const { user: currentUser } = useAuth();
+    const isSuperAdmin = currentUser?.role === "superadmin";
+
+    const handleRoleToggle = async (u: User) => {
+        const newRole = u.role === "admin" ? "user" : "admin";
+        try {
+            await api.patch(`/admin/users/${u.id}/role`, { role: newRole });
+            mutate();
+        } catch (err: any) {
+            // SWR onError toast surfaces the error
+        }
+    };
 
     if (error) return <div>Failed to load users.</div>;
 
@@ -120,6 +133,18 @@ function UserList() {
                                                     userId={user.id}
                                                     trigger={<DropdownMenuItem onSelect={(e) => e.preventDefault()}>Register for Contest</DropdownMenuItem>}
                                                 />
+                                                {isSuperAdmin && (
+                                                    <DropdownMenuItem
+                                                        onSelect={(e) => {
+                                                            e.preventDefault();
+                                                            handleRoleToggle(user);
+                                                        }}
+                                                    >
+                                                        {user.role === "admin"
+                                                            ? "Demote to User"
+                                                            : "Promote to Admin"}
+                                                    </DropdownMenuItem>
+                                                )}
                                                 <DropdownMenuSeparator />
                                                 <DeleteUserMenuItem userId={user.id} onUserDeleted={mutate} />
                                             </DropdownMenuContent>
