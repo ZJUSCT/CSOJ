@@ -7,6 +7,7 @@ import { CodeXml } from "lucide-react";
 import api from '@/lib/api';
 import { LinkItem } from '@/lib/types';
 import { useTranslations } from "next-intl";
+import { useAuth } from "@/hooks/use-auth";
 
 const fetcher = (url: string) => api.get(url).then(res => res.data.data);
 
@@ -16,11 +17,14 @@ export function MainNav({ className, ...props }: React.HTMLAttributes<HTMLElemen
   const { data: dynamicLinks } = useSWR<LinkItem[]>('/links', fetcher, {
     revalidateOnFocus: false,
   });
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin" || user?.role === "superadmin";
 
   const allRoutes = [
     { href: "/contests", label: t("contests") },
     { href: "/submissions", label: t("submissions") },
     { href: "/profile", label: t("profile") },
+    ...(isAdmin ? [{ href: "/admin/contests", label: "Admin" }] : []),
     ...(dynamicLinks?.map(link => ({ href: link.url, label: link.name })) || []),
   ];
 
