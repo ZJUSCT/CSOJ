@@ -3,22 +3,19 @@ package user
 import (
 	"github.com/ZJUSCT/CSOJ/internal/api"
 	"github.com/ZJUSCT/CSOJ/internal/config"
-	"github.com/ZJUSCT/CSOJ/internal/embedui"
 	"github.com/ZJUSCT/CSOJ/internal/judger"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
 
-// NewUserRouter creates and configures the user Gin engine.
-func NewUserRouter(
+// RegisterRoutes wires the user-facing API routes onto the shared engine.
+// The engine itself and CORS middleware are created in main.go.
+func RegisterRoutes(
+	r *gin.Engine,
 	cfg *config.Config,
 	db *gorm.DB,
 	scheduler *judger.Scheduler,
-	appState *judger.AppState) *gin.Engine {
-
-	r := gin.Default()
-
-	r.Use(api.CORSMiddleware(cfg.CORS))
+	appState *judger.AppState) {
 
 	h := NewHandler(cfg, db, scheduler, appState)
 
@@ -101,8 +98,4 @@ func NewUserRouter(
 		assetsAuthed.GET("/contests/:id/*assetpath", h.serveContestAsset)
 		assetsAuthed.GET("/problems/:id/*assetpath", h.serveProblemAsset)
 	}
-
-	embedui.RegisterUIHandlers(r, "user")
-
-	return r
 }
