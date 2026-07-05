@@ -9,11 +9,14 @@ import (
 	"sync"
 	"syscall"
 
+	"github.com/ZJUSCT/CSOJ/internal/api"
 	"github.com/ZJUSCT/CSOJ/internal/api/admin"
 	"github.com/ZJUSCT/CSOJ/internal/api/user"
 	"github.com/ZJUSCT/CSOJ/internal/config"
 	"github.com/ZJUSCT/CSOJ/internal/database"
+	"github.com/ZJUSCT/CSOJ/internal/embedui"
 	"github.com/ZJUSCT/CSOJ/internal/judger"
+	"github.com/gin-gonic/gin"
 
 	"go.uber.org/zap"
 )
@@ -117,26 +120,20 @@ func main() {
 	go scheduler.Run()
 	zap.S().Info("judger scheduler started")
 
-	// API routers
-	userEngine := user.NewUserRouter(cfg, db, scheduler, appState)
-	adminEngine := admin.NewAdminRouter(cfg, db, scheduler, appState)
+	// Single API engine
+	r := gin.Default()
+	r.Use(api.CORSMiddleware(cfg.CORS))
+	user.RegisterRoutes(r, cfg, db, scheduler, appState)
+	admin.RegisterRoutes(r, cfg, db, scheduler, appState)
+	embedui.RegisterUIHandlers(r, "user")
 
-	// start servers
+	// start server
 	go func() {
-		zap.S().Infof("starting user server at %s", cfg.Listen)
-		if err := userEngine.Run(cfg.Listen); err != nil {
-			zap.S().Fatalf("failed to start user server: %v", err)
+		zap.S().Infof("starting server at %s", cfg.Listen)
+		if err := r.Run(cfg.Listen); err != nil {
+			zap.S().Fatalf("failed to start server: %v", err)
 		}
 	}()
-
-	if cfg.Admin.Enabled {
-		go func() {
-			zap.S().Infof("starting admin server at %s", cfg.Admin.Listen)
-			if err := adminEngine.Run(cfg.Admin.Listen); err != nil {
-				zap.S().Fatalf("failed to start admin server: %v", err)
-			}
-		}()
-	}
 
 	// graceful shutdown
 	quit := make(chan os.Signal, 1)

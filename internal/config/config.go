@@ -22,7 +22,6 @@ type Config struct {
 	Storage      Storage   `yaml:"storage"`
 	Auth         Auth      `yaml:"auth"`
 	Listen       string    `yaml:"listen"`
-	Admin        Admin     `yaml:"admin"`
 	CORS         CORS      `yaml:"cors"`
 	Links        []Link    `yaml:"links"`
 }
@@ -82,11 +81,6 @@ type GitLab struct {
 	ClientSecret        string `yaml:"client_secret"`
 	RedirectURI         string `yaml:"redirect_uri"`
 	FrontendCallbackURL string `yaml:"frontend_callback_url"`
-}
-
-type Admin struct {
-	Enabled bool   `yaml:"enabled"`
-	Listen  string `yaml:"listen"`
 }
 
 func Load(path string) (*Config, error) {
