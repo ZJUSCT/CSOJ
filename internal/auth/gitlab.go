@@ -132,6 +132,16 @@ func (h *GitLabHandler) Callback(c *gin.Context) {
 			Nickname:  claims.Name,
 			AvatarURL: claims.Picture,
 		}
+		// Bootstrap: the first registered user becomes superadmin.
+		count, err := database.CountUsers(h.db)
+		if err != nil {
+			c.Redirect(http.StatusTemporaryRedirect, frontendURL+"database_error")
+			return
+		}
+		if count == 0 {
+			newUser.Role = models.RoleSuperAdmin
+			zap.S().Infof("first user registered (%s); granting superadmin", newUser.Username)
+		}
 		if err := database.CreateUser(h.db, &newUser); err != nil {
 			c.Redirect(http.StatusTemporaryRedirect, frontendURL+"user_creation_failed")
 			return
