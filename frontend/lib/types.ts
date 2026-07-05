@@ -8,6 +8,7 @@ export interface User {
   signature: string;
   avatar_url: string;
   tags: string;
+  role: "user" | "admin" | "superadmin";
 }
 
 export interface Announcement {
@@ -137,4 +138,62 @@ export interface AuthStatus {
 export interface LinkItem {
     name: string;
     url: string;
+}
+
+export interface PaginatedResponse<T> {
+  items: T[];
+  total_items: number;
+  total_pages: number;
+  current_page: number;
+  per_page: number;
+}
+
+export interface UserBestScore {
+  ID: number;
+  UserID: string;
+  ContestID: string;
+  ProblemID: string;
+  Score: number;
+  Performance: number;
+  SubmissionID: string;
+  SubmissionCount: number;
+  LastScoreTime: string;
+}
+
+export interface AssetFile {
+    name: string;
+    path: string;
+    is_dir: boolean;
+    size: number;
+    mod_time: string;
+}
+
+export interface ConfigNode {
+  name: string;
+  cpu: number;
+  memory: number;
+  docker: {
+    host: string;
+  };
+}
+
+export interface NodeState extends ConfigNode {
+    used_memory: number;
+    is_paused: boolean;
+    used_cores: boolean[];
+}
+
+export interface ClusterState {
+    name: string;
+    node: ConfigNode[];
+    nodes: Record<string, NodeState>;
+}
+
+export interface ClusterStatusResponse {
+    resource_status: Record<string, ClusterState>;
+    queue_lengths: Record<string, number>;
+}
+
+export interface NodeDetail extends NodeState {
+    used_cores: boolean[];
 }
