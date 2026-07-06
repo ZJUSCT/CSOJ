@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/ZJUSCT/CSOJ/internal/config"
+	"github.com/ZJUSCT/CSOJ/internal/database"
 	"github.com/ZJUSCT/CSOJ/internal/database/models"
 
 	"go.uber.org/zap"
@@ -24,17 +25,23 @@ type AppState struct {
 
 type NodeState struct {
 	sync.Mutex
-	*config.Node
-	UsedMemory int64  `json:"used_memory"`
-	UsedCores  []bool `json:"used_cores"`
-	IsPaused   bool   `json:"is_paused"`
+	Name       string              `json:"name"`
+	Docker     config.DockerConfig `json:"docker"`
+	CPU        int                 `json:"cpu"`
+	Memory     int64               `json:"memory"`
+	UsedMemory int64               `json:"used_memory"`
+	UsedCores  []bool              `json:"used_cores"`
+	IsPaused   bool                `json:"is_paused"`
 }
 
 type NodeDetail struct {
-	*config.Node
-	UsedMemory int64  `json:"used_memory"`
-	UsedCores  []bool `json:"used_cores"`
-	IsPaused   bool   `json:"is_paused"`
+	Name       string              `json:"name"`
+	Docker     config.DockerConfig `json:"docker"`
+	CPU        int                 `json:"cpu"`
+	Memory     int64               `json:"memory"`
+	UsedMemory int64               `json:"used_memory"`
+	UsedCores  []bool              `json:"used_cores"`
+	IsPaused   bool                `json:"is_paused"`
 }
 
 type ClusterState struct {
@@ -60,6 +67,17 @@ type Scheduler struct {
 func NewScheduler(cfg *config.Config, db *gorm.DB, appState *AppState) *Scheduler {
 	clusters := make(map[string]*ClusterState)
 	queues := make(map[string]chan QueuedSubmission)
+
+	// Load runtime-mutable resource caps from the DB, keyed by (cluster, node).
+	dbNodes, err := database.GetAllClusterNodes(db)
+	if err != nil {
+		zap.S().Fatalf("failed to load cluster nodes from DB: %v", err)
+	}
+	caps := make(map[string]models.ClusterNode, len(dbNodes))
+	for _, n := range dbNodes {
+		caps[n.ClusterName+"\x00"+n.NodeName] = n
+	}
+
 	for i := range cfg.Cluster {
 		cluster := cfg.Cluster[i]
 		clusterState := &ClusterState{
@@ -68,10 +86,17 @@ func NewScheduler(cfg *config.Config, db *gorm.DB, appState *AppState) *Schedule
 		}
 		for j := range cluster.Nodes {
 			node := cluster.Nodes[j]
-			// 初始化核心使用状态，所有核心都标记为未使用 (false)
-			nodeCores := make([]bool, node.CPU)
+			cap, ok := caps[cluster.Name+"\x00"+node.Name]
+			if !ok {
+				zap.S().Warnf("node %s/%s has no DB resource caps; skipping", cluster.Name, node.Name)
+				continue
+			}
+			nodeCores := make([]bool, cap.CPU)
 			clusterState.Nodes[node.Name] = &NodeState{
-				Node:       &node,
+				Name:       node.Name,
+				Docker:     node.Docker,
+				CPU:        cap.CPU,
+				Memory:     cap.Memory,
 				UsedMemory: 0,
 				UsedCores:  nodeCores,
 				IsPaused:   false,
@@ -129,9 +154,11 @@ func (s *Scheduler) GetClusterStates() map[string]ClusterState {
 		for nodeName, node := range cluster.Nodes {
 			node.Lock()
 			// Create a copy to avoid exposing internal state directly
-			nodeStateCopy := *node.Node
 			nodeSnapshots[nodeName] = &NodeState{
-				Node:       &nodeStateCopy,
+				Name:       node.Name,
+				Docker:     node.Docker,
+				CPU:        node.CPU,
+				Memory:     node.Memory,
 				UsedMemory: node.UsedMemory,
 				IsPaused:   node.IsPaused,
 				UsedCores:  append([]bool(nil), node.UsedCores...),
@@ -162,12 +189,14 @@ func (s *Scheduler) GetNodeDetails(clusterName, nodeName string) (*NodeDetail, e
 	node.Lock()
 	defer node.Unlock()
 
-	nodeConfigCopy := *node.Node
 	details := &NodeDetail{
-		Node:       &nodeConfigCopy,
+		Name:       node.Name,
+		Docker:     node.Docker,
+		CPU:        node.CPU,
+		Memory:     node.Memory,
 		UsedMemory: node.UsedMemory,
 		IsPaused:   node.IsPaused,
-		UsedCores:  append([]bool(nil), node.UsedCores...), // Return a copy
+		UsedCores:  append([]bool(nil), node.UsedCores...),
 	}
 
 	return details, nil
@@ -375,4 +404,26 @@ func (s *Scheduler) ReleaseResources(clusterName, nodeName string, coresToReleas
 			zap.S().Infof("released resources (cores: [%s], mem: %dMB) from node %s", strings.Join(coreStrs, ","), memory, nodeName)
 		}
 	}
+}
+
+// UpdateNodeResources updates the in-memory CPU/Memory caps for a node
+// after an admin edits the ClusterNode DB row.
+func (s *Scheduler) UpdateNodeResources(clusterName, nodeName string, cpu int, memory int64) error {
+	cluster, ok := s.clusters[clusterName]
+	if !ok {
+		return fmt.Errorf("cluster '%s' not found", clusterName)
+	}
+	node, ok := cluster.Nodes[nodeName]
+	if !ok {
+		return fmt.Errorf("node '%s' not found in cluster '%s'", nodeName, clusterName)
+	}
+	node.Lock()
+	defer node.Unlock()
+	node.CPU = cpu
+	node.Memory = memory
+	// Resize the UsedCores slice; preserve existing usage where possible.
+	newCores := make([]bool, cpu)
+	copy(newCores, node.UsedCores)
+	node.UsedCores = newCores
+	return nil
 }

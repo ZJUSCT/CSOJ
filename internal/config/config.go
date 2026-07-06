@@ -41,8 +41,6 @@ type DockerConfig struct {
 
 type Node struct {
 	Name   string       `yaml:"name" json:"name"`
-	CPU    int          `yaml:"cpu" json:"cpu"`
-	Memory int64        `yaml:"memory" json:"memory"`
 	Docker DockerConfig `yaml:"docker" json:"docker"`
 }
 
