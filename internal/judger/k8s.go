@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/ZJUSCT/CSOJ/internal/judger/podspec"
 	"go.uber.org/zap"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -176,4 +177,18 @@ func (k *KubeManager) ListJudgerMPIJobs(ctx context.Context) ([]string, error) {
 		names = append(names, item.GetName())
 	}
 	return names, nil
+}
+
+// DeleteAllJudgerPods force-deletes all pods labeled app=csoj-judger (for recovery).
+func (k *KubeManager) DeleteAllJudgerPods(ctx context.Context) error {
+	return k.cs.CoreV1().Pods(k.ns).DeleteCollection(ctx, metav1.DeleteOptions{
+		GracePeriodSeconds: ptrInt64(0),
+	}, metav1.ListOptions{LabelSelector: "app=csoj-judger"})
+}
+
+// DeleteAllJudgerMPIJobs force-deletes all MPIJobs labeled app=csoj-judger (for recovery).
+func (k *KubeManager) DeleteAllJudgerMPIJobs(ctx context.Context) error {
+	return k.dyn.Resource(podspec.MPIJobGVR()).Namespace(k.ns).DeleteCollection(ctx, metav1.DeleteOptions{
+		GracePeriodSeconds: ptrInt64(0),
+	}, metav1.ListOptions{LabelSelector: "app=csoj-judger"})
 }

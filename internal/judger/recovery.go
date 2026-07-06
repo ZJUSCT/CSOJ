@@ -1,110 +1,99 @@
 package judger
 
 import (
+	"context"
+	"time"
+
 	"github.com/ZJUSCT/CSOJ/internal/config"
 	"github.com/ZJUSCT/CSOJ/internal/database/models"
+	"github.com/ZJUSCT/CSOJ/internal/pubsub"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
+	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/tools/clientcmd"
 )
 
-// RecoverAndCleanup handles the recovery process on application startup.
-// It finds submissions and containers that were in a 'Running' state
-// and cleans up their associated Docker containers before marking them
-// as 'Failed' in the database.
-func RecoverAndCleanup(db *gorm.DB, cfg *config.Config) error {
-	zap.S().Info("starting recovery process for interrupted submissions...")
+// RecoverAndCleanup claims each cluster (HA gate), then deletes all judger
+// pods/MPIJobs and marks Running submissions Failed.
+func RecoverAndCleanup(db *gorm.DB, cfg *config.Config, instanceID string) error {
+	// HA gate: claim every configured cluster before touching K8s.
+	for i := range cfg.Cluster {
+		cc := cfg.Cluster[i]
+		ttl := cc.HeartbeatTTL.Std()
+		if ttl <= 0 {
+			ttl = 30 * time.Second
+		}
+		claimed, err := ClaimCluster(db, cc.Name, instanceID, ttl)
+		if err != nil {
+			return err
+		}
+		if !claimed {
+			zap.S().Fatalf("cluster %s is owned by another live judger; aborting", cc.Name)
+		}
+	}
 
-	// 查找所有在运行时被中断的提交，并预加载它们关联的所有容器
-	var interruptedSubs []models.Submission
-	if err := db.Preload("Containers").Where("status = ?", models.StatusRunning).Find(&interruptedSubs).Error; err != nil {
+	// Build K8s managers and delete all judger-owned resources.
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	for i := range cfg.Cluster {
+		cc := cfg.Cluster[i]
+		km, err := buildKubeManagerForCluster(cc)
+		if err != nil {
+			zap.S().Errorf("failed to build K8s client for cluster %s: %v", cc.Name, err)
+			continue
+		}
+		if err := km.DeleteAllJudgerPods(ctx); err != nil {
+			zap.S().Warnf("cluster %s: failed to delete judger pods: %v", cc.Name, err)
+		}
+		if err := km.DeleteAllJudgerMPIJobs(ctx); err != nil {
+			zap.S().Warnf("cluster %s: failed to delete judger MPIJobs: %v", cc.Name, err)
+		}
+	}
+
+	// Mark all Running submissions + their containers Failed.
+	var running []models.Submission
+	if err := db.Preload("Containers").Where("status = ?", models.StatusRunning).Find(&running).Error; err != nil {
 		return err
 	}
-
-	if len(interruptedSubs) == 0 {
-		zap.S().Info("no interrupted submissions found to recover")
-		return nil
-	}
-	zap.S().Infof("found %d interrupted submissions to process", len(interruptedSubs))
-
-	// 创建一个快速查找表，用于根据集群和节点名找到对应的 Docker Host 配置
-	nodeConfigMap := make(map[string]map[string]*config.Node)
-	for i := range cfg.Cluster {
-		cluster := cfg.Cluster[i]
-		nodeConfigMap[cluster.Name] = make(map[string]*config.Node)
-		for j := range cluster.Nodes {
-			node := cluster.Nodes[j]
-			nodeConfigMap[cluster.Name][node.Name] = &node
+	tx := db.Begin()
+	for i := range running {
+		running[i].Status = models.StatusFailed
+		running[i].Info = models.JSONMap{"error": "System interrupted during execution"}
+		if err := tx.Save(&running[i]).Error; err != nil {
+			tx.Rollback()
+			return err
 		}
-	}
-
-	// 按 Docker 配置对所有需要清理的容器进行分组
-	containersByDockerConfig := make(map[config.DockerConfig][]*models.Container)
-	var submissionIDs []string
-
-	for _, sub := range interruptedSubs {
-		submissionIDs = append(submissionIDs, sub.ID)
-		if sub.Cluster == "" || sub.Node == "" {
-			zap.S().Warnf("submission %s has no cluster/node assigned, cannot clean up its containers", sub.ID)
-			continue
-		}
-
-		// 查找该提交所在节点的 Docker Host
-		clusterNodes, ok := nodeConfigMap[sub.Cluster]
-		if !ok {
-			zap.S().Warnf("cluster '%s' for submission %s not found in config, cannot clean up containers", sub.Cluster, sub.ID)
-			continue
-		}
-		node, ok := clusterNodes[sub.Node]
-		if !ok {
-			zap.S().Warnf("node '%s' for submission %s not found in config, cannot clean up containers", sub.Node, sub.ID)
-			continue
-		}
-		dockerCfg := node.Docker
-
-		// 将该提交下所有拥有 DockerID 的容器加入对应 Host 的清理列表
-		for i := range sub.Containers {
-			container := sub.Containers[i]
-			if container.DockerID != "" {
-				containersByDockerConfig[dockerCfg] = append(containersByDockerConfig[dockerCfg], &container)
+		pubsub.GetBroker().CloseTopic(running[i].ID)
+		for j := range running[i].Containers {
+			running[i].Containers[j].Status = models.StatusFailed
+			if err := tx.Save(&running[i].Containers[j]).Error; err != nil {
+				tx.Rollback()
+				return err
 			}
 		}
 	}
+	return tx.Commit().Error
+}
 
-	// 执行清理操作
-	for dockerCfg, containers := range containersByDockerConfig {
-		host := dockerCfg.Host
-		zap.S().Infof("connecting to Docker host %s to clean up %d containers", host, len(containers))
-		docker, err := NewDockerManager(dockerCfg)
-		if err != nil {
-			zap.S().Errorf("failed to create Docker manager for host %s: %v. Skipping cleanup for this host.", host, err)
-			continue
-		}
-		for _, container := range containers {
-			zap.S().Infof("cleaning up orphaned container %s (DockerID: %s) on host %s", container.ID, container.DockerID, host)
-			docker.CleanupContainer(container.DockerID)
-		}
+// buildKubeManagerForCluster builds a KubeManager from a config.Cluster using
+// the kubeconfig + context (same construction as NewScheduler).
+func buildKubeManagerForCluster(cc config.Cluster) (*KubeManager, error) {
+	loader := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
+		&clientcmd.ClientConfigLoadingRules{ExplicitPath: cc.Kubeconfig},
+		&clientcmd.ConfigOverrides{CurrentContext: cc.Context},
+	)
+	restCfg, err := loader.ClientConfig()
+	if err != nil {
+		return nil, err
 	}
-
-	// 清理完成后，在一个事务中更新数据库记录
-	zap.S().Info("updating database status for interrupted submissions and containers")
-	return db.Transaction(func(tx *gorm.DB) error {
-		// 将被中断的提交标记为失败
-		if err := tx.Model(&models.Submission{}).
-			Where("id IN ?", submissionIDs).
-			Updates(map[string]interface{}{
-				"status": models.StatusFailed,
-				"info":   models.JSONMap{"error": "System interrupted during execution"},
-			}).Error; err != nil {
-			return err
-		}
-
-		// 将关联的、正在运行的容器标记为失败
-		if err := tx.Model(&models.Container{}).
-			Where("submission_id IN ?", submissionIDs).
-			Where("status = ?", models.StatusRunning).
-			Update("status", models.StatusFailed).Error; err != nil {
-			return err
-		}
-		return nil
-	})
+	cs, err := kubernetes.NewForConfig(restCfg)
+	if err != nil {
+		return nil, err
+	}
+	dyn, err := dynamic.NewForConfig(restCfg)
+	if err != nil {
+		return nil, err
+	}
+	return NewKubeManager(cs, dyn, cc.Namespace), nil
 }
