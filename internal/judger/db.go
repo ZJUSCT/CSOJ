@@ -81,22 +81,19 @@ func problemFromModel(p models.Problem) (*Problem, error) {
 		Memory:         p.Memory,
 		Description:    p.Description,
 	}
-	if p.Upload != nil {
-		var u UploadLimit
-		if err := unmarshalJSONMap(p.Upload, &u); err == nil {
-			prob.Upload = u
+	if len(p.Upload) > 0 {
+		if err := json.Unmarshal(p.Upload, &prob.Upload); err != nil {
+			return nil, fmt.Errorf("parse upload: %w", err)
 		}
 	}
-	if p.Workflow != nil {
-		var w []WorkflowStep
-		if err := unmarshalJSONMap(p.Workflow, &w); err == nil {
-			prob.Workflow = w
+	if len(p.Workflow) > 0 {
+		if err := json.Unmarshal(p.Workflow, &prob.Workflow); err != nil {
+			return nil, fmt.Errorf("parse workflow: %w", err)
 		}
 	}
-	if p.Score != nil {
-		var s ScoreConfig
-		if err := unmarshalJSONMap(p.Score, &s); err == nil {
-			prob.Score = s
+	if len(p.Score) > 0 {
+		if err := json.Unmarshal(p.Score, &prob.Score); err != nil {
+			return nil, fmt.Errorf("parse score: %w", err)
 		}
 	}
 	if prob.Score.Mode == "" {
@@ -107,17 +104,17 @@ func problemFromModel(p models.Problem) (*Problem, error) {
 
 // ProblemToModel converts a judger.Problem into a models.Problem for DB persistence.
 func ProblemToModel(p *Problem, contestID string) (models.Problem, error) {
-	upload, err := toJSONMap(p.Upload)
+	upload, err := json.Marshal(p.Upload)
 	if err != nil {
-		return models.Problem{}, err
+		return models.Problem{}, fmt.Errorf("marshal upload: %w", err)
 	}
-	workflow, err := toJSONMap(p.Workflow)
+	workflow, err := json.Marshal(p.Workflow)
 	if err != nil {
-		return models.Problem{}, err
+		return models.Problem{}, fmt.Errorf("marshal workflow: %w", err)
 	}
-	score, err := toJSONMap(p.Score)
+	score, err := json.Marshal(p.Score)
 	if err != nil {
-		return models.Problem{}, err
+		return models.Problem{}, fmt.Errorf("marshal score: %w", err)
 	}
 	return models.Problem{
 		ID:             p.ID,
@@ -130,31 +127,11 @@ func ProblemToModel(p *Problem, contestID string) (models.Problem, error) {
 		Cluster:        p.Cluster,
 		CPU:            p.CPU,
 		Memory:         p.Memory,
-		Upload:         upload,
-		Workflow:       workflow,
-		Score:          score,
+		Upload:         models.RawJSON(upload),
+		Workflow:       models.RawJSON(workflow),
+		Score:          models.RawJSON(score),
 		Description:    p.Description,
 	}, nil
-}
-
-func toJSONMap(v interface{}) (models.JSONMap, error) {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return nil, err
-	}
-	var m models.JSONMap
-	if err := json.Unmarshal(b, &m); err != nil {
-		return nil, err
-	}
-	return m, nil
-}
-
-func unmarshalJSONMap(m models.JSONMap, dst interface{}) error {
-	b, err := json.Marshal(m)
-	if err != nil {
-		return err
-	}
-	return json.Unmarshal(b, dst)
 }
 
 // ContestToModel converts a judger.Contest into a models.Contest for DB persistence.

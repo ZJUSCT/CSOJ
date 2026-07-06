@@ -26,7 +26,7 @@ const (
 	RoleSuperAdmin Role = "superadmin"
 )
 
-// JSONMap is a helper type for storing JSON data in the database.
+// JSONMap is a helper type for storing JSON object data in the database.
 type JSONMap map[string]interface{}
 
 func (m JSONMap) Value() (driver.Value, error) {
@@ -39,6 +39,49 @@ func (m *JSONMap) Scan(value interface{}) error {
 		return errors.New("type assertion to []byte failed")
 	}
 	return json.Unmarshal(bytes, &m)
+}
+
+// RawJSON stores arbitrary JSON (object, array, or scalar) as raw bytes.
+// Used for problem fields like Workflow (an array) that JSONMap cannot hold.
+type RawJSON []byte
+
+func (r RawJSON) Value() (driver.Value, error) {
+	if r == nil {
+		return nil, nil
+	}
+	return []byte(r), nil
+}
+
+func (r *RawJSON) Scan(value interface{}) error {
+	if value == nil {
+		*r = nil
+		return nil
+	}
+	switch v := value.(type) {
+	case []byte:
+		*r = append((*r)[:0], v...)
+		return nil
+	case string:
+		*r = append((*r)[:0], v...)
+		return nil
+	}
+	return errors.New("type assertion to []byte or string failed")
+}
+
+func (r RawJSON) MarshalJSON() ([]byte, error) {
+	if len(r) == 0 {
+		return []byte("null"), nil
+	}
+	return []byte(r), nil
+}
+
+func (r *RawJSON) UnmarshalJSON(data []byte) error {
+	if string(data) == "null" {
+		*r = nil
+		return nil
+	}
+	*r = append((*r)[:0], data...)
+	return nil
 }
 
 // StringArray is a []string stored as a JSON text column.
@@ -168,9 +211,9 @@ type Problem struct {
 	Cluster        string    `gorm:"index" json:"cluster"`
 	CPU            int       `json:"cpu"`
 	Memory         int64     `json:"memory"`
-	Upload         JSONMap   `gorm:"type:text" json:"upload"`
-	Workflow       JSONMap   `gorm:"type:text" json:"workflow"`
-	Score          JSONMap   `gorm:"type:text" json:"score"`
+	Upload         RawJSON   `gorm:"type:text" json:"upload"`
+	Workflow       RawJSON   `gorm:"type:text" json:"workflow"`
+	Score          RawJSON   `gorm:"type:text" json:"score"`
 	Description    string    `gorm:"type:text" json:"description"`
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
