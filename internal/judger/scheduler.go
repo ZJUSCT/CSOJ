@@ -2,17 +2,18 @@ package judger
 
 import (
 	"fmt"
-	"strconv"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/ZJUSCT/CSOJ/internal/config"
 	"github.com/ZJUSCT/CSOJ/internal/database"
 	"github.com/ZJUSCT/CSOJ/internal/database/models"
-
+	"github.com/ZJUSCT/CSOJ/internal/pubsub"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
+	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/tools/clientcmd"
 )
 
 // AppState holds the shared, reloadable state of contests and problems.
@@ -23,31 +24,26 @@ type AppState struct {
 	ProblemToContestMap map[string]*Contest
 }
 
-type NodeState struct {
-	sync.Mutex
-	Name       string              `json:"name"`
-	Docker     config.DockerConfig `json:"docker"`
-	CPU        int                 `json:"cpu"`
-	Memory     int64               `json:"memory"`
-	UsedMemory int64               `json:"used_memory"`
-	UsedCores  []bool              `json:"used_cores"`
-	IsPaused   bool                `json:"is_paused"`
-}
-
-type NodeDetail struct {
-	Name       string              `json:"name"`
-	Docker     config.DockerConfig `json:"docker"`
-	CPU        int                 `json:"cpu"`
-	Memory     int64               `json:"memory"`
-	UsedMemory int64               `json:"used_memory"`
-	UsedCores  []bool              `json:"used_cores"`
-	IsPaused   bool                `json:"is_paused"`
+// PoolState is the in-memory view of a node-pool (caps + pause flag).
+// K8s is the scheduler; we do not track per-core usage here.
+type PoolState struct {
+	Name         string
+	NodeSelector map[string]string
+	CPU          int
+	Memory       int64
+	IsPaused     bool
 }
 
 type ClusterState struct {
 	sync.Mutex
-	*config.Cluster
-	Nodes map[string]*NodeState `json:"nodes"`
+	Name       string
+	Namespace  string
+	k8s        kubernetes.Interface
+	dyn        dynamic.Interface
+	pools      map[string]*PoolState
+	sem        chan struct{}
+	queue      chan QueuedSubmission
+	mpiEnabled bool
 }
 
 type QueuedSubmission struct {
@@ -58,375 +54,273 @@ type QueuedSubmission struct {
 type Scheduler struct {
 	cfg        *config.Config
 	db         *gorm.DB
-	clusters   map[string]*ClusterState
 	appState   *AppState
-	queues     map[string]chan QueuedSubmission
+	clusters   map[string]*ClusterState
 	dispatcher *Dispatcher
 }
 
 func NewScheduler(cfg *config.Config, db *gorm.DB, appState *AppState) *Scheduler {
 	clusters := make(map[string]*ClusterState)
-	queues := make(map[string]chan QueuedSubmission)
 
-	// Load runtime-mutable resource caps from the DB, keyed by (cluster, node).
-	dbNodes, err := database.GetAllClusterNodes(db)
+	// Load all pool caps from the DB.
+	allPools, err := database.GetAllClusterPools(db)
 	if err != nil {
-		zap.S().Fatalf("failed to load cluster nodes from DB: %v", err)
+		zap.S().Fatalf("failed to load cluster node pools: %v", err)
 	}
-	caps := make(map[string]models.ClusterNode, len(dbNodes))
-	for _, n := range dbNodes {
-		caps[n.ClusterName+"\x00"+n.NodeName] = n
+	poolsByCluster := make(map[string]map[string]*PoolState)
+	for _, p := range allPools {
+		if poolsByCluster[p.ClusterName] == nil {
+			poolsByCluster[p.ClusterName] = make(map[string]*PoolState)
+		}
+		poolsByCluster[p.ClusterName][p.PoolName] = &PoolState{
+			Name:         p.PoolName,
+			NodeSelector: toStringMap(p.NodeSelector),
+			CPU:          p.CPU,
+			Memory:       p.Memory,
+			IsPaused:     p.IsPaused,
+		}
 	}
 
 	for i := range cfg.Cluster {
-		cluster := cfg.Cluster[i]
-		clusterState := &ClusterState{
-			Cluster: &cluster,
-			Nodes:   make(map[string]*NodeState),
+		cc := cfg.Cluster[i]
+		conc := cc.Concurrency
+		if conc <= 0 {
+			conc = 1
 		}
-		for j := range cluster.Nodes {
-			node := cluster.Nodes[j]
-			cap, ok := caps[cluster.Name+"\x00"+node.Name]
-			if !ok {
-				// No DB caps row yet: register the node disabled (cpu=0) so an
-				// admin can enable it via PUT /admin/clusters/:c/nodes/:n. The
-				// node accepts no submissions until caps are set.
-				cap = models.ClusterNode{ClusterName: cluster.Name, NodeName: node.Name}
-				zap.S().Warnf("node %s/%s has no DB resource caps; registered disabled", cluster.Name, node.Name)
-			}
-			nodeCores := make([]bool, cap.CPU)
-			clusterState.Nodes[node.Name] = &NodeState{
-				Name:       node.Name,
-				Docker:     node.Docker,
-				CPU:        cap.CPU,
-				Memory:     cap.Memory,
-				UsedMemory: 0,
-				UsedCores:  nodeCores,
-				IsPaused:   false,
+		// Build the K8s clientset + dynamic client from the kubeconfig.
+		loader := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
+			&clientcmd.ClientConfigLoadingRules{ExplicitPath: cc.Kubeconfig},
+			&clientcmd.ConfigOverrides{CurrentContext: cc.Context},
+		)
+		restCfg, err := loader.ClientConfig()
+		if err != nil {
+			zap.S().Fatalf("failed to build rest config for cluster %s: %v", cc.Name, err)
+		}
+		cs, err := kubernetes.NewForConfig(restCfg)
+		if err != nil {
+			zap.S().Fatalf("failed to build clientset for cluster %s: %v", cc.Name, err)
+		}
+		dyn, err := dynamic.NewForConfig(restCfg)
+		if err != nil {
+			zap.S().Fatalf("failed to build dynamic client for cluster %s: %v", cc.Name, err)
+		}
+
+		pools := poolsByCluster[cc.Name]
+		if pools == nil {
+			pools = make(map[string]*PoolState)
+		}
+		// Ensure a (disabled) PoolState exists for every config-declared pool name,
+		// so admins can PUT caps to enable it.
+		for _, np := range cc.NodePools {
+			if _, ok := pools[np.Name]; !ok {
+				pools[np.Name] = &PoolState{Name: np.Name}
 			}
 		}
-		clusters[cluster.Name] = clusterState
-		queues[cluster.Name] = make(chan QueuedSubmission, 1024)
+
+		cluster := &ClusterState{
+			Name:      cc.Name,
+			Namespace: cc.Namespace,
+			k8s:       cs,
+			dyn:       dyn,
+			pools:     pools,
+			sem:       make(chan struct{}, conc),
+			queue:     make(chan QueuedSubmission, 1024),
+		}
+		// Probe the MPI operator CRD (best-effort; non-fatal).
+		cluster.mpiEnabled = probeMPIOperator(cs, cc.Namespace)
+		clusters[cc.Name] = cluster
 	}
 
-	scheduler := &Scheduler{
-		cfg:      cfg,
-		db:       db,
-		clusters: clusters,
-		queues:   queues,
-		appState: appState,
-	}
-	scheduler.dispatcher = NewDispatcher(cfg, db, scheduler, appState)
-	return scheduler
+	s := &Scheduler{cfg: cfg, db: db, appState: appState, clusters: clusters}
+	s.dispatcher = NewDispatcher(cfg, db, s, appState)
+	return s
 }
 
-// RequeuePendingSubmissions loads submissions with 'Queued' status from the DB
-// and adds them back to the scheduler's queue on startup.
-func RequeuePendingSubmissions(db *gorm.DB, s *Scheduler, appState *AppState) error {
-	var pendingSubs []models.Submission
-	if err := db.Model(&models.Submission{}).Where("status = ?", models.StatusQueued).Order("created_at asc").Find(&pendingSubs).Error; err != nil {
-		return err
-	}
+// Dispatcher exposes the dispatcher (used by admin handlers for interrupt).
+func (s *Scheduler) Dispatcher() *Dispatcher { return s.dispatcher }
 
-	if len(pendingSubs) == 0 {
-		zap.S().Info("no pending submissions to requeue")
-		return nil
+func (s *Scheduler) Run() {
+	for name, cluster := range s.clusters {
+		go s.clusterWorker(name, cluster)
 	}
+}
 
-	zap.S().Infof("requeueing %d pending submissions...", len(pendingSubs))
-	appState.RLock()
-	defer appState.RUnlock()
-	for _, sub := range pendingSubs {
-		submission := sub // Create a new variable to avoid pointer issues with the loop variable
-		problem, ok := appState.Problems[submission.ProblemID]
-		if !ok {
-			zap.S().Warnf("problem %s for submission %s not found, skipping requeue", submission.ProblemID, submission.ID)
+func (s *Scheduler) clusterWorker(name string, cluster *ClusterState) {
+	for job := range cluster.queue {
+		// Refetch; the submission may have been interrupted while queued.
+		var sub models.Submission
+		if err := s.db.First(&sub, "id = ?", job.Submission.ID).Error; err != nil {
+			zap.S().Warnf("submission %s vanished from DB; skipping", job.Submission.ID)
 			continue
 		}
-		s.Submit(&submission, problem)
-	}
-	zap.S().Info("finished requeueing pending submissions")
-	return nil
-}
-
-func (s *Scheduler) GetClusterStates() map[string]ClusterState {
-	snapshot := make(map[string]ClusterState)
-	for name, cluster := range s.clusters {
-		cluster.Lock()
-		nodeSnapshots := make(map[string]*NodeState)
-		for nodeName, node := range cluster.Nodes {
-			node.Lock()
-			// Create a copy to avoid exposing internal state directly
-			nodeSnapshots[nodeName] = &NodeState{
-				Name:       node.Name,
-				Docker:     node.Docker,
-				CPU:        node.CPU,
-				Memory:     node.Memory,
-				UsedMemory: node.UsedMemory,
-				IsPaused:   node.IsPaused,
-				UsedCores:  append([]bool(nil), node.UsedCores...),
-			}
-			node.Unlock()
+		if sub.Status != models.StatusQueued {
+			continue
 		}
-		clusterConfigCopy := *cluster.Cluster
-		snapshot[name] = ClusterState{
-			Cluster: &clusterConfigCopy,
-			Nodes:   nodeSnapshots,
+		// Acquire a concurrency slot.
+		cluster.sem <- struct{}{}
+		// Pick a pool (FIFO over non-paused pools with enough caps).
+		pool := s.findAvailablePool(cluster, job.Problem.CPU, job.Problem.Memory)
+		if pool == nil {
+			// No pool; release the slot and requeue after a delay.
+			<-cluster.sem
+			go func(j QueuedSubmission) {
+				time.Sleep(time.Second)
+				s.clusters[name].queue <- j
+			}(job)
+			continue
 		}
-		cluster.Unlock()
+		sub.Node = pool.Name
+		sub.Status = models.StatusRunning
+		database.UpdateSubmission(s.db, &sub)
+		go s.dispatcher.Dispatch(&sub, job.Problem, cluster, pool)
 	}
-	return snapshot
 }
 
-func (s *Scheduler) GetNodeDetails(clusterName, nodeName string) (*NodeDetail, error) {
-	cluster, ok := s.clusters[clusterName]
-	if !ok {
-		return nil, fmt.Errorf("cluster '%s' not found", clusterName)
+func (s *Scheduler) findAvailablePool(cluster *ClusterState, cpu int, mem int64) *PoolState {
+	cluster.Lock()
+	defer cluster.Unlock()
+	for _, p := range cluster.pools {
+		if p.IsPaused || p.CPU == 0 || p.Memory == 0 {
+			continue
+		}
+		if p.CPU >= cpu && p.Memory >= mem {
+			return p
+		}
 	}
-
-	node, ok := cluster.Nodes[nodeName]
-	if !ok {
-		return nil, fmt.Errorf("node '%s' not found in cluster '%s'", nodeName, clusterName)
-	}
-
-	node.Lock()
-	defer node.Unlock()
-
-	details := &NodeDetail{
-		Name:       node.Name,
-		Docker:     node.Docker,
-		CPU:        node.CPU,
-		Memory:     node.Memory,
-		UsedMemory: node.UsedMemory,
-		IsPaused:   node.IsPaused,
-		UsedCores:  append([]bool(nil), node.UsedCores...),
-	}
-
-	return details, nil
-}
-
-func (s *Scheduler) PauseNode(clusterName, nodeName string) error {
-	cluster, ok := s.clusters[clusterName]
-	if !ok {
-		return fmt.Errorf("cluster '%s' not found", clusterName)
-	}
-
-	node, ok := cluster.Nodes[nodeName]
-	if !ok {
-		return fmt.Errorf("node '%s' not found in cluster '%s'", nodeName, clusterName)
-	}
-
-	node.Lock()
-	defer node.Unlock()
-	node.IsPaused = true
-	zap.S().Warnf("admin paused node '%s/%s'", clusterName, nodeName)
 	return nil
-}
-
-func (s *Scheduler) ResumeNode(clusterName, nodeName string) error {
-	cluster, ok := s.clusters[clusterName]
-	if !ok {
-		return fmt.Errorf("cluster '%s' not found", clusterName)
-	}
-
-	node, ok := cluster.Nodes[nodeName]
-	if !ok {
-		return fmt.Errorf("node '%s' not found in cluster '%s'", nodeName, clusterName)
-	}
-
-	node.Lock()
-	defer node.Unlock()
-	node.IsPaused = false
-	zap.S().Infof("admin resumed node '%s/%s'", clusterName, nodeName)
-	return nil
-}
-
-func (s *Scheduler) GetQueueLengths() map[string]int {
-	lengths := make(map[string]int)
-	for name, queue := range s.queues {
-		lengths[name] = len(queue)
-	}
-	return lengths
 }
 
 func (s *Scheduler) Submit(submission *models.Submission, problem *Problem) {
-	clusterName := problem.Cluster
-	if queue, ok := s.queues[clusterName]; ok {
-		queue <- QueuedSubmission{Submission: submission, Problem: problem}
-		zap.S().Infof("submission %s for problem %s added to queue for cluster '%s'", submission.ID, problem.ID, clusterName)
-	} else {
-		zap.S().Errorf("submission %s for problem %s has an invalid cluster '%s', dropping", submission.ID, problem.ID, clusterName)
-		// Mark submission as failed
+	cluster, ok := s.clusters[problem.Cluster]
+	if !ok {
 		submission.Status = models.StatusFailed
 		submission.Info = models.JSONMap{"error": "Invalid cluster specified in problem definition"}
-		if err := s.db.Save(submission).Error; err != nil {
-			zap.S().Errorf("failed to update submission %s status to failed: %v", submission.ID, err)
+		database.UpdateSubmission(s.db, submission)
+		pubsubPublishError(submission.ID, "Invalid cluster specified in problem definition")
+		return
+	}
+	cluster.queue <- QueuedSubmission{Submission: submission, Problem: problem}
+}
+
+// ReleaseSlot frees one concurrency slot (called by the dispatcher on completion).
+func (s *Scheduler) ReleaseSlot(clusterName string) {
+	if c, ok := s.clusters[clusterName]; ok {
+		select {
+		case <-c.sem:
+		default:
 		}
 	}
 }
 
-func (s *Scheduler) Run() {
-	for clusterName, queue := range s.queues {
-		go s.clusterWorker(clusterName, queue)
+// GetClusterStates returns a snapshot of every cluster's pools + queue length.
+func (s *Scheduler) GetClusterStates() map[string]ClusterStateSnapshot {
+	out := make(map[string]ClusterStateSnapshot)
+	for name, c := range s.clusters {
+		c.Lock()
+		pools := make(map[string]PoolState, len(c.pools))
+		for k, v := range c.pools {
+			cp := *v
+			pools[k] = cp
+		}
+		c.Unlock()
+		out[name] = ClusterStateSnapshot{
+			Name:        name,
+			Namespace:   c.Namespace,
+			Pools:       pools,
+			MPIEnabled:  c.mpiEnabled,
+			QueueLength: len(c.queue),
+			Concurrency: cap(c.sem),
+		}
 	}
+	return out
 }
 
-func (s *Scheduler) clusterWorker(clusterName string, queue <-chan QueuedSubmission) {
-	zap.S().Infof("starting worker for cluster '%s'", clusterName)
-	for job := range queue {
-		var node *NodeState
-		var allocatedCores []int
-		zap.S().Infof("processing submission %s for cluster '%s'", job.Submission.ID, clusterName)
-
-		for {
-			var currentSub models.Submission
-			if err := s.db.First(&currentSub, "id = ?", job.Submission.ID).Error; err != nil {
-				if err == gorm.ErrRecordNotFound {
-					zap.S().Warnf("submission %s was deleted from DB, dropping job.", job.Submission.ID)
-				} else {
-					zap.S().Errorf("failed to refetch submission %s from DB: %v", job.Submission.ID, err)
-				}
-				node = nil
-				break
-			}
-			if currentSub.Status != models.StatusQueued {
-				zap.S().Infof("submission %s is no longer in queued status (%s), skipping processing.", currentSub.ID, currentSub.Status)
-				node = nil
-				break
-			}
-
-			job.Submission = &currentSub
-
-			zap.S().Debugf("searching for available node for submission %s in cluster %s", currentSub.ID, clusterName)
-			node, allocatedCores = s.findAvailableNode(clusterName, job.Problem.CPU, job.Problem.Memory)
-			if node != nil {
-				break
-			}
-
-			time.Sleep(1 * time.Second)
-		}
-
-		if node == nil {
-			continue
-		}
-
-		zap.S().Infof("node %s assigned to submission %s", node.Name, job.Submission.ID)
-
-		var coreStrs []string
-		for _, c := range allocatedCores {
-			coreStrs = append(coreStrs, strconv.Itoa(c))
-		}
-
-		job.Submission.Node = node.Name
-		job.Submission.Status = models.StatusRunning
-		job.Submission.AllocatedCores = strings.Join(coreStrs, ",")
-
-		if err := s.db.Save(job.Submission).Error; err != nil {
-			zap.S().Errorf("failed to update submission status for %s: %v", job.Submission.ID, err)
-			s.ReleaseResources(job.Problem.Cluster, node.Name, allocatedCores, job.Problem.Memory)
-			continue
-		}
-
-		go s.dispatcher.Dispatch(job.Submission, job.Problem, node, allocatedCores)
-	}
+type ClusterStateSnapshot struct {
+	Name        string
+	Namespace   string
+	Pools       map[string]PoolState
+	MPIEnabled  bool
+	QueueLength int
+	Concurrency int
 }
 
-func (s *Scheduler) findAvailableNode(clusterName string, requiredCPU int, requiredMemory int64) (*NodeState, []int) {
-	cluster, ok := s.clusters[clusterName]
+func (s *Scheduler) GetQueueLengths() map[string]int {
+	out := make(map[string]int)
+	for name, c := range s.clusters {
+		out[name] = len(c.queue)
+	}
+	return out
+}
+
+// PausePool / ResumePool / UpdatePoolResources / SetConcurrency.
+
+func (s *Scheduler) PausePool(clusterName, pool string) error {
+	return s.mutatePool(clusterName, pool, func(p *PoolState) { p.IsPaused = true })
+}
+
+func (s *Scheduler) ResumePool(clusterName, pool string) error {
+	return s.mutatePool(clusterName, pool, func(p *PoolState) { p.IsPaused = false })
+}
+
+func (s *Scheduler) UpdatePoolResources(clusterName, pool string, cpu int, mem int64) error {
+	return s.mutatePool(clusterName, pool, func(p *PoolState) { p.CPU = cpu; p.Memory = mem })
+}
+
+func (s *Scheduler) mutatePool(clusterName, pool string, fn func(*PoolState)) error {
+	c, ok := s.clusters[clusterName]
 	if !ok {
-		return nil, nil
+		return fmt.Errorf("cluster %q not found", clusterName)
 	}
-
-	cluster.Lock()
-	defer cluster.Unlock()
-
-	for _, node := range cluster.Nodes {
-		node.Lock()
-		if node.IsPaused || node.CPU == 0 || node.Memory == 0 {
-			node.Unlock()
-			continue
-		}
-
-		if node.Memory-node.UsedMemory >= requiredMemory {
-			startCore := -1
-			if requiredCPU > 0 {
-				for i := 0; i <= len(node.UsedCores)-requiredCPU; i += requiredCPU {
-					isBlockFree := true
-					for j := 0; j < requiredCPU; j++ {
-						if node.UsedCores[i+j] {
-							isBlockFree = false
-							break
-						}
-					}
-					if isBlockFree {
-						startCore = i
-						break
-					}
-				}
-			} else {
-				startCore = -2
-			}
-
-			if startCore != -1 {
-				allocatedCores := make([]int, requiredCPU)
-				if startCore != -2 {
-					for i := 0; i < requiredCPU; i++ {
-						coreID := startCore + i
-						node.UsedCores[coreID] = true
-						allocatedCores[i] = coreID
-					}
-				}
-				node.UsedMemory += requiredMemory
-				node.Unlock()
-				return node, allocatedCores
-			}
-		}
-		node.Unlock()
-	}
-	return nil, nil
-}
-
-func (s *Scheduler) ReleaseResources(clusterName, nodeName string, coresToRelease []int, memory int64) {
-	if cluster, ok := s.clusters[clusterName]; ok {
-		if node, ok := cluster.Nodes[nodeName]; ok {
-			node.Lock()
-			for _, coreID := range coresToRelease {
-				if coreID >= 0 && coreID < len(node.UsedCores) {
-					node.UsedCores[coreID] = false
-				}
-			}
-			node.UsedMemory -= memory
-			if node.UsedMemory < 0 {
-				node.UsedMemory = 0
-			}
-			node.Unlock()
-			var coreStrs []string
-			for _, c := range coresToRelease {
-				coreStrs = append(coreStrs, strconv.Itoa(c))
-			}
-			zap.S().Infof("released resources (cores: [%s], mem: %dMB) from node %s", strings.Join(coreStrs, ","), memory, nodeName)
-		}
-	}
-}
-
-// UpdateNodeResources updates the in-memory CPU/Memory caps for a node
-// after an admin edits the ClusterNode DB row.
-func (s *Scheduler) UpdateNodeResources(clusterName, nodeName string, cpu int, memory int64) error {
-	cluster, ok := s.clusters[clusterName]
+	c.Lock()
+	defer c.Unlock()
+	p, ok := c.pools[pool]
 	if !ok {
-		return fmt.Errorf("cluster '%s' not found", clusterName)
+		return fmt.Errorf("pool %q not found", pool)
 	}
-	node, ok := cluster.Nodes[nodeName]
-	if !ok {
-		return fmt.Errorf("node '%s' not found in cluster '%s'", nodeName, clusterName)
-	}
-	node.Lock()
-	defer node.Unlock()
-	node.CPU = cpu
-	node.Memory = memory
-	// Resize the UsedCores slice; preserve existing usage where possible.
-	newCores := make([]bool, cpu)
-	copy(newCores, node.UsedCores)
-	node.UsedCores = newCores
+	fn(p)
 	return nil
+}
+
+func (s *Scheduler) SetConcurrency(clusterName string, n int) error {
+	// Concurrency is fixed at construction (channel size); resizing a live channel
+	// is unsafe. Document this as a config-reload-only setting for now.
+	return fmt.Errorf("concurrency changes require a restart")
+}
+
+// RequeuePendingSubmissions re-enqueues Queued submissions on startup.
+func RequeuePendingSubmissions(db *gorm.DB, s *Scheduler, appState *AppState) error {
+	var pending []models.Submission
+	if err := db.Where("status = ?", models.StatusQueued).Order("created_at asc").Find(&pending).Error; err != nil {
+		return err
+	}
+	if len(pending) == 0 {
+		zap.S().Info("no pending submissions to requeue")
+		return nil
+	}
+	zap.S().Infof("requeueing %d pending submissions", len(pending))
+	appState.RLock()
+	defer appState.RUnlock()
+	for i := range pending {
+		prob, ok := appState.Problems[pending[i].ProblemID]
+		if !ok {
+			zap.S().Warnf("problem %s for submission %s not found; skipping", pending[i].ProblemID, pending[i].ID)
+			continue
+		}
+		s.Submit(&pending[i], prob)
+	}
+	return nil
+}
+
+// helpers
+
+func toStringMap(m models.JSONMap) map[string]string {
+	out := make(map[string]string)
+	for k, v := range m {
+		out[k] = fmt.Sprintf("%v", v)
+	}
+	return out
+}
+
+func pubsubPublishError(topic, msg string) {
+	pubsub.GetBroker().Publish(topic, pubsub.FormatMessage("error", msg))
 }

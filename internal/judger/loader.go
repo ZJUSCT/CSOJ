@@ -55,6 +55,16 @@ type WorkflowStep struct {
 	Steps   [][]string `yaml:"steps" json:"steps"`
 	Mounts  []Mount    `yaml:"mounts" json:"mounts"`
 	Network bool       `yaml:"network" json:"network"`
+	MPI     *MPIConfig `yaml:"mpi,omitempty" json:"mpi,omitempty"`
+}
+
+// MPIConfig marks a workflow step as a multi-node MPI job.
+// When non-nil and Enabled, the step runs as an MPIJob (mpi-operator).
+type MPIConfig struct {
+	Enabled        bool     `json:"enabled"`
+	WorkerReplicas int      `json:"worker_replicas"`
+	SlotsPerWorker int      `json:"slots_per_worker"`
+	LauncherCmd    []string `json:"launcher_cmd"`
 }
 
 type ScoreConfig struct {
