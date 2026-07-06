@@ -748,14 +748,39 @@ func DeleteLink(db *gorm.DB, id uint) error {
 	return db.Delete(&models.Link{}, id).Error
 }
 
-// --- Cluster nodes ---
+// --- Cluster node pools ---
 
-func GetAllClusterNodes(db *gorm.DB) ([]models.ClusterNode, error) {
-	var nodes []models.ClusterNode
-	err := db.Find(&nodes).Error
-	return nodes, err
+func GetAllClusterPools(db *gorm.DB) ([]models.ClusterNodePool, error) {
+	var pools []models.ClusterNodePool
+	err := db.Find(&pools).Error
+	return pools, err
 }
 
-func UpsertClusterNode(db *gorm.DB, node *models.ClusterNode) error {
-	return db.Save(node).Error
+func GetClusterPools(db *gorm.DB, clusterName string) ([]models.ClusterNodePool, error) {
+	var pools []models.ClusterNodePool
+	err := db.Where("cluster_name = ?", clusterName).Find(&pools).Error
+	return pools, err
+}
+
+func UpsertClusterPool(db *gorm.DB, pool *models.ClusterNodePool) error {
+	return db.Save(pool).Error
+}
+
+func DeleteClusterPool(db *gorm.DB, clusterName, poolName string) error {
+	return db.Where("cluster_name = ? AND pool_name = ?", clusterName, poolName).Delete(&models.ClusterNodePool{}).Error
+}
+
+// --- Heartbeats (HA) ---
+
+func GetHeartbeat(db *gorm.DB, clusterName string) (*models.Heartbeat, error) {
+	var hb models.Heartbeat
+	err := db.Where("cluster_name = ?", clusterName).First(&hb).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	return &hb, err
+}
+
+func UpsertHeartbeat(db *gorm.DB, hb *models.Heartbeat) error {
+	return db.Save(hb).Error
 }
