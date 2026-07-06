@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/ZJUSCT/CSOJ/internal/database/models"
 	"github.com/ZJUSCT/CSOJ/internal/util"
 	"github.com/gin-gonic/gin"
 )
@@ -58,41 +60,24 @@ func (h *Handler) serveContestAsset(c *gin.Context) {
 	assetPath := c.Param("assetpath")
 
 	h.appState.RLock()
-	contest, ok := h.appState.Contests[contestID]
+	_, ok := h.appState.Contests[contestID]
 	h.appState.RUnlock()
 	if !ok {
 		util.Error(c, http.StatusNotFound, "contest not found")
 		return
 	}
 
-	// Security: ensure the requested path is within the allowed assets directory
-	baseAssetDir := filepath.Join(contest.BasePath, "index.assets")
-	requestedFile := filepath.Join(contest.BasePath, assetPath)
-
-	safeBase, err := filepath.Abs(baseAssetDir)
-	if err != nil {
-		util.Error(c, http.StatusInternalServerError, "internal server error")
-		return
-	}
-	safeRequested, err := filepath.Abs(requestedFile)
-	if err != nil {
-		util.Error(c, http.StatusInternalServerError, "internal server error")
-		return
-	}
-
-	if !strings.HasPrefix(safeRequested, safeBase) {
-		util.Error(c, http.StatusForbidden, "access denied")
-		return
-	}
-
-	if _, err := os.Stat(safeRequested); os.IsNotExist(err) {
+	var row models.Asset
+	if err := h.db.Where("owner_type = ? AND owner_id = ? AND path = ?", "contest", contestID, cleanUserAssetPath(assetPath)).First(&row).Error; err != nil {
 		util.Error(c, http.StatusNotFound, "asset not found")
 		return
 	}
-
-	fileName := filepath.Base(safeRequested)
-	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%q", fileName))
-	c.File(safeRequested)
+	if row.IsDir {
+		util.Error(c, http.StatusBadRequest, "cannot serve a directory")
+		return
+	}
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%q", path.Base(row.Path)))
+	c.Data(http.StatusOK, contentTypeFor(row.Path), row.Content)
 }
 
 func (h *Handler) serveProblemAsset(c *gin.Context) {
@@ -106,8 +91,6 @@ func (h *Handler) serveProblemAsset(c *gin.Context) {
 		util.Error(c, http.StatusNotFound, "problem not found")
 		return
 	}
-
-	// --- Authorization Logic (same as GET /problems/:id) ---
 	parentContest, ok := h.appState.ProblemToContestMap[problemID]
 	if !ok {
 		h.appState.RUnlock()
@@ -126,34 +109,46 @@ func (h *Handler) serveProblemAsset(c *gin.Context) {
 		return
 	}
 	h.appState.RUnlock()
-	// --- End Authorization ---
 
-	// --- Security Logic (same as contest assets) ---
-	baseAssetDir := filepath.Join(problem.BasePath, "index.assets")
-	requestedFile := filepath.Join(problem.BasePath, assetPath)
-
-	safeBase, err := filepath.Abs(baseAssetDir)
-	if err != nil {
-		util.Error(c, http.StatusInternalServerError, "internal server error")
-		return
-	}
-	safeRequested, err := filepath.Abs(requestedFile)
-	if err != nil {
-		util.Error(c, http.StatusInternalServerError, "internal server error")
-		return
-	}
-
-	if !strings.HasPrefix(safeRequested, safeBase) {
-		util.Error(c, http.StatusForbidden, "access denied")
-		return
-	}
-
-	if _, err := os.Stat(safeRequested); os.IsNotExist(err) {
+	var row models.Asset
+	if err := h.db.Where("owner_type = ? AND owner_id = ? AND path = ?", "problem", problemID, cleanUserAssetPath(assetPath)).First(&row).Error; err != nil {
 		util.Error(c, http.StatusNotFound, "asset not found")
 		return
 	}
+	if row.IsDir {
+		util.Error(c, http.StatusBadRequest, "cannot serve a directory")
+		return
+	}
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%q", path.Base(row.Path)))
+	c.Data(http.StatusOK, contentTypeFor(row.Path), row.Content)
+}
 
-	fileName := filepath.Base(safeRequested)
-	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%q", fileName))
-	c.File(safeRequested)
+func cleanUserAssetPath(p string) string {
+	p = strings.TrimPrefix(p, "/")
+	cleaned := path.Clean(p)
+	if strings.HasPrefix(cleaned, "..") {
+		return ""
+	}
+	return strings.ReplaceAll(cleaned, "\\", "/")
+}
+
+func contentTypeFor(name string) string {
+	switch strings.ToLower(path.Ext(name)) {
+	case ".md":
+		return "text/markdown; charset=utf-8"
+	case ".txt":
+		return "text/plain; charset=utf-8"
+	case ".json":
+		return "application/json"
+	case ".pdf":
+		return "application/pdf"
+	case ".png":
+		return "image/png"
+	case ".jpg", ".jpeg":
+		return "image/jpeg"
+	case ".zip":
+		return "application/zip"
+	default:
+		return "application/octet-stream"
+	}
 }
