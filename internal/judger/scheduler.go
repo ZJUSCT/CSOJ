@@ -88,8 +88,11 @@ func NewScheduler(cfg *config.Config, db *gorm.DB, appState *AppState) *Schedule
 			node := cluster.Nodes[j]
 			cap, ok := caps[cluster.Name+"\x00"+node.Name]
 			if !ok {
-				zap.S().Warnf("node %s/%s has no DB resource caps; skipping", cluster.Name, node.Name)
-				continue
+				// No DB caps row yet: register the node disabled (cpu=0) so an
+				// admin can enable it via PUT /admin/clusters/:c/nodes/:n. The
+				// node accepts no submissions until caps are set.
+				cap = models.ClusterNode{ClusterName: cluster.Name, NodeName: node.Name}
+				zap.S().Warnf("node %s/%s has no DB resource caps; registered disabled", cluster.Name, node.Name)
 			}
 			nodeCores := make([]bool, cap.CPU)
 			clusterState.Nodes[node.Name] = &NodeState{
@@ -339,7 +342,7 @@ func (s *Scheduler) findAvailableNode(clusterName string, requiredCPU int, requi
 
 	for _, node := range cluster.Nodes {
 		node.Lock()
-		if node.IsPaused {
+		if node.IsPaused || node.CPU == 0 || node.Memory == 0 {
 			node.Unlock()
 			continue
 		}
