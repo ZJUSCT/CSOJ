@@ -1,14 +1,15 @@
 package auth
 
 import (
-	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 
 	"github.com/ZJUSCT/CSOJ/internal/config"
 	"github.com/ZJUSCT/CSOJ/internal/database"
 	"github.com/ZJUSCT/CSOJ/internal/database/models"
+	"github.com/ZJUSCT/CSOJ/internal/util"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"go.uber.org/zap"
@@ -20,10 +21,8 @@ import (
 
 type GitLabHandler struct {
 	cfg      *config.Config
+	settings *config.SettingsStore
 	db       *gorm.DB
-	oauth2   *oauth2.Config
-	provider *oidc.Provider
-	verifier *oidc.IDTokenVerifier
 }
 
 type OIDCClaims struct {
@@ -32,35 +31,67 @@ type OIDCClaims struct {
 	Picture           string `json:"picture"`
 }
 
-func NewGitLabHandler(cfg *config.Config, db *gorm.DB) *GitLabHandler {
-	ctx := context.Background()
+func NewGitLabHandler(cfg *config.Config, settings *config.SettingsStore, db *gorm.DB) *GitLabHandler {
+	return &GitLabHandler{cfg: cfg, settings: settings, db: db}
+}
 
-	provider, err := oidc.NewProvider(ctx, cfg.Auth.GitLab.URL)
-	if err != nil {
-		zap.S().Fatalf("failed to create OIDC provider: %v", err)
+// gitlabSettings reads the auth.gitlab settings row.
+type gitlabSettings struct {
+	App                 string `json:"app"`
+	URL                 string `json:"url"`
+	ClientID            string `json:"client_id"`
+	ClientSecret        string `json:"client_secret"`
+	RedirectURI         string `json:"redirect_uri"`
+	FrontendCallbackURL string `json:"frontend_callback_url"`
+}
+
+func (h *GitLabHandler) loadSettings(c *gin.Context) (*gitlabSettings, error) {
+	var gl gitlabSettings
+	if err := h.settings.Get("auth.gitlab", &gl); err != nil {
+		return nil, fmt.Errorf("read gitlab settings: %w", err)
 	}
+	if gl.URL == "" || gl.ClientID == "" || gl.ClientSecret == "" || gl.RedirectURI == "" {
+		return nil, errors.New("gitlab not configured")
+	}
+	return &gl, nil
+}
 
+// buildProvider constructs the OIDC provider + oauth2 config for this request.
+func (h *GitLabHandler) buildProvider(c *gin.Context) (*oidc.Provider, *oauth2.Config, *oidc.IDTokenVerifier, *gitlabSettings, error) {
+	gl, err := h.loadSettings(c)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	provider, err := oidc.NewProvider(c.Request.Context(), gl.URL)
+	if err != nil {
+		return nil, nil, nil, nil, fmt.Errorf("create OIDC provider: %w", err)
+	}
 	oauth2Config := &oauth2.Config{
-		ClientID:     cfg.Auth.GitLab.ClientID,
-		ClientSecret: cfg.Auth.GitLab.ClientSecret,
-		RedirectURL:  cfg.Auth.GitLab.RedirectURI,
+		ClientID:     gl.ClientID,
+		ClientSecret: gl.ClientSecret,
+		RedirectURL:  gl.RedirectURI,
 		Endpoint:     provider.Endpoint(),
 		Scopes:       []string{oidc.ScopeOpenID},
 	}
+	verifier := provider.Verifier(&oidc.Config{ClientID: gl.ClientID})
+	return provider, oauth2Config, verifier, gl, nil
+}
 
-	verifier := provider.Verifier(&oidc.Config{ClientID: cfg.Auth.GitLab.ClientID})
-
-	return &GitLabHandler{
-		cfg:      cfg,
-		db:       db,
-		oauth2:   oauth2Config,
-		provider: provider,
-		verifier: verifier,
+func (h *GitLabHandler) jwtExpireHours() int {
+	var n int
+	if err := h.settings.Get("auth.jwt.expire_hours", &n); err != nil || n <= 0 {
+		return h.cfg.Auth.JWT.ExpireHours
 	}
+	return n
 }
 
 func (h *GitLabHandler) Login(c *gin.Context) {
-	url := h.oauth2.AuthCodeURL("state")
+	_, oauth2Config, _, _, err := h.buildProvider(c)
+	if err != nil {
+		util.Error(c, http.StatusServiceUnavailable, err)
+		return
+	}
+	url := oauth2Config.AuthCodeURL("state")
 	c.Redirect(http.StatusTemporaryRedirect, url)
 }
 
@@ -68,10 +99,16 @@ func (h *GitLabHandler) Callback(c *gin.Context) {
 	ctx := c.Request.Context()
 	code := c.Query("code")
 
-	frontendURL := h.cfg.Auth.GitLab.FrontendCallbackURL
+	_, oauth2Config, verifier, gl, err := h.buildProvider(c)
+	if err != nil {
+		util.Error(c, http.StatusServiceUnavailable, err)
+		return
+	}
+
+	frontendURL := gl.FrontendCallbackURL
 	if frontendURL == "" {
 		frontendURL = "/callback"
-		zap.S().Warnf("frontend_callback_url not set in config, using default: %s", frontendURL)
+		zap.S().Warnf("frontend_callback_url not set in settings, using default: %s", frontendURL)
 	}
 
 	redirectURL := frontendURL
@@ -83,7 +120,7 @@ func (h *GitLabHandler) Callback(c *gin.Context) {
 	}
 	frontendURL += "error="
 
-	token, err := h.oauth2.Exchange(ctx, code)
+	token, err := oauth2Config.Exchange(ctx, code)
 	if err != nil {
 		c.Redirect(http.StatusTemporaryRedirect, frontendURL+"token_exchange_failed")
 		return
@@ -95,7 +132,7 @@ func (h *GitLabHandler) Callback(c *gin.Context) {
 		return
 	}
 
-	idToken, err := h.verifier.Verify(ctx, rawIDToken)
+	idToken, err := verifier.Verify(ctx, rawIDToken)
 	if err != nil {
 		c.Redirect(http.StatusTemporaryRedirect, frontendURL+"id_token_verification_failed")
 		return
@@ -155,7 +192,7 @@ func (h *GitLabHandler) Callback(c *gin.Context) {
 		return
 	}
 
-	jwtToken, err := GenerateJWT(user.ID, string(user.Role), h.cfg.Auth.JWT.Secret, h.cfg.Auth.JWT.ExpireHours)
+	jwtToken, err := GenerateJWT(user.ID, string(user.Role), h.cfg.Auth.JWT.Secret, h.jwtExpireHours())
 	if err != nil {
 		c.Redirect(http.StatusTemporaryRedirect, frontendURL+"jwt_generation_failed")
 		return
