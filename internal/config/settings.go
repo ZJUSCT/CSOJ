@@ -73,6 +73,17 @@ func (s *SettingsStore) HasKey(key string) bool {
 	return ok
 }
 
+// ListAll returns a copy of every cached setting (key -> JSON value).
+func (s *SettingsStore) ListAll() (map[string]string, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make(map[string]string, len(s.cache))
+	for k, v := range s.cache {
+		out[k] = v
+	}
+	return out, nil
+}
+
 // DB exposes the underlying *gorm.DB (used by callers that need direct DB access).
 func (s *SettingsStore) DB() *gorm.DB { return s.db }
 
