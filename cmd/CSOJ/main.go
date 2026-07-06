@@ -29,7 +29,7 @@ func main() {
 
 	fmt.Fprintf(os.Stderr, "ZJUSCT CSOJ %s - Fully Containerized Secure Online Judgement\n\n", Version)
 
-	// config
+	// config (boot facts only: listen, storage, auth.jwt.secret + expire_hours fallback)
 	var configPath string
 	flag.StringVar(&configPath, "c", "configs/config.yaml", "path to config file")
 	flag.Parse()
@@ -39,42 +39,45 @@ func main() {
 		log.Fatalf("failed to load config: %v", err)
 	}
 
-	// logger
+	// database
+	db, err := database.Init(cfg.Storage.Database)
+	if err != nil {
+		log.Fatalf("failed to initialize database: %v", err)
+	}
+
+	// SettingsStore (runtime settings from the DB)
+	settings := config.NewSettingsStore(db)
+
+	// Logger (level/file from settings; restart-required to change)
+	var loggerCfg config.LoggerConfig
+	_ = settings.Get("logger", &loggerCfg)
+	if loggerCfg.Level == "" {
+		loggerCfg.Level = "info"
+	}
 	var zapCfg zap.Config
-	if cfg.Logger.Level == "debug" {
+	if loggerCfg.Level == "debug" {
 		zapCfg = zap.NewDevelopmentConfig()
 	} else {
 		zapCfg = zap.NewProductionConfig()
 	}
-
-	// Set output paths
-	if cfg.Logger.File != "" {
-		// Log to both file and stdout/stderr
-		zapCfg.OutputPaths = []string{"stdout", cfg.Logger.File}
-		zapCfg.ErrorOutputPaths = []string{"stderr", cfg.Logger.File}
+	if loggerCfg.File != "" {
+		zapCfg.OutputPaths = []string{"stdout", loggerCfg.File}
+		zapCfg.ErrorOutputPaths = []string{"stderr", loggerCfg.File}
 	} else {
-		// Default to just stdout/stderr
 		zapCfg.OutputPaths = []string{"stdout"}
 		zapCfg.ErrorOutputPaths = []string{"stderr"}
 	}
-
 	logger, err := zapCfg.Build()
 	if err != nil {
 		log.Fatalf("can't initialize zap logger: %v", err)
 	}
 	defer logger.Sync()
 	zap.ReplaceGlobals(logger)
-
-	// database
-	db, err := database.Init(cfg.Storage.Database)
-	if err != nil {
-		zap.S().Fatalf("failed to initialize database: %v", err)
-	}
 	zap.S().Info("database initialized successfully")
 
-	// recovery and cleanup (HA-gated per cluster)
+	// recovery and cleanup (HA-gated per cluster; clusters from DB)
 	instanceID := uuid.NewString()
-	if err := judger.RecoverAndCleanup(db, cfg, instanceID); err != nil {
+	if err := judger.RecoverAndCleanup(db, instanceID); err != nil {
 		zap.S().Errorf("failed to recover and cleanup: %v", err)
 	} else {
 		zap.S().Info("successfully recovered and cleaned up interrupted tasks")
@@ -98,19 +101,23 @@ func main() {
 	appState.ProblemToContestMap = problemToContestMap
 	zap.S().Infof("loaded %d contests and %d problems", len(contests), len(problems))
 
-	// judger scheduler
-	scheduler := judger.NewScheduler(cfg, db, appState)
+	// judger scheduler (clusters from DB; cfg threaded for the dispatcher)
+	scheduler := judger.NewScheduler(db, settings, cfg, appState)
 
 	// Requeue pending submissions from the last run
 	if err := judger.RequeuePendingSubmissions(db, scheduler, appState); err != nil {
 		zap.S().Fatalf("failed to requeue pending submissions: %v", err)
 	}
 
-	// Start HA heartbeats (one goroutine per cluster).
+	// Start HA heartbeats (one goroutine per cluster row in the DB).
 	hbStop := make(chan struct{})
-	for i := range cfg.Cluster {
-		cc := cfg.Cluster[i]
-		ttl := cc.HeartbeatTTL.Std()
+	dbClusters, err := database.GetAllClusters(db)
+	if err != nil {
+		zap.S().Fatalf("failed to load clusters for heartbeat: %v", err)
+	}
+	for _, cc := range dbClusters {
+		cc := cc
+		ttl := time.Duration(cc.HeartbeatTTL) * time.Second
 		if ttl <= 0 {
 			ttl = 30 * time.Second
 		}
@@ -122,9 +129,9 @@ func main() {
 
 	// Single API engine
 	r := gin.Default()
-	r.Use(api.CORSMiddleware(cfg.CORS))
-	user.RegisterRoutes(r, cfg, db, scheduler, appState)
-	admin.RegisterRoutes(r, cfg, db, scheduler, appState)
+	r.Use(api.CORSMiddleware(settings))
+	user.RegisterRoutes(r, cfg, settings, db, scheduler, appState)
+	admin.RegisterRoutes(r, cfg, settings, db, scheduler, appState)
 	embedui.RegisterUIHandlers(r, "user")
 
 	// start server

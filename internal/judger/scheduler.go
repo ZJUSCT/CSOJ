@@ -55,6 +55,7 @@ type QueuedSubmission struct {
 type Scheduler struct {
 	db         *gorm.DB
 	settings   *config.SettingsStore
+	cfg        *config.Config
 	appState   *AppState
 	clusters   map[string]*ClusterState
 	mu         sync.RWMutex // guards the clusters map swap in ReloadClusters
@@ -64,7 +65,9 @@ type Scheduler struct {
 // NewScheduler builds a Scheduler whose cluster clientsets are read from the
 // `clusters` DB table (kubeconfig stored as text). The `settings` param is
 // accepted for API stability and future use; clusters are read from the DB.
-func NewScheduler(db *gorm.DB, settings *config.SettingsStore, appState *AppState) *Scheduler {
+// The `cfg` param threads boot facts (e.g. Storage.SubmissionContent) to the
+// dispatcher, which needs them at runtime when reading result.json.
+func NewScheduler(db *gorm.DB, settings *config.SettingsStore, cfg *config.Config, appState *AppState) *Scheduler {
 	clusters := make(map[string]*ClusterState)
 
 	dbClusters, err := database.GetAllClusters(db)
@@ -80,8 +83,8 @@ func NewScheduler(db *gorm.DB, settings *config.SettingsStore, appState *AppStat
 		clusters[cc.Name] = cs
 	}
 
-	s := &Scheduler{db: db, settings: settings, appState: appState, clusters: clusters}
-	s.dispatcher = NewDispatcher(nil, db, s, appState)
+	s := &Scheduler{db: db, settings: settings, cfg: cfg, appState: appState, clusters: clusters}
+	s.dispatcher = NewDispatcher(cfg, db, s, appState)
 	return s
 }
 
