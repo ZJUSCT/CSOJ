@@ -75,3 +75,29 @@ func (s *SettingsStore) HasKey(key string) bool {
 
 // DB exposes the underlying *gorm.DB (used by callers that need direct DB access).
 func (s *SettingsStore) DB() *gorm.DB { return s.db }
+
+// CORSConfig is the JSON shape of the `cors` settings row.
+type CORSConfig struct {
+	AllowedOrigins []string `json:"allowed_origins"`
+}
+
+// LoggerConfig is the JSON shape of the `logger` settings row.
+type LoggerConfig struct {
+	Level string `json:"level"`
+	File  string `json:"file"`
+}
+
+// LocalAuthConfig is the JSON shape of the `auth.local` settings row.
+type LocalAuthConfig struct {
+	Enabled bool `json:"enabled"`
+}
+
+// GitLabConfig is the JSON shape of the `auth.gitlab` settings row.
+type GitLabConfig struct {
+	App                 string `json:"app"`
+	URL                 string `json:"url"`
+	ClientID            string `json:"client_id"`
+	ClientSecret        string `json:"client_secret"`
+	RedirectURI         string `json:"redirect_uri"`
+	FrontendCallbackURL string `json:"frontend_callback_url"`
+}

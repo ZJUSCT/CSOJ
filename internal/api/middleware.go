@@ -19,11 +19,14 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// CORSMiddleware provides a configurable CORS middleware.
-func CORSMiddleware(cfg config.CORS) gin.HandlerFunc {
+// CORSMiddleware provides a configurable CORS middleware that reads the
+// `cors` settings row per-request via the SettingsStore.
+func CORSMiddleware(settings *config.SettingsStore) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		var cors config.CORSConfig
+		_ = settings.Get("cors", &cors)
 		// If no origins are configured, do nothing.
-		if len(cfg.AllowedOrigins) == 0 {
+		if len(cors.AllowedOrigins) == 0 {
 			c.Next()
 			return
 		}
@@ -32,7 +35,7 @@ func CORSMiddleware(cfg config.CORS) gin.HandlerFunc {
 		allowOrigin := ""
 
 		// Check if the origin is in the allowed list
-		for _, o := range cfg.AllowedOrigins {
+		for _, o := range cors.AllowedOrigins {
 			if o == "*" {
 				allowOrigin = "*"
 				break
