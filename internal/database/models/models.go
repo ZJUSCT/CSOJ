@@ -137,7 +137,6 @@ type Submission struct {
 	CurrentStep    int     `json:"current_step"` // index of the current workflow step
 	Cluster        string  `json:"cluster"`
 	Node           string  `json:"node"`
-	AllocatedCores string  `json:"allocated_cores"` // e.g., "2,3,4"
 	Score          int     `json:"score"`
 	Performance    float64 `json:"performance"`
 	Info           JSONMap `gorm:"type:text" json:"info"`
@@ -154,7 +153,7 @@ type Container struct {
 	SubmissionID string `gorm:"index" json:"submission_id"`
 	UserID       string `gorm:"index" json:"user_id"`
 	User         User   `gorm:"foreignKey:UserID" json:"user"`
-	DockerID     string `gorm:"docker_id" json:"docker_id"`
+	PodName      string `json:"pod_name"`
 
 	Image       string    `json:"image"`
 	Status      Status    `json:"status"`
@@ -241,13 +240,24 @@ type Asset struct {
 	Content   []byte    `gorm:"type:blob" json:"-"`
 }
 
-// ClusterNode holds the runtime-mutable resource caps for a node.
-// The Docker connection (host, TLS) lives in config.yaml and is merged at boot.
-type ClusterNode struct {
-	ClusterName string `gorm:"primaryKey" json:"cluster_name"`
-	NodeName    string `gorm:"primaryKey" json:"node_name"`
-	CPU         int    `json:"cpu"`
-	Memory      int64  `json:"memory"`
+// ClusterNodePool holds the runtime-mutable caps + nodeSelector for a pool.
+// The K8s connection is cluster-level (config.yaml kubeconfig).
+type ClusterNodePool struct {
+	ClusterName  string    `gorm:"primaryKey" json:"cluster_name"`
+	PoolName     string    `gorm:"primaryKey" json:"pool_name"`
+	NodeSelector JSONMap   `gorm:"type:text" json:"node_selector"`
+	CPU          int       `json:"cpu"`
+	Memory       int64     `json:"memory"`
+	IsPaused     bool      `gorm:"default:false" json:"is_paused"`
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+}
+
+// Heartbeat tracks the live judger instance owning a cluster (HA).
+type Heartbeat struct {
+	ClusterName string    `gorm:"primaryKey" json:"cluster_name"`
+	InstanceID  string    `json:"instance_id"`
+	LastBeatAt  time.Time `json:"last_beat_at"`
 }
 
 // Link is a nav-bar link managed via the admin API.
