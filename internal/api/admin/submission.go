@@ -11,12 +11,9 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 
-	"github.com/ZJUSCT/CSOJ/internal/config"
 	"github.com/ZJUSCT/CSOJ/internal/database"
 	"github.com/ZJUSCT/CSOJ/internal/database/models"
-	"github.com/ZJUSCT/CSOJ/internal/judger"
 	"github.com/ZJUSCT/CSOJ/internal/pubsub"
 	"github.com/ZJUSCT/CSOJ/internal/util"
 	"github.com/gin-gonic/gin"
@@ -424,43 +421,15 @@ func (h *Handler) interruptSubmission(c *gin.Context) {
 
 	case models.StatusRunning:
 		h.appState.RLock()
-		problem, ok := h.appState.Problems[sub.ProblemID]
+		_, ok := h.appState.Problems[sub.ProblemID]
 		h.appState.RUnlock()
 		if !ok {
 			util.Error(c, http.StatusInternalServerError, "Problem definition not found for running submission")
 			return
 		}
 
-		var dockerCfg config.DockerConfig
-		var nodeCfgFound bool
-		for _, clusterCfg := range h.cfg.Cluster {
-			if clusterCfg.Name == sub.Cluster {
-				for _, nodeCfg := range clusterCfg.Nodes {
-					if nodeCfg.Name == sub.Node {
-						dockerCfg = nodeCfg.Docker
-						nodeCfgFound = true
-						break
-					}
-				}
-				break
-			}
-		}
-
-		if !nodeCfgFound {
-			zap.S().Errorf("node config '%s'/'%s' not found for sub %s, cannot stop container but will mark as failed", sub.Cluster, sub.Node, sub.ID)
-		} else {
-			docker, err := judger.NewDockerManager(dockerCfg)
-			if err != nil {
-				util.Error(c, http.StatusInternalServerError, fmt.Errorf("failed to connect to docker on node %s: %w", sub.Node, err))
-				return
-			}
-			for _, container := range sub.Containers {
-				if container.DockerID != "" {
-					zap.S().Infof("forcefully cleaning up container %s for submission %s", container.DockerID, sub.ID)
-					docker.CleanupContainer(container.DockerID)
-				}
-			}
-		}
+		// Delete any K8s pods/MPIJobs the judger created for this submission.
+		h.scheduler.DeleteSubmissionResources(sub.Cluster, sub.ID)
 
 		err := h.db.Transaction(func(tx *gorm.DB) error {
 			if err := tx.Model(&models.Submission{}).Where("id = ?", subID).Updates(map[string]interface{}{
@@ -475,19 +444,6 @@ func (h *Handler) interruptSubmission(c *gin.Context) {
 			util.Error(c, http.StatusInternalServerError, fmt.Errorf("failed to update database: %w", err))
 			return
 		}
-
-		// Parse allocated cores from submission record to release them
-		var coresToRelease []int
-		if sub.AllocatedCores != "" {
-			coreStrs := strings.Split(sub.AllocatedCores, ",")
-			for _, s := range coreStrs {
-				coreID, err := strconv.Atoi(s)
-				if err == nil {
-					coresToRelease = append(coresToRelease, coreID)
-				}
-			}
-		}
-		h.scheduler.ReleaseResources(problem.Cluster, sub.Node, coresToRelease, problem.Memory)
 
 		msg := pubsub.FormatMessage("error", "Submission interrupted by admin.")
 		pubsub.GetBroker().Publish(sub.ID, msg)
