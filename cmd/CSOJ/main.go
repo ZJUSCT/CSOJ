@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/ZJUSCT/CSOJ/internal/api"
 	"github.com/ZJUSCT/CSOJ/internal/api/admin"
@@ -17,6 +18,7 @@ import (
 	"github.com/ZJUSCT/CSOJ/internal/embedui"
 	"github.com/ZJUSCT/CSOJ/internal/judger"
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 
 	"go.uber.org/zap"
 )
@@ -70,9 +72,10 @@ func main() {
 	}
 	zap.S().Info("database initialized successfully")
 
-	// recovery and cleanup
-	if err := judger.RecoverAndCleanup(db, cfg); err != nil {
-		zap.S().Errorf("failed to recover and cleanup interrupted tasks: %v", err)
+	// recovery and cleanup (HA-gated per cluster)
+	instanceID := uuid.NewString()
+	if err := judger.RecoverAndCleanup(db, cfg, instanceID); err != nil {
+		zap.S().Errorf("failed to recover and cleanup: %v", err)
 	} else {
 		zap.S().Info("successfully recovered and cleaned up interrupted tasks")
 	}
@@ -103,6 +106,17 @@ func main() {
 		zap.S().Fatalf("failed to requeue pending submissions: %v", err)
 	}
 
+	// Start HA heartbeats (one goroutine per cluster).
+	hbStop := make(chan struct{})
+	for i := range cfg.Cluster {
+		cc := cfg.Cluster[i]
+		ttl := cc.HeartbeatTTL.Std()
+		if ttl <= 0 {
+			ttl = 30 * time.Second
+		}
+		go judger.StartHeartbeat(db, cc.Name, instanceID, ttl, hbStop)
+	}
+
 	go scheduler.Run()
 	zap.S().Info("judger scheduler started")
 
@@ -125,5 +139,6 @@ func main() {
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
+	close(hbStop)
 	zap.S().Info("shutting down server...")
 }
