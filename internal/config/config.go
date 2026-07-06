@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -20,22 +21,36 @@ type Config struct {
 }
 
 type Cluster struct {
-	Name  string `yaml:"name" json:"name"`
-	Nodes []Node `yaml:"node" json:"node"`
+	Name         string     `yaml:"name" json:"name"`
+	Kubeconfig   string     `yaml:"kubeconfig" json:"kubeconfig"`
+	Context      string     `yaml:"context" json:"context"`
+	Namespace    string     `yaml:"namespace" json:"namespace"`
+	Concurrency  int        `yaml:"concurrency" json:"concurrency"`
+	HeartbeatTTL Duration   `yaml:"heartbeat_ttl" json:"heartbeat_ttl"`
+	NodePools    []NodePool `yaml:"node_pools" json:"node_pools"`
 }
 
-type DockerConfig struct {
-	Host      string `yaml:"host"`
-	TLSVerify bool   `yaml:"tls_verify"`
-	CACert    string `yaml:"ca_cert"`
-	Cert      string `yaml:"cert"`
-	Key       string `yaml:"key"`
+type NodePool struct {
+	Name string `yaml:"name" json:"name"`
 }
 
-type Node struct {
-	Name   string       `yaml:"name" json:"name"`
-	Docker DockerConfig `yaml:"docker" json:"docker"`
+// Duration wraps time.Duration so it unmarshals from a YAML string like "30s".
+type Duration time.Duration
+
+func (d *Duration) UnmarshalYAML(value *yaml.Node) error {
+	var s string
+	if err := value.Decode(&s); err != nil {
+		return err
+	}
+	parsed, err := time.ParseDuration(s)
+	if err != nil {
+		return err
+	}
+	*d = Duration(parsed)
+	return nil
 }
+
+func (d Duration) Std() time.Duration { return time.Duration(d) }
 
 type Logger struct {
 	Level string `yaml:"level"`
