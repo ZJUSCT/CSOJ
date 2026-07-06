@@ -40,6 +40,8 @@ func Init(dsn string) (*gorm.DB, error) {
 		&models.ClusterNodePool{},
 		&models.Link{},
 		&models.Heartbeat{},
+		&models.Setting{},
+		&models.Cluster{},
 	)
 	if err != nil {
 		return nil, err

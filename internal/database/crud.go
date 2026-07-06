@@ -784,3 +784,41 @@ func GetHeartbeat(db *gorm.DB, clusterName string) (*models.Heartbeat, error) {
 func UpsertHeartbeat(db *gorm.DB, hb *models.Heartbeat) error {
 	return db.Save(hb).Error
 }
+
+// --- Settings (low-level; SettingsStore wraps these with caching) ---
+
+func GetSetting(db *gorm.DB, key string) (*models.Setting, error) {
+	var s models.Setting
+	err := db.Where("key = ?", key).First(&s).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	return &s, err
+}
+
+func SetSetting(db *gorm.DB, key, value string) error {
+	s := models.Setting{Key: key, Value: value, UpdatedAt: time.Now()}
+	return db.Save(&s).Error
+}
+
+func GetAllSettings(db *gorm.DB) ([]models.Setting, error) {
+	var rows []models.Setting
+	err := db.Find(&rows).Error
+	return rows, err
+}
+
+// --- Clusters (DB rows; replaces config.Cluster) ---
+
+func GetAllClusters(db *gorm.DB) ([]models.Cluster, error) {
+	var rows []models.Cluster
+	err := db.Find(&rows).Error
+	return rows, err
+}
+
+func UpsertCluster(db *gorm.DB, c *models.Cluster) error {
+	return db.Save(c).Error
+}
+
+func DeleteCluster(db *gorm.DB, name string) error {
+	return db.Where("name = ?", name).Delete(&models.Cluster{}).Error
+}
