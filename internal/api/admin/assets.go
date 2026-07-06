@@ -2,107 +2,105 @@ package admin
 
 import (
 	"fmt"
-	"io/fs"
+	"io"
 	"net/http"
-	"os"
-	"path/filepath"
+	"path"
 	"strings"
 	"time"
 
+	"github.com/ZJUSCT/CSOJ/internal/database/models"
 	"github.com/ZJUSCT/CSOJ/internal/util"
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"go.uber.org/zap"
+	"gorm.io/gorm"
 )
 
 type AssetInfo struct {
 	Name    string    `json:"name"`
-	Path    string    `json:"path"` // Relative to index.assets
+	Path    string    `json:"path"`
 	IsDir   bool      `json:"is_dir"`
 	Size    int64     `json:"size"`
 	ModTime time.Time `json:"mod_time"`
 }
 
-// listAssets safely lists all files and directories within a given asset root.
-func listAssets(assetsRoot string) ([]AssetInfo, error) {
-	if _, err := os.Stat(assetsRoot); os.IsNotExist(err) {
-		// If the assets directory doesn't exist, return an empty list.
-		return []AssetInfo{}, nil
-	}
-
-	var assets []AssetInfo
-	err := filepath.WalkDir(assetsRoot, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-
-		// Skip the root directory itself.
-		if path == assetsRoot {
-			return nil
-		}
-
-		relPath, err := filepath.Rel(assetsRoot, path)
-		if err != nil {
-			return err
-		}
-
-		info, err := d.Info()
-		if err != nil {
-			return err
-		}
-
-		assets = append(assets, AssetInfo{
-			Name:    d.Name(),
-			Path:    filepath.ToSlash(relPath), // Use forward slashes for consistency
-			IsDir:   d.IsDir(),
-			Size:    info.Size(),
-			ModTime: info.ModTime(),
-		})
-		return nil
-	})
-
-	if err != nil {
+// listAssetsFromDB lists asset rows for an owner.
+func listAssetsFromDB(db *gorm.DB, ownerType, ownerID string) ([]AssetInfo, error) {
+	var rows []models.Asset
+	if err := db.Find(&rows, "owner_type = ? AND owner_id = ?", ownerType, ownerID).Error; err != nil {
 		return nil, err
 	}
-	return assets, nil
+	out := make([]AssetInfo, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, AssetInfo{
+			Name:    path.Base(r.Path),
+			Path:    r.Path,
+			IsDir:   r.IsDir,
+			Size:    r.Size,
+			ModTime: r.ModTime,
+		})
+	}
+	return out, nil
 }
 
-// getSafeAssetPath is a security helper to ensure operations are within the allowed directory.
-func getSafeAssetPath(basePath, userPath string) (string, error) {
-	assetsRoot := filepath.Join(basePath, "index.assets")
-	safeAssetsRoot, err := filepath.Abs(assetsRoot)
-	if err != nil {
-		return "", fmt.Errorf("could not get absolute path for asset root: %w", err)
+// cleanAssetPath normalizes a user-supplied relative path and rejects traversal.
+func cleanAssetPath(p string) (string, error) {
+	p = strings.TrimSpace(p)
+	p = strings.TrimPrefix(p, "/")
+	cleaned := path.Clean(p)
+	if cleaned == "." {
+		return "", fmt.Errorf("empty asset path")
 	}
-
-	// Clean the user-provided path to resolve ".." etc.
-	cleanedUserPath := filepath.Clean(userPath)
-
-	// Join with the root
-	finalPath := filepath.Join(safeAssetsRoot, cleanedUserPath)
-	safeFinalPath, err := filepath.Abs(finalPath)
-	if err != nil {
-		return "", fmt.Errorf("could not get absolute path for final path: %w", err)
-	}
-
-	// The final check: the resulting absolute path must have the asset root as a prefix.
-	if !strings.HasPrefix(safeFinalPath, safeAssetsRoot) {
+	if strings.HasPrefix(cleaned, "..") || strings.Contains(cleaned, "../") {
 		return "", fmt.Errorf("path traversal attempt detected")
 	}
-	return safeFinalPath, nil
+	return strings.ReplaceAll(cleaned, "\\", "/"), nil
 }
 
-// handleListContestAssets lists assets for a contest.
+// ensureDirRows upserts directory rows for all ancestors of relPath.
+func ensureDirRows(db *gorm.DB, ownerType, ownerID, relPath string) error {
+	dir := path.Dir(relPath)
+	if dir == "." || dir == "/" {
+		return nil
+	}
+	parts := strings.Split(dir, "/")
+	current := ""
+	now := time.Now()
+	for _, p := range parts {
+		if p == "" {
+			continue
+		}
+		if current == "" {
+			current = p
+		} else {
+			current = current + "/" + p
+		}
+		row := models.Asset{
+			ID:        uuid.NewString(),
+			OwnerType: ownerType,
+			OwnerID:   ownerID,
+			Path:      current,
+			IsDir:     true,
+			ModTime:   now,
+		}
+		if err := db.Where("owner_type = ? AND owner_id = ? AND path = ?",
+			ownerType, ownerID, current).Assign(row).FirstOrCreate(&row).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (h *Handler) handleListContestAssets(c *gin.Context) {
 	contestID := c.Param("id")
 	h.appState.RLock()
-	contest, ok := h.appState.Contests[contestID]
+	_, ok := h.appState.Contests[contestID]
 	h.appState.RUnlock()
 	if !ok {
 		util.Error(c, http.StatusNotFound, "contest not found")
 		return
 	}
-
-	assets, err := listAssets(filepath.Join(contest.BasePath, "index.assets"))
+	assets, err := listAssetsFromDB(h.db, "contest", contestID)
 	if err != nil {
 		util.Error(c, http.StatusInternalServerError, fmt.Errorf("failed to list assets: %w", err))
 		return
@@ -110,18 +108,16 @@ func (h *Handler) handleListContestAssets(c *gin.Context) {
 	util.Success(c, assets, "Assets listed successfully")
 }
 
-// handleListProblemAssets lists assets for a problem.
 func (h *Handler) handleListProblemAssets(c *gin.Context) {
 	problemID := c.Param("id")
 	h.appState.RLock()
-	problem, ok := h.appState.Problems[problemID]
+	_, ok := h.appState.Problems[problemID]
 	h.appState.RUnlock()
 	if !ok {
 		util.Error(c, http.StatusNotFound, "problem not found")
 		return
 	}
-
-	assets, err := listAssets(filepath.Join(problem.BasePath, "index.assets"))
+	assets, err := listAssetsFromDB(h.db, "problem", problemID)
 	if err != nil {
 		util.Error(c, http.StatusInternalServerError, fmt.Errorf("failed to list assets: %w", err))
 		return
@@ -129,70 +125,88 @@ func (h *Handler) handleListProblemAssets(c *gin.Context) {
 	util.Success(c, assets, "Assets listed successfully")
 }
 
-// handleUploadAsset is a generic handler for uploading assets.
-func (h *Handler) handleUploadAsset(c *gin.Context, basePath string) {
+// handleUploadAsset reads multipart files and stores them as Asset rows.
+func (h *Handler) handleUploadAsset(c *gin.Context, ownerType, ownerID string) {
 	form, err := c.MultipartForm()
 	if err != nil {
 		util.Error(c, http.StatusBadRequest, fmt.Errorf("failed to parse multipart form: %w", err))
 		return
 	}
-
 	files := form.File["files"]
-	relativePath := form.Value["path"] // Optional subdirectory path
+	subdir := ""
+	if v := form.Value["path"]; len(v) > 0 {
+		subdir = v[0]
+	}
 
+	count := 0
+	now := time.Now()
 	for _, file := range files {
-		// Construct the destination path safely
-		destRelPath := filepath.Join(append(relativePath, file.Filename)...)
-		destAbsPath, err := getSafeAssetPath(basePath, destRelPath)
+		rel, err := cleanAssetPath(strings.TrimPrefix(subdir, "/") + "/" + file.Filename)
 		if err != nil {
 			util.Error(c, http.StatusBadRequest, err)
 			return
 		}
-
-		// Create subdirectory if it doesn't exist
-		if err := os.MkdirAll(filepath.Dir(destAbsPath), 0755); err != nil {
-			util.Error(c, http.StatusInternalServerError, fmt.Errorf("failed to create directory: %w", err))
+		src, err := file.Open()
+		if err != nil {
+			util.Error(c, http.StatusInternalServerError, fmt.Errorf("failed to open uploaded file: %w", err))
 			return
 		}
-
-		// Save the uploaded file
-		if err := c.SaveUploadedFile(file, destAbsPath); err != nil {
-			util.Error(c, http.StatusInternalServerError, fmt.Errorf("failed to save file: %w", err))
+		content, err := io.ReadAll(src)
+		src.Close()
+		if err != nil {
+			util.Error(c, http.StatusInternalServerError, fmt.Errorf("failed to read uploaded file: %w", err))
 			return
 		}
+		if err := ensureDirRows(h.db, ownerType, ownerID, rel); err != nil {
+			util.Error(c, http.StatusInternalServerError, fmt.Errorf("failed to create dir rows: %w", err))
+			return
+		}
+		row := models.Asset{
+			ID:        uuid.NewString(),
+			OwnerType: ownerType,
+			OwnerID:   ownerID,
+			Path:      rel,
+			IsDir:     false,
+			Size:      int64(len(content)),
+			ModTime:   now,
+			Content:   content,
+		}
+		// Replace any existing row at the same path.
+		h.db.Where("owner_type = ? AND owner_id = ? AND path = ?", ownerType, ownerID, rel).Delete(&models.Asset{})
+		if err := h.db.Create(&row).Error; err != nil {
+			util.Error(c, http.StatusInternalServerError, fmt.Errorf("failed to store file: %w", err))
+			return
+		}
+		count++
 	}
-
-	util.Success(c, gin.H{"files_uploaded": len(files)}, "Files uploaded successfully")
+	util.Success(c, gin.H{"files_uploaded": count}, "Files uploaded successfully")
 }
 
-// handleUploadContestAssets uploads assets for a contest.
 func (h *Handler) handleUploadContestAssets(c *gin.Context) {
 	contestID := c.Param("id")
 	h.appState.RLock()
-	contest, ok := h.appState.Contests[contestID]
+	_, ok := h.appState.Contests[contestID]
 	h.appState.RUnlock()
 	if !ok {
 		util.Error(c, http.StatusNotFound, "contest not found")
 		return
 	}
-	h.handleUploadAsset(c, contest.BasePath)
+	h.handleUploadAsset(c, "contest", contestID)
 }
 
-// handleUploadProblemAssets uploads assets for a problem.
 func (h *Handler) handleUploadProblemAssets(c *gin.Context) {
 	problemID := c.Param("id")
 	h.appState.RLock()
-	problem, ok := h.appState.Problems[problemID]
+	_, ok := h.appState.Problems[problemID]
 	h.appState.RUnlock()
 	if !ok {
 		util.Error(c, http.StatusNotFound, "problem not found")
 		return
 	}
-	h.handleUploadAsset(c, problem.BasePath)
+	h.handleUploadAsset(c, "problem", problemID)
 }
 
-// handleDeleteAsset is a generic handler for deleting an asset.
-func (h *Handler) handleDeleteAsset(c *gin.Context, basePath string) {
+func (h *Handler) handleDeleteAsset(c *gin.Context, ownerType, ownerID string) {
 	var req struct {
 		Path string `json:"path" binding:"required"`
 	}
@@ -200,121 +214,116 @@ func (h *Handler) handleDeleteAsset(c *gin.Context, basePath string) {
 		util.Error(c, http.StatusBadRequest, err)
 		return
 	}
-
-	targetPath, err := getSafeAssetPath(basePath, req.Path)
+	cleaned, err := cleanAssetPath(req.Path)
 	if err != nil {
 		util.Error(c, http.StatusBadRequest, err)
 		return
 	}
-
-	if err := os.RemoveAll(targetPath); err != nil {
-		util.Error(c, http.StatusInternalServerError, fmt.Errorf("failed to delete asset: %w", err))
+	// Delete the row at this path AND any rows under it (subtree).
+	prefix := cleaned + "/"
+	res := h.db.Where(
+		"owner_type = ? AND owner_id = ? AND (path = ? OR path LIKE ?)",
+		ownerType, ownerID, cleaned, prefix+"%",
+	).Delete(&models.Asset{})
+	if res.Error != nil {
+		util.Error(c, http.StatusInternalServerError, fmt.Errorf("failed to delete asset: %w", res.Error))
 		return
 	}
-	zap.S().Warnf("admin deleted asset at '%s'", req.Path)
+	if res.RowsAffected == 0 {
+		util.Error(c, http.StatusNotFound, "asset not found")
+		return
+	}
+	zap.S().Warnf("admin deleted asset at '%s'", cleaned)
 	util.Success(c, nil, "Asset deleted successfully")
 }
 
-// handleDeleteContestAsset deletes an asset from a contest.
 func (h *Handler) handleDeleteContestAsset(c *gin.Context) {
 	contestID := c.Param("id")
 	h.appState.RLock()
-	contest, ok := h.appState.Contests[contestID]
+	_, ok := h.appState.Contests[contestID]
 	h.appState.RUnlock()
 	if !ok {
 		util.Error(c, http.StatusNotFound, "contest not found")
 		return
 	}
-	h.handleDeleteAsset(c, contest.BasePath)
+	h.handleDeleteAsset(c, "contest", contestID)
 }
 
-// handleDeleteProblemAsset deletes an asset from a problem.
 func (h *Handler) handleDeleteProblemAsset(c *gin.Context) {
 	problemID := c.Param("id")
 	h.appState.RLock()
-	problem, ok := h.appState.Problems[problemID]
+	_, ok := h.appState.Problems[problemID]
 	h.appState.RUnlock()
 	if !ok {
 		util.Error(c, http.StatusNotFound, "problem not found")
 		return
 	}
-	h.handleDeleteAsset(c, problem.BasePath)
+	h.handleDeleteAsset(c, "problem", problemID)
+}
+
+// serveAssetDB looks up a single asset row by exact path and writes its bytes.
+func (h *Handler) serveAssetDB(c *gin.Context, ownerType, ownerID, assetPath string) {
+	cleaned, err := cleanAssetPath(assetPath)
+	if err != nil {
+		util.Error(c, http.StatusBadRequest, err)
+		return
+	}
+	var row models.Asset
+	if err := h.db.Where("owner_type = ? AND owner_id = ? AND path = ?", ownerType, ownerID, cleaned).First(&row).Error; err != nil {
+		util.Error(c, http.StatusNotFound, "asset not found")
+		return
+	}
+	if row.IsDir {
+		util.Error(c, http.StatusBadRequest, "cannot serve a directory")
+		return
+	}
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%q", path.Base(cleaned)))
+	c.Data(http.StatusOK, contentTypeFor(cleaned), row.Content)
 }
 
 func (h *Handler) serveContestAsset(c *gin.Context) {
 	contestID := c.Param("id")
 	assetPath := c.Param("assetpath")
-
 	h.appState.RLock()
-	contest, ok := h.appState.Contests[contestID]
+	_, ok := h.appState.Contests[contestID]
 	h.appState.RUnlock()
 	if !ok {
 		util.Error(c, http.StatusNotFound, "contest not found")
 		return
 	}
-
-	// Security: ensure the requested path is within the allowed assets directory
-	baseAssetDir := filepath.Join(contest.BasePath, "index.assets")
-	requestedFile := filepath.Join(contest.BasePath, assetPath)
-
-	safeBase, err := filepath.Abs(baseAssetDir)
-	if err != nil {
-		util.Error(c, http.StatusInternalServerError, "internal server error")
-		return
-	}
-	safeRequested, err := filepath.Abs(requestedFile)
-	if err != nil {
-		util.Error(c, http.StatusInternalServerError, "internal server error")
-		return
-	}
-
-	if !strings.HasPrefix(safeRequested, safeBase) {
-		util.Error(c, http.StatusForbidden, "access denied")
-		return
-	}
-
-	if _, err := os.Stat(safeRequested); os.IsNotExist(err) {
-		util.Error(c, http.StatusNotFound, "asset not found")
-		return
-	}
-	c.File(safeRequested)
+	h.serveAssetDB(c, "contest", contestID, assetPath)
 }
 
 func (h *Handler) serveProblemAsset(c *gin.Context) {
 	problemID := c.Param("id")
 	assetPath := c.Param("assetpath")
-
 	h.appState.RLock()
-	problem, ok := h.appState.Problems[problemID]
+	_, ok := h.appState.Problems[problemID]
+	h.appState.RUnlock()
 	if !ok {
-		h.appState.RUnlock()
 		util.Error(c, http.StatusNotFound, "problem not found")
 		return
 	}
+	h.serveAssetDB(c, "problem", problemID, assetPath)
+}
 
-	// --- Security Logic (same as contest assets) ---
-	baseAssetDir := filepath.Join(problem.BasePath, "index.assets")
-	requestedFile := filepath.Join(problem.BasePath, assetPath)
-
-	safeBase, err := filepath.Abs(baseAssetDir)
-	if err != nil {
-		util.Error(c, http.StatusInternalServerError, "internal server error")
-		return
+func contentTypeFor(name string) string {
+	switch strings.ToLower(path.Ext(name)) {
+	case ".md":
+		return "text/markdown; charset=utf-8"
+	case ".txt":
+		return "text/plain; charset=utf-8"
+	case ".json":
+		return "application/json"
+	case ".pdf":
+		return "application/pdf"
+	case ".png":
+		return "image/png"
+	case ".jpg", ".jpeg":
+		return "image/jpeg"
+	case ".zip":
+		return "application/zip"
+	default:
+		return "application/octet-stream"
 	}
-	safeRequested, err := filepath.Abs(requestedFile)
-	if err != nil {
-		util.Error(c, http.StatusInternalServerError, "internal server error")
-		return
-	}
-
-	if !strings.HasPrefix(safeRequested, safeBase) {
-		util.Error(c, http.StatusForbidden, "access denied")
-		return
-	}
-
-	if _, err := os.Stat(safeRequested); os.IsNotExist(err) {
-		util.Error(c, http.StatusNotFound, "asset not found")
-		return
-	}
-	c.File(safeRequested)
 }
