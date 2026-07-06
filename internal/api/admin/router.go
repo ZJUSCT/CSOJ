@@ -105,10 +105,11 @@ func RegisterRoutes(
 		clusters := adminV1.Group("/clusters")
 		{
 			clusters.GET("/status", h.getClusterStatus)
-			clusters.GET("/:clusterName/nodes/:nodeName", h.getNodeDetails)
-			clusters.POST("/:clusterName/nodes/:nodeName/pause", h.pauseNode)
-			clusters.POST("/:clusterName/nodes/:nodeName/resume", h.resumeNode)
-			clusters.PUT("/:clusterName/nodes/:nodeName", h.updateNode)
+			clusters.GET("/:cluster/pools", h.listPools)
+			clusters.POST("/:cluster/pools", h.createPool)
+			clusters.PUT("/:cluster/pools/:pool", h.updatePool)
+			clusters.DELETE("/:cluster/pools/:pool", h.deletePool)
+			clusters.PUT("/:cluster/concurrency", h.setConcurrency)
 		}
 
 		// Link Management

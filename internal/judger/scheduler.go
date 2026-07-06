@@ -1,6 +1,7 @@
 package judger
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"time"
@@ -285,6 +286,21 @@ func (s *Scheduler) SetConcurrency(clusterName string, n int) error {
 	// Concurrency is fixed at construction (channel size); resizing a live channel
 	// is unsafe. Document this as a config-reload-only setting for now.
 	return fmt.Errorf("concurrency changes require a restart")
+}
+
+// DeleteSubmissionResources deletes all pods + MPIJobs for a submission across its cluster.
+// Used by the interrupt handlers to clean up a running submission's K8s resources.
+func (s *Scheduler) DeleteSubmissionResources(clusterName, subID string) error {
+	c, ok := s.clusters[clusterName]
+	if !ok {
+		return nil
+	}
+	km := NewKubeManager(c.k8s, c.dyn, c.Namespace)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	_ = km.DeleteSubmissionPods(ctx, subID)
+	_ = km.DeleteSubmissionMPIJobs(ctx, subID)
+	return nil
 }
 
 // RequeuePendingSubmissions re-enqueues Queued submissions on startup.
