@@ -1,8 +1,8 @@
 # Main Config (config.yaml)
 
-`config.yaml` is the primary configuration file for the CSOJ system. It defines the bootstrap behavior of the service: listen addresses, storage paths, authentication methods, and the judger cluster's Docker connections.
+`config.yaml` is the primary configuration file for the CSOJ system. It defines the bootstrap behavior of the service: listen addresses, storage paths, authentication methods, and the judger cluster's Kubernetes connections.
 
-Runtime data — contests, problems, announcements, assets, cluster node resource caps, and nav links — is **stored in the database** and managed via the admin API, not on disk. See [Runtime Data Stored in the Database](#runtime-data-stored-in-the-database) below.
+The judger is Kubernetes-based: each workflow step runs as a Pod (one per step), and MPI steps run as `MPIJob`s (mpi-operator). Runtime data — contests, problems, announcements, assets, node-pool resource caps, and nav links — is **stored in the database** and managed via the admin API, not on disk. See [Runtime Data Stored in the Database](#runtime-data-stored-in-the-database) below.
 
 ## Full Configuration Example
 
@@ -17,10 +17,10 @@ logger:
 
 # Storage path configuration
 storage:
-  user_avatar: "data/avatars"           # User avatars
-  submission_content: "data/submissions" # User-submitted files
-  database: "data/csoj.db"              # SQLite database file
-  submission_log: "data/logs"          # Logs from judging containers
+  user_avatar: "data/avatars"            # User avatars
+  submission_content: "data/submissions" # User-submitted files (must be a shared RWX PVC mount — see below)
+  database: "data/csoj.db"               # SQLite database file
+  submission_log: "data/logs"           # Logs from judging containers
 
 # Authentication configuration
 auth:
@@ -46,23 +46,22 @@ cors:
     - "http://localhost:3000"
     - "http://127.0.0.1:3000"
 
-# Judger cluster configuration
+# Judger cluster configuration (Kubernetes)
 cluster:
-  - name: "default-cluster" # Cluster name, referenced in problem configs
-    node:
-      - name: "node-1"
-        docker: # Docker Daemon connection settings for this node
-          host: "tcp://192.168.1.101:2375"
-          tls_verify: false
-          # ca_cert: "/path/to/ca.pem"
-          # cert: "/path/to/cert.pem"
-          # key: "/path/to/key.pem"
-      - name: "node-2"
-        docker:
-          host: "tcp://192.168.1.102:2375"
+  - name: "gpu-cluster"                        # Cluster name, referenced in problem configs
+    kubeconfig: "/etc/csoj/kubeconfigs/gpu.yaml" # Path to a kubeconfig file for this cluster
+    context: ""                                 # Optional kubeconfig context (empty = current)
+    namespace: "csoj-judger"                    # Namespace where judger pods run
+    concurrency: 4                              # Max in-flight submissions for this cluster
+    heartbeat_ttl: "30s"                        # HA grace period for judger failover
+    node_pools:                                 # Declared node-pool names (caps are DB-managed)
+      - name: "gpu-pool"
+      - name: "cpu-pool"
 ```
 
-> **Note:** Node `cpu` and `memory` are managed at runtime via the admin API (`PUT /api/v1/admin/clusters/:clusterName/nodes/:nodeName`) and stored in the database. Adding a new node's Docker connection requires editing `config.yaml` and restarting.
+> **Note:** Node-pool `cpu`/`memory`/`node_selector` are managed at runtime via `PUT /api/v1/admin/clusters/:c/pools/:p` and stored in the database. Adding a new node-pool name requires editing `config.yaml` and restarting — the Kubernetes connection is cluster-level (one kubeconfig per cluster), not per-pool. Use `PUT /api/v1/admin/clusters/:c/concurrency` to set concurrency (restart required to resize).
+>
+> **RWX PVC:** `storage.submission_content` must be a shared `ReadWriteMany` volume mount point. The API server and the judger pods both mount the `csoj-submissions` PVC there — the API server writes user-submitted files into it, and the judger pods read/write the step's working directory (including `/mnt/work/.csoj/result.json`) on the same volume.
 
 -----
 
@@ -74,10 +73,10 @@ The following are stored in the database and managed via the admin API — **not
 - **Problems** — `POST /api/v1/admin/contests/:id/problems` (and `PUT /api/v1/admin/contests/:id/problems/order` to reorder)
 - **Announcements** — `POST /api/v1/admin/contests/:id/announcements`
 - **Assets** (contest/problem static files) — `POST /api/v1/admin/contests/:id/assets` and `POST /api/v1/admin/problems/:id/assets`
-- **Cluster node resource caps** (`cpu`/`memory`) — `PUT /api/v1/admin/clusters/:clusterName/nodes/:nodeName`
+- **Cluster node-pool caps** (`cpu`/`memory`/`node_selector`/`is_paused`) — `PUT /api/v1/admin/clusters/:c/pools/:p`
 - **Nav links** — `POST /api/v1/admin/links`
 
-`config.yaml` carries only bootstrap fields (`listen`, `logger`, `storage`, `auth`, `cors`) and per-node Docker connection fields under `cluster`.
+`config.yaml` carries only bootstrap fields (`listen`, `logger`, `storage`, `auth`, `cors`) and per-cluster Kubernetes connection fields under `cluster` (`kubeconfig`, `context`, `namespace`, `concurrency`, `heartbeat_ttl`, declared `node_pools` names).
 
 -----
 
@@ -107,9 +106,9 @@ The following are stored in the database and managed via the admin API — **not
   - **Required**: Yes
   - **Description**: Defines storage paths for various system files.
       - `user_avatar`: (string) Directory to store user-uploaded avatars.
-      - `submission_content`: (string) Directory to store user-submitted code/files.
-      - `database`: (string) Path to the SQLite database file. This database holds all admin-managed runtime data (contests, problems, announcements, assets, cluster node caps, links) in addition to users, submissions, and containers.
-      - `submission_log`: (string) Directory to store log files generated by each judging container.
+      - `submission_content`: (string) Directory to store user-submitted code/files. **This must be a shared `ReadWriteMany` (RWX) volume mount point** — the API server writes submission files here, and judger pods mount the same `csoj-submissions` PVC (subPath per submission ID) at `/mnt/work`. The dispatcher reads `/mnt/work/.csoj/result.json` from this path after a pod completes.
+      - `database`: (string) Path to the SQLite database file. This database holds all admin-managed runtime data (contests, problems, announcements, assets, cluster node-pool caps, links) in addition to users, submissions, and containers.
+      - `submission_log`: (string) Directory to store log files generated by each judging pod.
 
 -----
 
@@ -145,11 +144,12 @@ The following are stored in the database and managed via the admin API — **not
 
   - **Type**: `array of objects`
   - **Required**: Yes
-  - **Description**: Defines one or more judger clusters. Each cluster consists of one or more judger nodes. Only the Docker connection is configured here — the per-node `cpu`/`memory` resource caps are managed at runtime via the admin API and stored in the database.
+  - **Description**: Defines one or more judger clusters. Each cluster maps to a single Kubernetes cluster (one kubeconfig). Judger pods run in the configured `namespace`; submissions run as Pods (one per workflow step) or, when an `mpi` step is enabled, as `MPIJob`s (mpi-operator). Only the cluster-level connection and the declared node-pool names are configured here — the per-pool `cpu`/`memory`/`node_selector` caps are managed at runtime via the admin API and stored in the database.
       - `name`: (string) A unique name for the cluster. This name is used in problem configurations to specify which cluster to use for judging.
-      - `node`: (array of objects) The list of judger nodes in this cluster.
-          - `name`: (string) A unique name for the node.
-          - `docker`: (object) The connection settings for the Docker Daemon on this node.
-              - `host`: (string) The API address, typically a TCP address like `tcp://127.0.0.1:2375`.
-              - `tls_verify`: (boolean, optional) Whether to use TLS to connect to the daemon.
-              - `ca_cert`, `cert`, `key`: (string, optional) Paths to TLS certificate files if `tls_verify` is true.
+      - `kubeconfig`: (string) Path to a kubeconfig file for this cluster. The judger uses it to build a `kubernetes.Interface` + dynamic client (for the MPIJob CRD).
+      - `context`: (string, optional) The kubeconfig context to use. If empty, the kubeconfig's current context is used.
+      - `namespace`: (string) The Kubernetes namespace in which judger Pods and MPIJobs are created. The `csoj-submissions` RWX PVC must exist in this namespace.
+      - `concurrency`: (integer) The maximum number of in-flight submissions for this cluster. Implemented as a per-cluster semaphore; resizing requires a restart (use `PUT /api/v1/admin/clusters/:c/concurrency` to set the value, then restart).
+      - `heartbeat_ttl`: (duration string, e.g. `"30s"`) The HA grace period. The judger writes a heartbeat row to the database every `ttl/2`; on restart, it waits up to `ttl` for a prior instance's heartbeat to expire before claiming the cluster and recovering (deleting leftover judger pods/MPIJobs and marking `Running` submissions `Failed`).
+      - `node_pools`: (array of objects) The list of node-pool names declared for this cluster. Each entry has a single field:
+          - `name`: (string) A unique name for the pool. Pool caps (`cpu`/`memory`/`node_selector`/`is_paused`) are not set here — set them via `PUT /api/v1/admin/clusters/:c/pools/:p` after boot. A pool with no caps set is skipped by the scheduler.

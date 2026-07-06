@@ -176,7 +176,7 @@ All write endpoints trigger an in-memory `reload` so the running server picks up
 
   - **Type**: `integer`
   - **Required**: Yes
-  - **Description**: The number of CPU cores to request from the scheduler for a judging task. (Per-node upper bounds are set via the admin API — see [Main Config](./main-config.md).)
+  - **Description**: The number of CPU cores to request from the scheduler for a judging task. (Per-pool upper bounds are set via the admin API — see [Main Config](./main-config.md).)
 
 -----
 
@@ -205,19 +205,50 @@ All write endpoints trigger an in-memory `reload` so the running server picks up
 
   - **Type**: `array of objects`
   - **Required**: Yes
-  - **Description**: Defines the core judging process as an array of steps that are executed sequentially. Each object in the array represents a step with the following fields:
+  - **Description**: Defines the core judging process as an array of steps that are executed sequentially. Each step runs as a Pod (one per step) with a generated shell entrypoint built from `steps`. When `mpi.enabled` is true, the step runs as an `MPIJob` (mpi-operator) instead — see [`mpi`](#mpi) below. Each object in the array represents a step with the following fields:
       - `name`: (string) An optional name for the step (e.g., "Compile", "Judge").
-      - `image`: (string, required) The Docker image to be used for this step.
-      - `root`: (boolean) Whether commands inside the container run as the `root` user. For security, this should be `false` whenever possible. Defaults to `false`.
-      - `timeout`: (integer, required) The total timeout for this step, in seconds.
+      - `image`: (string, required) The container image to be used for this step.
+      - `root`: (boolean) Whether commands inside the container run as the `root` user. For security, this should be `false` whenever possible. Defaults to `false`. (When `false`, the pod runs as UID/GID 1000.)
+      - `timeout`: (integer, required) The total timeout for this step, in seconds. Applied as the Pod's `activeDeadlineSeconds`.
       - `show`: (boolean) Whether to allow regular users to view the logs for this step. Typically, compile logs are public (`true`), while judge logs (which might contain test case info) should be hidden (`false`). Defaults to `false`.
-      - `network`: (boolean) Whether to enable network access for this step's container. Defaults to `false` (network disabled).
-      - `steps`: (array of arrays of strings, required) A list of commands to be executed sequentially inside the container. Each command is an array of strings, like `["command", "arg1", "arg2"]`.
+      - `network`: (boolean) Whether to enable network access for this step's pod. Defaults to `false` (network disabled).
+      - `steps`: (array of arrays of strings, required for non-MPI steps) A list of commands to be executed sequentially inside the container. Each command is an array of strings, like `["command", "arg1", "arg2"]`. They are joined into a `/bin/sh -c` entrypoint that runs each command in order and aborts on the first non-zero exit.
       - `mounts`: (array of objects, optional) A list of additional volumes to mount into the container. Each mount object has:
           - `type`: (string, optional) The mount type. Defaults to `bind`.
           - `source`: (string, required) The path on the host machine (the judger node).
           - `target`: (string, required) The path inside the container.
           - `readonly`: (boolean, optional) Whether to mount the volume as read-only. Defaults to `true`.
+      - `mpi`: (object, optional) Marks this step as a multi-node MPI job. See [`mpi`](#mpi) below.
+
+-----
+
+### `mpi`
+
+  - **Type**: `object`
+  - **Required**: No
+  - **Description**: When present and `enabled` is `true`, the step runs as an `MPIJob` (mpi-operator CRD) instead of a single Pod. The launcher pod runs `mpirun -np <worker_replicas*slots_per_worker> <launcher_cmd...>`. Worker pods run `sleep infinity` and provide MPI ranks; the launcher writes `result.json`. **Requires the mpi-operator CRD installed in the cluster** (probe happens at startup; MPI steps on a cluster without the CRD will fail).
+      - `enabled`: (boolean) Whether to run this step as an MPIJob.
+      - `worker_replicas`: (integer) The number of worker pods.
+      - `slots_per_worker`: (integer) The number of MPI ranks per worker.
+      - `launcher_cmd`: (array of strings) The command run after `mpirun -np <N>` in the launcher pod, e.g. `["./a.out"]`.
+
+Example:
+
+```json
+{
+  "name": "run",
+  "image": "openmpi:4",
+  "mpi": {
+    "enabled": true,
+    "worker_replicas": 2,
+    "slots_per_worker": 2,
+    "launcher_cmd": ["./a.out"]
+  },
+  "timeout": 300
+}
+```
+
+Non-MPI steps are unchanged: a Pod with the step's `steps` array joined into a generated `/bin/sh -c` entrypoint.
 
 -----
 
@@ -241,9 +272,11 @@ All write endpoints trigger an in-memory `reload` so the running server picks up
 
 -----
 
-## Judge Result JSON Format
+## Judge Result JSON Contract
 
-The **final step** of the workflow is responsible for reporting the result by printing a JSON object to **standard output**. The required fields in the JSON depend on the `score.mode`.
+The **final step** of the workflow is responsible for reporting the result by writing a JSON file to `/mnt/work/.csoj/result.json` on the shared submission PVC (the same `csoj-submissions` PVC the API server mounts at `storage.submission_content`). After the pod completes, the dispatcher reads this file from the PVC; if the file is missing or invalid, the submission is marked `Failed`.
+
+The required fields in the JSON depend on the `score.mode`.
 
 #### `score.mode: "score"`
 
@@ -252,6 +285,7 @@ The JSON must contain a `score` field. A `performance` field can be included but
 ```json
 {
   "score": 100,
+  "performance": 0,
   "info": {
     "message": "All test cases passed",
     "time_usage_ms": 50,
@@ -261,6 +295,7 @@ The JSON must contain a `score` field. A `performance` field can be included but
 ```
 
   - `score`: (integer, required) The final score awarded for this submission.
+  - `performance`: (number, optional) Ignored in `"score"` mode. Defaults to `0` if omitted.
   - `info`: (object, optional) Any additional information you wish to store and display.
 
 #### `score.mode: "performance"`
@@ -269,6 +304,7 @@ The JSON must contain a `performance` field. A `score` field can be included but
 
 ```json
 {
+  "score": 0,
   "performance": 153.28,
   "info": {
     "message": "Calculation finished",
@@ -279,4 +315,9 @@ The JSON must contain a `performance` field. A `score` field can be included but
 ```
 
   - `performance`: (number, required) A metric indicating the quality of the solution. A higher value is considered better. The system will automatically calculate the final `score` based on this value relative to other users.
+  - `score`: (integer, optional) Ignored in `"performance"` mode. Defaults to `0` if omitted.
   - `info`: (object, optional) Any additional information to store and display.
+
+> **Tip — writing the file from the step's command:** use a step like
+> `["sh", "-c", "mkdir -p /mnt/work/.csoj && echo '{\"score\":100,\"performance\":0,\"info\":{}}' > /mnt/work/.csoj/result.json"]`.
+> Do not print the JSON to stdout — stdout is streamed to the user's log view and is **not** parsed for the score.

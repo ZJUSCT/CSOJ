@@ -6,7 +6,10 @@ This document will guide you through compiling and running the CSOJ backend serv
 
 - **Go**: Version `1.20` or higher is recommended.
 - **Node.js**: Version `20` or higher, with `pnpm` installed.
-- **Docker**: The Docker service must be installed and running on the judger nodes. CSOJ communicates with the Docker Daemon via a TCP socket.
+- **Kubernetes**: A Kubernetes cluster (a local `kind` or `minikube` cluster is fine for development) with:
+  - A namespace for judger pods (e.g. `csoj-judger`).
+  - A `ReadWriteMany` (RWX) `PersistentVolumeClaim` named `csoj-submissions` in that namespace. The API server and judger pods both mount this PVC (the API server at `storage.submission_content`, judger pods at `/mnt/work`).
+  - **Optional:** the [mpi-operator](https://github.com/kubeflow/mpi-operator) CRD (`kubeflow.org/v2beta1` MPIJob), only if you plan to run MPI problems. Non-MPI problems do not require it.
 
 ## 2. Compile the Project
 
@@ -41,7 +44,7 @@ logger:
 storage:
   database: "data/csoj.db" # Path to the SQLite database file
   user_avatar: "data/avatars" # Directory for user avatars
-  submission_content: "data/submissions" # Directory for user submission content
+  submission_content: "data/submissions" # MUST be a shared RWX PVC mount point (csoj-submissions)
   submission_log: "data/logs" # Directory for judger logs
 
 auth:
@@ -51,15 +54,18 @@ auth:
   local:
     enabled: true # Enable local username/password registration and login
 
-# Define a judger cluster
+# Define a judger cluster (Kubernetes)
 cluster:
   - name: "default-cluster"
-    node:
-      - name: "local-node"
-        # cpu and memory for this node are set at runtime via the admin API
-        # (PUT /api/v1/admin/clusters/:clusterName/nodes/:nodeName) and stored in the database.
-        docker:
-          host: "tcp://127.0.0.1:2375" # Address of the Docker Daemon
+    kubeconfig: "/root/.kube/config" # Path to a kubeconfig file for the cluster
+    context: "" # Optional kubeconfig context (empty = current)
+    namespace: "csoj-judger" # Namespace where judger pods run
+    concurrency: 4 # Max in-flight submissions
+    heartbeat_ttl: "30s" # HA grace period for judger failover
+    node_pools:
+      - name: "default-pool"
+      # pool cpu/memory/node_selector are set at runtime via the admin API
+      # (PUT /api/v1/admin/clusters/:c/pools/:p) and stored in the database.
 ```
 
 For more details on configuration files, please refer to the **[Configuration Guides](./configuration/main-config.md)**.
@@ -92,12 +98,12 @@ ZJUSCT CSOJ dev-build - Fully Containerized Secure Online Judgement
 After the server starts, complete the initial setup:
 
 1. **Register the first user** — the first user to register (via the frontend or `POST /api/v1/auth/local/register`) is automatically granted the `superadmin` role.
-2. **Set node resource caps** — a node's `cpu`/`memory` are not in `config.yaml`. Set them via the admin API so the scheduler will accept tasks for the node:
+2. **Set node-pool resource caps** — a pool's `cpu`/`memory`/`node_selector` are not in `config.yaml`. Set them via the admin API so the scheduler will accept tasks for the pool:
    ```bash
-   curl -X PUT /api/v1/admin/clusters/default-cluster/nodes/local-node \
+   curl -X PUT /api/v1/admin/clusters/default-cluster/pools/default-pool \
      -H "Authorization: Bearer <token>" \
      -H "Content-Type: application/json" \
-     -d '{"cpu": 4, "memory": 4096}'
+     -d '{"cpu": 4, "memory": 4096, "node_selector": {}}'
    ```
 3. **Create contests and problems** — use the admin UI or the admin REST API (`POST /api/v1/admin/contests`, then `POST /api/v1/admin/contests/:id/problems`). See [Contest Config](./configuration/contest-config.md) and [Problem Config](./configuration/problem-config.md) for the JSON shapes, and the [Admin API Reference](./api-reference/admin-api.md) for the full endpoint list.
 
