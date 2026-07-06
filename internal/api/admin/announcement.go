@@ -1,45 +1,17 @@
 package admin
 
 import (
-	"errors"
 	"fmt"
 	"net/http"
-	"os"
-	"path/filepath"
 	"time"
 
-	"github.com/ZJUSCT/CSOJ/internal/judger"
+	"github.com/ZJUSCT/CSOJ/internal/database/models"
 	"github.com/ZJUSCT/CSOJ/internal/util"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"go.uber.org/zap"
-	"gopkg.in/yaml.v3"
 )
 
-// Helper to read announcements file
-func readAnnouncementsFile(path string) ([]*judger.Announcement, error) {
-	var announcements []*judger.Announcement
-	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
-		return announcements, nil // Return empty slice if file doesn't exist
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	err = yaml.Unmarshal(data, &announcements)
-	return announcements, err
-}
-
-// Helper to write announcements file
-func writeAnnouncementsFile(path string, announcements []*judger.Announcement) error {
-	data, err := yaml.Marshal(announcements)
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(path, data, 0644)
-}
-
-// handleGetContestAnnouncements retrieves all announcements for a specific contest.
 func (h *Handler) handleGetContestAnnouncements(c *gin.Context) {
 	contestID := c.Param("id")
 	h.appState.RLock()
@@ -49,11 +21,9 @@ func (h *Handler) handleGetContestAnnouncements(c *gin.Context) {
 		util.Error(c, http.StatusNotFound, "contest not found")
 		return
 	}
-	// The announcements are already loaded in memory, return them directly.
 	util.Success(c, contest.Announcements, "Announcements retrieved successfully")
 }
 
-// handleCreateContestAnnouncement creates a new announcement for a contest.
 func (h *Handler) handleCreateContestAnnouncement(c *gin.Context) {
 	contestID := c.Param("id")
 	var req struct {
@@ -66,38 +36,30 @@ func (h *Handler) handleCreateContestAnnouncement(c *gin.Context) {
 	}
 
 	h.appState.RLock()
-	contest, ok := h.appState.Contests[contestID]
+	_, ok := h.appState.Contests[contestID]
 	h.appState.RUnlock()
 	if !ok {
 		util.Error(c, http.StatusNotFound, "contest not found")
 		return
 	}
 
-	announcementsPath := filepath.Join(contest.BasePath, "announcements.yaml")
-	announcements, err := readAnnouncementsFile(announcementsPath)
-	if err != nil {
-		util.Error(c, http.StatusInternalServerError, fmt.Errorf("failed to read announcements file: %w", err))
-		return
-	}
-
-	newAnn := &judger.Announcement{
+	now := time.Now()
+	ann := models.Announcement{
 		ID:          uuid.NewString(),
+		ContestID:   contestID,
 		Title:       req.Title,
 		Description: req.Description,
-		CreatedAt:   time.Now(),
-		UpdatedAt:   time.Now(),
+		CreatedAt:   now,
+		UpdatedAt:   now,
 	}
-	announcements = append(announcements, newAnn)
-
-	if err := writeAnnouncementsFile(announcementsPath, announcements); err != nil {
-		util.Error(c, http.StatusInternalServerError, fmt.Errorf("failed to write announcements file: %w", err))
+	if err := h.db.Create(&ann).Error; err != nil {
+		util.Error(c, http.StatusInternalServerError, fmt.Errorf("failed to create announcement: %w", err))
 		return
 	}
-	zap.S().Infof("admin created announcement '%s' in contest '%s'", newAnn.ID, contestID)
+	zap.S().Infof("admin created announcement '%s' in contest '%s'", ann.ID, contestID)
 	h.reload(c)
 }
 
-// handleUpdateContestAnnouncement updates an existing announcement.
 func (h *Handler) handleUpdateContestAnnouncement(c *gin.Context) {
 	contestID := c.Param("id")
 	announcementID := c.Param("announcementId")
@@ -111,81 +73,38 @@ func (h *Handler) handleUpdateContestAnnouncement(c *gin.Context) {
 	}
 
 	h.appState.RLock()
-	contest, ok := h.appState.Contests[contestID]
+	_, ok := h.appState.Contests[contestID]
 	h.appState.RUnlock()
 	if !ok {
 		util.Error(c, http.StatusNotFound, "contest not found")
 		return
 	}
 
-	announcementsPath := filepath.Join(contest.BasePath, "announcements.yaml")
-	announcements, err := readAnnouncementsFile(announcementsPath)
-	if err != nil {
-		util.Error(c, http.StatusInternalServerError, fmt.Errorf("failed to read announcements file: %w", err))
+	res := h.db.Model(&models.Announcement{}).Where("id = ? AND contest_id = ?", announcementID, contestID).
+		Updates(map[string]interface{}{"title": req.Title, "description": req.Description, "updated_at": time.Now()})
+	if res.Error != nil {
+		util.Error(c, http.StatusInternalServerError, fmt.Errorf("failed to update announcement: %w", res.Error))
 		return
 	}
-
-	found := false
-	for _, ann := range announcements {
-		if ann.ID == announcementID {
-			ann.Title = req.Title
-			ann.Description = req.Description
-			ann.UpdatedAt = time.Now()
-			found = true
-			break
-		}
-	}
-
-	if !found {
+	if res.RowsAffected == 0 {
 		util.Error(c, http.StatusNotFound, "announcement not found")
-		return
-	}
-
-	if err := writeAnnouncementsFile(announcementsPath, announcements); err != nil {
-		util.Error(c, http.StatusInternalServerError, fmt.Errorf("failed to write announcements file: %w", err))
 		return
 	}
 	zap.S().Infof("admin updated announcement '%s' in contest '%s'", announcementID, contestID)
 	h.reload(c)
 }
 
-// handleDeleteContestAnnouncement deletes an announcement.
 func (h *Handler) handleDeleteContestAnnouncement(c *gin.Context) {
 	contestID := c.Param("id")
 	announcementID := c.Param("announcementId")
 
-	h.appState.RLock()
-	contest, ok := h.appState.Contests[contestID]
-	h.appState.RUnlock()
-	if !ok {
-		util.Error(c, http.StatusNotFound, "contest not found")
+	res := h.db.Where("id = ? AND contest_id = ?", announcementID, contestID).Delete(&models.Announcement{})
+	if res.Error != nil {
+		util.Error(c, http.StatusInternalServerError, fmt.Errorf("failed to delete announcement: %w", res.Error))
 		return
 	}
-
-	announcementsPath := filepath.Join(contest.BasePath, "announcements.yaml")
-	announcements, err := readAnnouncementsFile(announcementsPath)
-	if err != nil {
-		util.Error(c, http.StatusInternalServerError, fmt.Errorf("failed to read announcements file: %w", err))
-		return
-	}
-
-	var newAnnouncements []*judger.Announcement
-	found := false
-	for _, ann := range announcements {
-		if ann.ID == announcementID {
-			found = true
-			continue
-		}
-		newAnnouncements = append(newAnnouncements, ann)
-	}
-
-	if !found {
+	if res.RowsAffected == 0 {
 		util.Error(c, http.StatusNotFound, "announcement not found")
-		return
-	}
-
-	if err := writeAnnouncementsFile(announcementsPath, newAnnouncements); err != nil {
-		util.Error(c, http.StatusInternalServerError, fmt.Errorf("failed to write announcements file: %w", err))
 		return
 	}
 	zap.S().Warnf("admin deleted announcement '%s' from contest '%s'", announcementID, contestID)
