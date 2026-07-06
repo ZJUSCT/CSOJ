@@ -98,3 +98,84 @@ func (h *Handler) setConcurrency(c *gin.Context) {
 	}
 	util.Success(c, gin.H{"cluster": cluster, "concurrency": req.Concurrency}, "Concurrency updated (restart to resize)")
 }
+
+// --- Cluster-row CRUD (DB-managed clusters; distinct from pool management) ---
+
+// listClusters returns all cluster rows. Kubeconfig text is omitted from the
+// response because it may contain secrets.
+func (h *Handler) listClusters(c *gin.Context) {
+	rows, err := database.GetAllClusters(h.db)
+	if err != nil {
+		util.Error(c, http.StatusInternalServerError, err)
+		return
+	}
+	type clusterSummary struct {
+		Name         string `json:"name"`
+		Context      string `json:"context"`
+		Namespace    string `json:"namespace"`
+		Concurrency  int    `json:"concurrency"`
+		HeartbeatTTL int    `json:"heartbeat_ttl"`
+	}
+	out := make([]clusterSummary, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, clusterSummary{
+			Name: r.Name, Context: r.Context, Namespace: r.Namespace,
+			Concurrency: r.Concurrency, HeartbeatTTL: r.HeartbeatTTL,
+		})
+	}
+	util.Success(c, out, "Clusters retrieved")
+}
+
+// createCluster creates a new cluster row (or upserts if the name exists).
+func (h *Handler) createCluster(c *gin.Context) {
+	var cl models.Cluster
+	if err := c.ShouldBindJSON(&cl); err != nil {
+		util.Error(c, http.StatusBadRequest, err)
+		return
+	}
+	if err := database.UpsertCluster(h.db, &cl); err != nil {
+		util.Error(c, http.StatusInternalServerError, err)
+		return
+	}
+	util.Success(c, cl, "Cluster created")
+}
+
+// updateCluster updates an existing cluster row by name (including kubeconfig).
+func (h *Handler) updateCluster(c *gin.Context) {
+	name := c.Param("name")
+	var cl models.Cluster
+	if err := c.ShouldBindJSON(&cl); err != nil {
+		util.Error(c, http.StatusBadRequest, err)
+		return
+	}
+	if name != cl.Name {
+		util.Error(c, http.StatusBadRequest, "cluster name in path does not match body")
+		return
+	}
+	if err := database.UpsertCluster(h.db, &cl); err != nil {
+		util.Error(c, http.StatusInternalServerError, err)
+		return
+	}
+	util.Success(c, cl, "Cluster updated")
+}
+
+// deleteCluster deletes a cluster row by name.
+func (h *Handler) deleteCluster(c *gin.Context) {
+	name := c.Param("name")
+	if err := database.DeleteCluster(h.db, name); err != nil {
+		util.Error(c, http.StatusInternalServerError, err)
+		return
+	}
+	util.Success(c, nil, "Cluster deleted")
+}
+
+// reloadClusters rebuilds the scheduler's in-memory cluster clientsets from the
+// DB without restarting the server.
+func (h *Handler) reloadClusters(c *gin.Context) {
+	warnings, err := h.scheduler.ReloadClusters()
+	if err != nil {
+		util.Error(c, http.StatusInternalServerError, err)
+		return
+	}
+	util.Success(c, gin.H{"warnings": warnings}, "Clusters reloaded")
+}
