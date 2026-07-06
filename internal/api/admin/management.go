@@ -12,24 +12,14 @@ import (
 )
 
 func (h *Handler) reload(c *gin.Context) {
-	// Load new data into temporary variables
 	zap.S().Info("starting reload process...")
 
-	// Find contest directories from the root
-	contestDirs, err := judger.FindContestDirs(h.cfg.ContestsRoot)
+	newContests, newProblems, newProblemToContestMap, err := judger.LoadFromDB(h.db)
 	if err != nil {
-		util.Error(c, http.StatusInternalServerError, fmt.Errorf("failed to scan contests_root directory: %w", err))
+		util.Error(c, http.StatusInternalServerError, fmt.Errorf("failed to load contests/problems from DB: %w", err))
 		return
 	}
-	zap.S().Infof("found %d contest directories in '%s'", len(contestDirs), h.cfg.ContestsRoot)
-
-	// Load all contests and problems from the found directories
-	newContests, newProblems, err := judger.LoadAllContestsAndProblems(contestDirs)
-	if err != nil {
-		util.Error(c, http.StatusInternalServerError, fmt.Errorf("failed to load new contests/problems: %w", err))
-		return
-	}
-	zap.S().Infof("successfully loaded %d new contests and %d new problems from disk", len(newContests), len(newProblems))
+	zap.S().Infof("loaded %d contests and %d problems from DB", len(newContests), len(newProblems))
 
 	newProblemIDs := make(map[string]struct{}, len(newProblems))
 	for id := range newProblems {
@@ -38,17 +28,24 @@ func (h *Handler) reload(c *gin.Context) {
 
 	// Find submissions whose problems have been deleted
 	var allSubmissions []models.Submission
-	// Fetch submissions with their containers to handle running ones
 	if err := h.db.Preload("Containers").Find(&allSubmissions).Error; err != nil {
 		util.Error(c, http.StatusInternalServerError, fmt.Errorf("failed to get all submissions: %w", err))
 		return
 	}
 
-	// Create new Problem-to-Contest map
-	newProblemToContestMap := make(map[string]*judger.Contest)
-	for _, contest := range newContests {
-		for _, problemID := range contest.ProblemIDs {
-			newProblemToContestMap[problemID] = contest
+	for _, sub := range allSubmissions {
+		if _, ok := newProblemIDs[sub.ProblemID]; ok {
+			continue
+		}
+		// Problem was deleted, remove the submission and its containers
+		zap.S().Infof("problem '%s' no longer exists, deleting submission %s and its containers", sub.ProblemID, sub.ID)
+		for _, container := range sub.Containers {
+			if err := h.db.Unscoped().Delete(&container).Error; err != nil {
+				zap.S().Errorf("failed to hard-delete container %s: %v", container.ID, err)
+			}
+		}
+		if err := h.db.Unscoped().Delete(&sub).Error; err != nil {
+			zap.S().Errorf("failed to hard-delete submission %s: %v", sub.ID, err)
 		}
 	}
 
