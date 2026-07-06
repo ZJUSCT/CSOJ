@@ -108,6 +108,16 @@ func RegisterRoutes(
 			clusters.GET("/:clusterName/nodes/:nodeName", h.getNodeDetails)
 			clusters.POST("/:clusterName/nodes/:nodeName/pause", h.pauseNode)
 			clusters.POST("/:clusterName/nodes/:nodeName/resume", h.resumeNode)
+			clusters.PUT("/:clusterName/nodes/:nodeName", h.updateNode)
+		}
+
+		// Link Management
+		links := adminV1.Group("/links")
+		{
+			links.GET("", h.listLinks)
+			links.POST("", h.createLink)
+			links.PUT("/:id", h.updateLink)
+			links.DELETE("/:id", h.deleteLink)
 		}
 
 		// Container Management
