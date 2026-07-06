@@ -90,6 +90,13 @@ func problemFromModel(p models.Problem) (*Problem, error) {
 		if err := json.Unmarshal(p.Workflow, &prob.Workflow); err != nil {
 			return nil, fmt.Errorf("parse workflow: %w", err)
 		}
+		// Backfill derived fields that the disk loader set but the DB doesn't store.
+		for i := range prob.Workflow {
+			steps := prob.Workflow[i].Steps
+			if len(steps) == 0 {
+				prob.Workflow[i].Image = "busybox"
+			}
+		}
 	}
 	if len(p.Score) > 0 {
 		if err := json.Unmarshal(p.Score, &prob.Score); err != nil {
