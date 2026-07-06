@@ -33,6 +33,12 @@ func Init(dsn string) (*gorm.DB, error) {
 		&models.Container{},
 		&models.ContestScoreHistory{},
 		&models.UserProblemBestScore{},
+		&models.Contest{},
+		&models.Problem{},
+		&models.Announcement{},
+		&models.Asset{},
+		&models.ClusterNode{},
+		&models.Link{},
 	)
 	if err != nil {
 		return nil, err
