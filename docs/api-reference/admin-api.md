@@ -2,9 +2,9 @@
 
 The Admin API provides a set of powerful endpoints for system maintenance and management. All Admin API routes are mounted under the main CSOJ service and share its listen address (`listen` in `config.yaml`).
 
-All admin-managed data (contests, problems, announcements, assets, links, cluster node-pool caps) is persisted in the database. There are no on-disk `contest.yaml` / `problem.yaml` files to edit — every write goes through the endpoints below and triggers an in-memory `reload` so the running server picks up the change immediately.
+All admin-managed data (contests, problems, announcements, assets, links, runtime settings, K8s cluster rows, node-pool caps) is persisted in the database. There are no on-disk `contest.yaml` / `problem.yaml` files to edit — every write goes through the endpoints below and triggers an in-memory `reload` so the running server picks up the change immediately.
 
-The judger is Kubernetes-based: submissions run as Pods (one per workflow step) or, for MPI steps, as `MPIJob`s (mpi-operator). Cluster connection details (`kubeconfig`, `namespace`, `concurrency`, `heartbeat_ttl`, declared `node_pools`) come from `config.yaml`; per-pool `cpu`/`memory`/`node_selector`/`is_paused` are DB-managed via the pool endpoints below.
+The judger is Kubernetes-based: submissions run as Pods (one per workflow step) or, for MPI steps, as `MPIJob`s (mpi-operator). Cluster connection details (`kubeconfig` text, `namespace`, `concurrency`, `heartbeat_ttl`) are stored as rows in the `clusters` DB table and managed via the cluster CRUD endpoints below; per-pool `cpu`/`memory`/`node_selector`/`is_paused` are DB-managed via the pool endpoints below. Logger, CORS, local-auth, GitLab OIDC, and JWT expiry are DB-managed via the settings endpoints below.
 
 ## Authentication
 
@@ -264,9 +264,127 @@ The first user to register (local or GitLab) is automatically granted the
 
 -----
 
-### Cluster & Container Management
+### Runtime Settings
 
-The judger runs submissions as Kubernetes Pods (one per workflow step) or `MPIJob`s (for MPI steps). Cluster connections come from `config.yaml`; node-pool caps and pause state are managed at runtime via the pool endpoints below.
+Runtime settings (logger, CORS, local-auth, GitLab OIDC, JWT expiry) are stored as JSON-encoded rows in the `settings` DB table. The `logger` setting is **restart-required** to change (the logger is built once at boot); all others are **live-reload** (read on the next request).
+
+#### `GET /api/v1/admin/settings`
+
+  - **Description**: Lists all settings rows (key → JSON value) plus boot-only facts from `config.yaml` that are not writable through this endpoint.
+  - **Success Response** (`200 OK`):
+    ```json
+    {
+      "code": 0,
+      "data": {
+        "settings": {
+          "logger": "{\"level\":\"debug\",\"file\":\"csoj.log\"}",
+          "cors": "{\"allowed_origins\":[\"https://oj.example.com\"]}",
+          "auth.local": "{\"enabled\":true}",
+          "auth.gitlab": "{\"url\":\"https://gitlab.com\",\"client_id\":\"...\",\"client_secret\":\"...\",\"redirect_uri\":\"...\",\"frontend_callback_url\":\"...\"}",
+          "auth.jwt.expire_hours": "72"
+        },
+        "boot": {
+          "listen": ":8080",
+          "storage": {
+            "database": "data/csoj.db",
+            "user_avatar": "data/avatars",
+            "submission_content": "data/submissions",
+            "submission_log": "data/logs"
+          },
+          "jwt_secret_present": true
+        }
+      },
+      "message": "Settings retrieved"
+    }
+    ```
+      - `settings`: map of key → JSON value (the raw stored string). A missing key means "no row written" — for `auth.local`, that means "default to enabled" (bootstrapping-friendly).
+      - `boot.listen` / `boot.storage`: echoed from `config.yaml` for display. Rotate `auth.jwt.secret` by editing `config.yaml` and restarting.
+      - `boot.jwt_secret_present`: boolean. The secret itself is never returned.
+
+#### `PUT /api/v1/admin/settings/:key`
+
+  - **Description**: Writes a settings value (JSON-encodes the supplied `value`). Most keys are live-reload; `logger` is restart-required (the response flags it).
+  - **Path Parameter**: `:key` — the settings key. Known keys: `logger`, `cors`, `auth.local`, `auth.gitlab`, `auth.jwt.expire_hours`.
+  - **Request Body** (`application/json`):
+    ```json
+    { "value": {"allowed_origins": ["https://oj.example.com"]} }
+    ```
+      - `value`: (any) The JSON-encodable value to store. For `cors` it is `{"allowed_origins": [...]}`; for `auth.local` it is `{"enabled": true|false}`; for `auth.gitlab` it is `{"url":"...","client_id":"...","client_secret":"...","redirect_uri":"...","frontend_callback_url":"..."}`; for `auth.jwt.expire_hours` it is an integer; for `logger` it is `{"level":"debug|production","file":"..."}`.
+  - **Success Response**: `{"restart_required": false}` (or `true` when `:key` is `logger`).
+  - **Notes**:
+      - `cors`, `auth.local`, `auth.gitlab`, `auth.jwt.expire_hours` are live-reload — the next request reads the new value.
+      - `logger` requires a restart to take effect (the response still confirms the write).
+      - A missing `auth.local` row defaults to enabled (so a fresh install can register the first superadmin). Once any value is written, that value is authoritative.
+      - A missing or incomplete `auth.gitlab` row makes the GitLab endpoints return `503 gitlab not configured` (the server does not crash at boot).
+
+-----
+
+### Cluster Management
+
+Cluster rows are stored in the `clusters` DB table. Each row carries the full kubeconfig **text** (so the judger can build a `kubernetes.Interface` + dynamic client without a kubeconfig file on disk), plus `context`, `namespace`, `concurrency`, and `heartbeat_ttl`. Changes to cluster rows are picked up by calling `POST /api/v1/admin/clusters/reload` (no server restart required).
+
+#### `GET /api/v1/admin/clusters`
+
+  - **Description**: Lists all cluster rows. The `kubeconfig` text is **omitted** from the response (it may contain secrets).
+  - **Success Response** (`200 OK`):
+    ```json
+    {
+      "code": 0,
+      "data": [
+        {
+          "name": "gpu-cluster",
+          "context": "",
+          "namespace": "csoj-judger",
+          "concurrency": 4,
+          "heartbeat_ttl": 30
+        }
+      ],
+      "message": "Clusters retrieved"
+    }
+    ```
+      - `heartbeat_ttl`: integer seconds (the HA grace period for judger failover; the judger writes a heartbeat row every `ttl/2`, and on restart waits up to `ttl` for a prior instance's heartbeat to expire before claiming the cluster).
+
+#### `POST /api/v1/admin/clusters`
+
+  - **Description**: Creates a new cluster row (upserts if the name already exists). After creating, call `POST /api/v1/admin/clusters/reload` to rebuild the scheduler's in-memory clientsets without restarting.
+  - **Request Body** (`application/json`):
+    ```json
+    {
+      "name": "gpu-cluster",
+      "kubeconfig": "<full kubeconfig YAML text>",
+      "context": "",
+      "namespace": "csoj-judger",
+      "concurrency": 4,
+      "heartbeat_ttl": 30
+    }
+    ```
+      - `name`: (string, required) Unique cluster name. Used in problem configs to specify which cluster to use for judging.
+      - `kubeconfig`: (string, required) The full kubeconfig YAML text. The judger parses it via `clientcmd.Load` at boot/reload — no kubeconfig file path is needed on the API server's disk.
+      - `context`: (string, optional) The kubeconfig context to use. If empty, the kubeconfig's current context is used.
+      - `namespace`: (string) The Kubernetes namespace in which judger Pods and MPIJobs are created. The `csoj-submissions` RWX PVC must exist in this namespace.
+      - `concurrency`: (integer) Max in-flight submissions for this cluster (per-cluster semaphore; resizing requires a restart).
+      - `heartbeat_ttl`: (integer, seconds) HA grace period for judger failover.
+
+#### `PUT /api/v1/admin/clusters/:name`
+
+  - **Description**: Updates an existing cluster row (including the `kubeconfig` text — e.g. to rotate credentials). The `name` in the path must match the `name` in the body. Call `POST /api/v1/admin/clusters/reload` afterward to apply.
+  - **Request Body**: same shape as `POST /api/v1/admin/clusters`.
+
+#### `DELETE /api/v1/admin/clusters/:name`
+
+  - **Description**: Deletes a cluster row by name. In-flight work on the cluster is not interrupted; call `POST /api/v1/admin/clusters/reload` to remove it from the scheduler's in-memory map.
+
+#### `POST /api/v1/admin/clusters/reload`
+
+  - **Description**: Rebuilds the scheduler's in-memory K8s clientsets from the `clusters` DB table without restarting the server. Preserves the existing per-cluster queue for clusters that still exist (so in-flight work continues). Clusters that failed to initialize are skipped and reported in `warnings`.
+  - **Success Response** (`200 OK`):
+    ```json
+    {
+      "code": 0,
+      "data": { "warnings": ["cluster bad-cluster: invalid kubeconfig: ..."] },
+      "message": "Clusters reloaded"
+    }
+    ```
 
 #### `GET /api/v1/admin/clusters/status`
 
@@ -309,7 +427,7 @@ The judger runs submissions as Kubernetes Pods (one per workflow step) or `MPIJo
 
 #### `POST /api/v1/admin/clusters/:cluster/pools`
 
-  - **Description**: Creates a new node-pool record for the cluster. The pool name must be declared in `config.yaml` under `cluster[].node_pools` for the scheduler to recognize it (the K8s connection is cluster-level).
+  - **Description**: Creates a new node-pool record for the cluster.
   - **Request Body** (`application/json`):
     ```json
     {
@@ -320,7 +438,7 @@ The judger runs submissions as Kubernetes Pods (one per workflow step) or `MPIJo
       "is_paused": false
     }
     ```
-      - `pool_name`: (string, required) The pool name. Must match a name declared in `config.yaml`.
+      - `pool_name`: (string, required) The pool name.
       - `cpu`: (integer, required, positive) Total CPU cores the scheduler may use on this pool.
       - `memory`: (integer, required, positive) Total memory (in MB) the scheduler may use on this pool.
       - `node_selector`: (object, optional) Kubernetes `nodeSelector` labels applied to judger pods scheduled on this pool. Defaults to `{}`.
@@ -342,11 +460,10 @@ The judger runs submissions as Kubernetes Pods (one per workflow step) or `MPIJo
       - `memory`: (integer, required, positive) Total memory (in MB) the scheduler may use on this pool.
       - `node_selector`: (object, optional) Kubernetes `nodeSelector` labels.
       - `is_paused`: (boolean, optional) Whether the pool should skip new tasks.
-  - **Note**: A pool must already be declared in `config.yaml` (under `cluster[].node_pools`) for the scheduler to recognize it. This endpoint only sets the runtime caps — adding a new pool name requires editing `config.yaml` and restarting.
 
 #### `DELETE /api/v1/admin/clusters/:cluster/pools/:pool`
 
-  - **Description**: Deletes a node-pool record from the database. The pool will no longer be considered by the scheduler (the declared name in `config.yaml` remains, but with no caps it is skipped).
+  - **Description**: Deletes a node-pool record from the database. The pool will no longer be considered by the scheduler (with no caps it is skipped).
 
 #### `PUT /api/v1/admin/clusters/:cluster/concurrency`
 
