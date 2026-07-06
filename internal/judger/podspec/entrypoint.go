@@ -5,10 +5,10 @@ import (
 	"strings"
 )
 
-// generateEntrypointScript builds a /bin/sh -c script that runs each command
+// GenerateEntrypointScript builds a /bin/sh -c script that runs each command
 // in `steps` sequentially, echoing "--- Executing Command N ---" and
 // "--- Exit Code: N ---" markers around each, and aborts on the first non-zero exit.
-func generateEntrypointScript(steps [][]string) string {
+func GenerateEntrypointScript(steps [][]string) string {
 	var b strings.Builder
 	b.WriteString("#!/bin/sh\nset -e\n")
 	if len(steps) == 0 {

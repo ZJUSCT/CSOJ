@@ -25,8 +25,8 @@ type PodSpecInput struct {
 	TimeoutSec int64
 }
 
-// buildPodSpec constructs the *corev1.Pod for a single non-MPI workflow step.
-func buildPodSpec(in PodSpecInput) *corev1.Pod {
+// BuildPodSpec constructs the *corev1.Pod for a single non-MPI workflow step.
+func BuildPodSpec(in PodSpecInput) *corev1.Pod {
 	uid := int64(1000)
 	container := corev1.Container{
 		Name:            "main",
@@ -101,10 +101,10 @@ func MPIJobGVR() schema.GroupVersionResource {
 	return schema.GroupVersionResource{Group: "kubeflow.org", Version: "v2beta1", Resource: "mpijobs"}
 }
 
-// buildMPIJobSpec constructs an unstructured MPIJob object (launcher + workers).
+// BuildMPIJobSpec constructs an unstructured MPIJob object (launcher + workers).
 // It returns a *unstructured.Unstructured so the dispatcher can Create it via the
 // dynamic client without importing a specific CRD Go type.
-func buildMPIJobSpec(in MPIJobSpecInput) *unstructured.Unstructured {
+func BuildMPIJobSpec(in MPIJobSpecInput) *unstructured.Unstructured {
 	replicas := int64(in.WorkerReplicas)
 	launcher, worker := mpiContainerTemplates(in)
 	spec := map[string]interface{}{

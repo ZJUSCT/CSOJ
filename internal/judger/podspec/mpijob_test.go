@@ -10,7 +10,7 @@ import (
 )
 
 func TestBuildPodSpec_Basic(t *testing.T) {
-	pod := buildPodSpec(PodSpecInput{
+	pod := BuildPodSpec(PodSpecInput{
 		Name:       "sub1-0",
 		Namespace:  "csoj-judger",
 		Image:      "gcc:13",
@@ -69,7 +69,7 @@ func TestBuildMPIJobSpec_LauncherWorker(t *testing.T) {
 	if gvr.Resource != "mpijobs" || gvr.Group != "kubeflow.org" {
 		t.Errorf("GVR: %v", gvr)
 	}
-	obj := buildMPIJobSpec(MPIJobSpecInput{
+	obj := BuildMPIJobSpec(MPIJobSpecInput{
 		Name:           "sub1-1",
 		Namespace:      "csoj-judger",
 		Image:          "openmpi:4",
