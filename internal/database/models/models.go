@@ -41,6 +41,27 @@ func (m *JSONMap) Scan(value interface{}) error {
 	return json.Unmarshal(bytes, &m)
 }
 
+// StringArray is a []string stored as a JSON text column.
+type StringArray []string
+
+func (a StringArray) Value() (driver.Value, error) {
+	if a == nil {
+		return "[]", nil
+	}
+	b, err := json.Marshal(a)
+	return string(b), err
+}
+
+func (a *StringArray) Scan(value interface{}) error {
+	switch v := value.(type) {
+	case []byte:
+		return json.Unmarshal(v, a)
+	case string:
+		return json.Unmarshal([]byte(v), a)
+	}
+	return nil
+}
+
 type User struct {
 	ID        string `gorm:"primaryKey" json:"id"`
 	CreatedAt time.Time
@@ -120,4 +141,76 @@ type UserProblemBestScore struct {
 	SubmissionID    string
 	SubmissionCount int
 	LastScoreTime   time.Time
+}
+
+// Contest is a backend-managed contest definition.
+type Contest struct {
+	ID          string      `gorm:"primaryKey" json:"id"`
+	Name        string      `json:"name"`
+	StartTime   time.Time   `gorm:"index" json:"starttime"`
+	EndTime     time.Time   `json:"endtime"`
+	Description string      `gorm:"type:text" json:"description"`
+	ProblemIDs  StringArray `gorm:"type:text" json:"problem_ids"`
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+	DeletedAt   gorm.DeletedAt `gorm:"index"`
+}
+
+// Problem is a backend-managed problem definition.
+type Problem struct {
+	ID             string    `gorm:"primaryKey" json:"id"`
+	ContestID      string    `gorm:"index" json:"contest_id"`
+	Name           string    `json:"name"`
+	Level          string    `json:"level"`
+	StartTime      time.Time `json:"starttime"`
+	EndTime        time.Time `json:"endtime"`
+	MaxSubmissions int       `json:"max_submissions"`
+	Cluster        string    `gorm:"index" json:"cluster"`
+	CPU            int       `json:"cpu"`
+	Memory         int64     `json:"memory"`
+	Upload         JSONMap   `gorm:"type:text" json:"upload"`
+	Workflow       JSONMap   `gorm:"type:text" json:"workflow"`
+	Score          JSONMap   `gorm:"type:text" json:"score"`
+	Description    string    `gorm:"type:text" json:"description"`
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
+
+// Announcement is a contest-scoped announcement.
+type Announcement struct {
+	ID          string    `gorm:"primaryKey" json:"id"`
+	ContestID   string    `gorm:"index" json:"contest_id"`
+	Title       string    `json:"title"`
+	Description string    `gorm:"type:text" json:"description"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+// Asset is a contest/problem asset stored as a BLOB.
+type Asset struct {
+	ID        string    `gorm:"primaryKey" json:"-"`
+	OwnerType string    `gorm:"index:idx_asset_owner" json:"-"` // "contest" | "problem"
+	OwnerID   string    `gorm:"index:idx_asset_owner" json:"-"`
+	Path      string    `gorm:"index:idx_asset_owner" json:"path"` // relative path, forward slashes
+	IsDir     bool      `json:"is_dir"`
+	Size      int64     `json:"size"`
+	ModTime   time.Time `json:"mod_time"`
+	Content   []byte    `gorm:"type:blob" json:"-"`
+}
+
+// ClusterNode holds the runtime-mutable resource caps for a node.
+// The Docker connection (host, TLS) lives in config.yaml and is merged at boot.
+type ClusterNode struct {
+	ClusterName string `gorm:"primaryKey" json:"cluster_name"`
+	NodeName    string `gorm:"primaryKey" json:"node_name"`
+	CPU         int    `json:"cpu"`
+	Memory      int64  `json:"memory"`
+}
+
+// Link is a nav-bar link managed via the admin API.
+type Link struct {
+	ID       uint   `gorm:"primaryKey" json:"id"`
+	Name     string `json:"name"`
+	URL      string `json:"url"`
+	Position int    `json:"position"`
 }
