@@ -727,3 +727,35 @@ func UpdateScoresForPerformanceSubmission(db *gorm.DB, sub *models.Submission, c
 		return nil
 	})
 }
+
+// --- Links ---
+
+func GetAllLinks(db *gorm.DB) ([]models.Link, error) {
+	var links []models.Link
+	err := db.Order("position asc").Find(&links).Error
+	return links, err
+}
+
+func CreateLink(db *gorm.DB, link *models.Link) error {
+	return db.Create(link).Error
+}
+
+func UpdateLink(db *gorm.DB, link *models.Link) error {
+	return db.Save(link).Error
+}
+
+func DeleteLink(db *gorm.DB, id uint) error {
+	return db.Delete(&models.Link{}, id).Error
+}
+
+// --- Cluster nodes ---
+
+func GetAllClusterNodes(db *gorm.DB) ([]models.ClusterNode, error) {
+	var nodes []models.ClusterNode
+	err := db.Find(&nodes).Error
+	return nodes, err
+}
+
+func UpsertClusterNode(db *gorm.DB, node *models.ClusterNode) error {
+	return db.Save(node).Error
+}
