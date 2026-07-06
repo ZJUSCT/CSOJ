@@ -267,3 +267,23 @@ type Link struct {
 	URL      string `json:"url"`
 	Position int    `json:"position"`
 }
+
+// Setting is a generic key/value runtime setting (JSON-encoded value).
+type Setting struct {
+	Key       string    `gorm:"primaryKey" json:"key"`
+	Value     string    `gorm:"type:text" json:"value"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// Cluster is a backend-managed K8s cluster (kubeconfig stored as text).
+// Node-pool caps live in ClusterNodePool (cluster_name is the parent key).
+type Cluster struct {
+	Name         string    `gorm:"primaryKey" json:"name"`
+	Kubeconfig   string    `gorm:"type:text" json:"kubeconfig"`
+	Context      string    `json:"context"`
+	Namespace    string    `json:"namespace"`
+	Concurrency  int       `json:"concurrency"`
+	HeartbeatTTL int       `json:"heartbeat_ttl"`
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+}
