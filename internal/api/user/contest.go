@@ -6,18 +6,22 @@ import (
 	"time"
 
 	"github.com/ZJUSCT/CSOJ/internal/database"
+	"github.com/ZJUSCT/CSOJ/internal/database/models"
 	"github.com/ZJUSCT/CSOJ/internal/judger"
 	"github.com/ZJUSCT/CSOJ/internal/util"
 	"github.com/gin-gonic/gin"
 )
 
 func (h *Handler) getLinks(c *gin.Context) {
-	if h.cfg.Links == nil {
-		// Ensure we return an empty array instead of null if links are not configured
-		util.Success(c, []interface{}{}, "Links retrieved successfully")
+	links, err := database.GetAllLinks(h.db)
+	if err != nil {
+		util.Error(c, http.StatusInternalServerError, err)
 		return
 	}
-	util.Success(c, h.cfg.Links, "Links retrieved successfully")
+	if links == nil {
+		links = []models.Link{}
+	}
+	util.Success(c, links, "Links retrieved successfully")
 }
 
 func (h *Handler) getAllContests(c *gin.Context) {
