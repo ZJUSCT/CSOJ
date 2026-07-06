@@ -10,20 +10,13 @@ type CORS struct {
 	AllowedOrigins []string `yaml:"allowed_origins"`
 }
 
-type Link struct {
-	Name string `yaml:"name" json:"name"`
-	URL  string `yaml:"url"  json:"url"`
-}
-
 type Config struct {
-	Cluster      []Cluster `yaml:"cluster"`
-	ContestsRoot string    `yaml:"contests_root"`
-	Logger       Logger    `yaml:"logger"`
-	Storage      Storage   `yaml:"storage"`
-	Auth         Auth      `yaml:"auth"`
-	Listen       string    `yaml:"listen"`
-	CORS         CORS      `yaml:"cors"`
-	Links        []Link    `yaml:"links"`
+	Cluster []Cluster `yaml:"cluster"`
+	Logger  Logger    `yaml:"logger"`
+	Storage Storage   `yaml:"storage"`
+	Auth    Auth      `yaml:"auth"`
+	Listen  string    `yaml:"listen"`
+	CORS    CORS      `yaml:"cors"`
 }
 
 type Cluster struct {

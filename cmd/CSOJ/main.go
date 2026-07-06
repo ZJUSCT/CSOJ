@@ -85,29 +85,15 @@ func main() {
 		ProblemToContestMap: make(map[string]*judger.Contest),
 	}
 
-	// contests and problems
-	contestDirs, err := judger.FindContestDirs(cfg.ContestsRoot)
-	if err != nil {
-		zap.S().Fatalf("failed to scan contests_root directory: %v", err)
-	}
-	zap.S().Infof("found %d contest directories in '%s'", len(contestDirs), cfg.ContestsRoot)
-
-	contests, problems, err := judger.LoadAllContestsAndProblems(contestDirs)
+	// contests and problems (loaded from the DB)
+	contests, problems, problemToContestMap, err := judger.LoadFromDB(db)
 	if err != nil {
 		zap.S().Fatalf("failed to load contests and problems: %v", err)
 	}
 	appState.Contests = contests
 	appState.Problems = problems
-	zap.S().Infof("loaded %d contests and %d problems", len(contests), len(problems))
-
-	// Helper map to find the parent contest of a problem
-	problemToContestMap := make(map[string]*judger.Contest)
-	for _, contest := range contests {
-		for _, problemID := range contest.ProblemIDs {
-			problemToContestMap[problemID] = contest
-		}
-	}
 	appState.ProblemToContestMap = problemToContestMap
+	zap.S().Infof("loaded %d contests and %d problems", len(contests), len(problems))
 
 	// judger scheduler
 	scheduler := judger.NewScheduler(cfg, db, appState)
