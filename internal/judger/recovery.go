@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/ZJUSCT/CSOJ/internal/config"
+	"github.com/ZJUSCT/CSOJ/internal/database"
 	"github.com/ZJUSCT/CSOJ/internal/database/models"
 	"github.com/ZJUSCT/CSOJ/internal/pubsub"
 	"go.uber.org/zap"
@@ -15,12 +15,18 @@ import (
 )
 
 // RecoverAndCleanup claims each cluster (HA gate), then deletes all judger
-// pods/MPIJobs and marks Running submissions Failed.
-func RecoverAndCleanup(db *gorm.DB, cfg *config.Config, instanceID string) error {
+// pods/MPIJobs and marks Running submissions Failed. Clusters are read from
+// the `clusters` DB table (kubeconfig stored as text).
+func RecoverAndCleanup(db *gorm.DB, instanceID string) error {
+	dbClusters, err := database.GetAllClusters(db)
+	if err != nil {
+		return err
+	}
+
 	// HA gate: claim every configured cluster before touching K8s.
-	for i := range cfg.Cluster {
-		cc := cfg.Cluster[i]
-		ttl := cc.HeartbeatTTL.Std()
+	for i := range dbClusters {
+		cc := dbClusters[i]
+		ttl := time.Duration(cc.HeartbeatTTL) * time.Second
 		if ttl <= 0 {
 			ttl = 30 * time.Second
 		}
@@ -36,8 +42,8 @@ func RecoverAndCleanup(db *gorm.DB, cfg *config.Config, instanceID string) error
 	// Build K8s managers and delete all judger-owned resources.
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	for i := range cfg.Cluster {
-		cc := cfg.Cluster[i]
+	for i := range dbClusters {
+		cc := dbClusters[i]
 		km, err := buildKubeManagerForCluster(cc)
 		if err != nil {
 			zap.S().Errorf("failed to build K8s client for cluster %s: %v", cc.Name, err)
@@ -76,14 +82,15 @@ func RecoverAndCleanup(db *gorm.DB, cfg *config.Config, instanceID string) error
 	return tx.Commit().Error
 }
 
-// buildKubeManagerForCluster builds a KubeManager from a config.Cluster using
-// the kubeconfig + context (same construction as NewScheduler).
-func buildKubeManagerForCluster(cc config.Cluster) (*KubeManager, error) {
-	loader := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
-		&clientcmd.ClientConfigLoadingRules{ExplicitPath: cc.Kubeconfig},
-		&clientcmd.ConfigOverrides{CurrentContext: cc.Context},
-	)
-	restCfg, err := loader.ClientConfig()
+// buildKubeManagerForCluster builds a KubeManager from a DB cluster row by
+// parsing the kubeconfig text (same construction as buildClusterState).
+func buildKubeManagerForCluster(cc models.Cluster) (*KubeManager, error) {
+	loaded, err := clientcmd.Load([]byte(cc.Kubeconfig))
+	if err != nil {
+		return nil, err
+	}
+	clientCfg := clientcmd.NewNonInteractiveClientConfig(*loaded, cc.Context, &clientcmd.ConfigOverrides{}, nil)
+	restCfg, err := clientCfg.ClientConfig()
 	if err != nil {
 		return nil, err
 	}

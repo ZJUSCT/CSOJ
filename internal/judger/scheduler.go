@@ -53,27 +53,93 @@ type QueuedSubmission struct {
 }
 
 type Scheduler struct {
-	cfg        *config.Config
 	db         *gorm.DB
+	settings   *config.SettingsStore
 	appState   *AppState
 	clusters   map[string]*ClusterState
+	mu         sync.RWMutex // guards the clusters map swap in ReloadClusters
 	dispatcher *Dispatcher
 }
 
-func NewScheduler(cfg *config.Config, db *gorm.DB, appState *AppState) *Scheduler {
+// NewScheduler builds a Scheduler whose cluster clientsets are read from the
+// `clusters` DB table (kubeconfig stored as text). The `settings` param is
+// accepted for API stability and future use; clusters are read from the DB.
+func NewScheduler(db *gorm.DB, settings *config.SettingsStore, appState *AppState) *Scheduler {
 	clusters := make(map[string]*ClusterState)
 
-	// Load all pool caps from the DB.
-	allPools, err := database.GetAllClusterPools(db)
+	dbClusters, err := database.GetAllClusters(db)
 	if err != nil {
-		zap.S().Fatalf("failed to load cluster node pools: %v", err)
+		zap.S().Fatalf("failed to load clusters from DB: %v", err)
 	}
-	poolsByCluster := make(map[string]map[string]*PoolState)
-	for _, p := range allPools {
-		if poolsByCluster[p.ClusterName] == nil {
-			poolsByCluster[p.ClusterName] = make(map[string]*PoolState)
+	for _, cc := range dbClusters {
+		cs, err := buildClusterState(db, cc)
+		if err != nil {
+			zap.S().Warnf("cluster %s failed to init: %v (skipping)", cc.Name, err)
+			continue
 		}
-		poolsByCluster[p.ClusterName][p.PoolName] = &PoolState{
+		clusters[cc.Name] = cs
+	}
+
+	s := &Scheduler{db: db, settings: settings, appState: appState, clusters: clusters}
+	s.dispatcher = NewDispatcher(nil, db, s, appState)
+	return s
+}
+
+// buildClusterState parses the kubeconfig text in cc.Kubeconfig, builds the
+// K8s clientset + dynamic client, loads the cluster's node-pool caps from the
+// DB, and returns a ready *ClusterState (without a queue — the caller sets it).
+func buildClusterState(db *gorm.DB, cc models.Cluster) (*ClusterState, error) {
+	loaded, err := clientcmd.Load([]byte(cc.Kubeconfig))
+	if err != nil {
+		return nil, fmt.Errorf("parse kubeconfig: %w", err)
+	}
+	clientCfg := clientcmd.NewNonInteractiveClientConfig(*loaded, cc.Context, &clientcmd.ConfigOverrides{}, nil)
+	restCfg, err := clientCfg.ClientConfig()
+	if err != nil {
+		return nil, fmt.Errorf("build rest config: %w", err)
+	}
+	cs, err := kubernetes.NewForConfig(restCfg)
+	if err != nil {
+		return nil, fmt.Errorf("build clientset: %w", err)
+	}
+	dyn, err := dynamic.NewForConfig(restCfg)
+	if err != nil {
+		return nil, fmt.Errorf("build dynamic client: %w", err)
+	}
+
+	pools, err := loadClusterPools(db, cc.Name)
+	if err != nil {
+		return nil, fmt.Errorf("load pools: %w", err)
+	}
+
+	conc := cc.Concurrency
+	if conc <= 0 {
+		conc = 1
+	}
+
+	cluster := &ClusterState{
+		Name:      cc.Name,
+		Namespace: cc.Namespace,
+		k8s:       cs,
+		dyn:       dyn,
+		pools:     pools,
+		sem:       make(chan struct{}, conc),
+		queue:     make(chan QueuedSubmission, 1024),
+	}
+	cluster.mpiEnabled = probeMPIOperator(cs, cc.Namespace)
+	return cluster, nil
+}
+
+// loadClusterPools reads the cluster's node-pool caps from the DB and returns
+// a map keyed by pool name.
+func loadClusterPools(db *gorm.DB, clusterName string) (map[string]*PoolState, error) {
+	rows, err := database.GetClusterPools(db, clusterName)
+	if err != nil {
+		return nil, err
+	}
+	pools := make(map[string]*PoolState, len(rows))
+	for _, p := range rows {
+		pools[p.PoolName] = &PoolState{
 			Name:         p.PoolName,
 			NodeSelector: toStringMap(p.NodeSelector),
 			CPU:          p.CPU,
@@ -81,69 +147,54 @@ func NewScheduler(cfg *config.Config, db *gorm.DB, appState *AppState) *Schedule
 			IsPaused:     p.IsPaused,
 		}
 	}
+	return pools, nil
+}
 
-	for i := range cfg.Cluster {
-		cc := cfg.Cluster[i]
-		conc := cc.Concurrency
-		if conc <= 0 {
-			conc = 1
-		}
-		// Build the K8s clientset + dynamic client from the kubeconfig.
-		loader := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
-			&clientcmd.ClientConfigLoadingRules{ExplicitPath: cc.Kubeconfig},
-			&clientcmd.ConfigOverrides{CurrentContext: cc.Context},
-		)
-		restCfg, err := loader.ClientConfig()
-		if err != nil {
-			zap.S().Fatalf("failed to build rest config for cluster %s: %v", cc.Name, err)
-		}
-		cs, err := kubernetes.NewForConfig(restCfg)
-		if err != nil {
-			zap.S().Fatalf("failed to build clientset for cluster %s: %v", cc.Name, err)
-		}
-		dyn, err := dynamic.NewForConfig(restCfg)
-		if err != nil {
-			zap.S().Fatalf("failed to build dynamic client for cluster %s: %v", cc.Name, err)
-		}
-
-		pools := poolsByCluster[cc.Name]
-		if pools == nil {
-			pools = make(map[string]*PoolState)
-		}
-		// Ensure a (disabled) PoolState exists for every config-declared pool name,
-		// so admins can PUT caps to enable it.
-		for _, np := range cc.NodePools {
-			if _, ok := pools[np.Name]; !ok {
-				pools[np.Name] = &PoolState{Name: np.Name}
-			}
-		}
-
-		cluster := &ClusterState{
-			Name:      cc.Name,
-			Namespace: cc.Namespace,
-			k8s:       cs,
-			dyn:       dyn,
-			pools:     pools,
-			sem:       make(chan struct{}, conc),
-			queue:     make(chan QueuedSubmission, 1024),
-		}
-		// Probe the MPI operator CRD (best-effort; non-fatal).
-		cluster.mpiEnabled = probeMPIOperator(cs, cc.Namespace)
-		clusters[cc.Name] = cluster
+// ReloadClusters re-reads clusters from the DB and rebuilds the clusters map.
+// Queues for clusters that still exist are preserved (in-flight work survives);
+// queues for removed clusters are dropped (their workers stop on channel close
+// is not triggered here — workers range over the channel; callers should drain
+// or accept that those goroutines block forever on a buffered channel).
+// Returns a per-cluster list of warnings for kubeconfig parse failures.
+func (s *Scheduler) ReloadClusters() ([]string, error) {
+	dbClusters, err := database.GetAllClusters(s.db)
+	if err != nil {
+		return nil, err
 	}
-
-	s := &Scheduler{cfg: cfg, db: db, appState: appState, clusters: clusters}
-	s.dispatcher = NewDispatcher(cfg, db, s, appState)
-	return s
+	newMap := make(map[string]*ClusterState, len(dbClusters))
+	var warnings []string
+	for _, cc := range dbClusters {
+		cs, err := buildClusterState(s.db, cc)
+		if err != nil {
+			warnings = append(warnings, fmt.Sprintf("cluster %s: %v", cc.Name, err))
+			continue
+		}
+		// Preserve the existing queue if this cluster already exists (in-flight work).
+		s.mu.RLock()
+		old, ok := s.clusters[cc.Name]
+		s.mu.RUnlock()
+		if ok {
+			cs.queue = old.queue
+		} else {
+			cs.queue = make(chan QueuedSubmission, 1024)
+		}
+		newMap[cc.Name] = cs
+	}
+	s.mu.Lock()
+	s.clusters = newMap
+	s.mu.Unlock()
+	return warnings, nil
 }
 
 // Dispatcher exposes the dispatcher (used by admin handlers for interrupt).
 func (s *Scheduler) Dispatcher() *Dispatcher { return s.dispatcher }
 
 func (s *Scheduler) Run() {
+	s.mu.RLock()
 	for name, cluster := range s.clusters {
 		go s.clusterWorker(name, cluster)
 	}
+	s.mu.RUnlock()
 }
 
 func (s *Scheduler) clusterWorker(name string, cluster *ClusterState) {
@@ -166,7 +217,14 @@ func (s *Scheduler) clusterWorker(name string, cluster *ClusterState) {
 			<-cluster.sem
 			go func(j QueuedSubmission) {
 				time.Sleep(time.Second)
-				s.clusters[name].queue <- j
+				s.mu.RLock()
+				c, ok := s.clusters[name]
+				s.mu.RUnlock()
+				if !ok {
+					zap.S().Warnf("cluster %s removed during requeue; dropping submission %s", name, j.Submission.ID)
+					return
+				}
+				c.queue <- j
 			}(job)
 			continue
 		}
@@ -192,7 +250,9 @@ func (s *Scheduler) findAvailablePool(cluster *ClusterState, cpu int, mem int64)
 }
 
 func (s *Scheduler) Submit(submission *models.Submission, problem *Problem) {
+	s.mu.RLock()
 	cluster, ok := s.clusters[problem.Cluster]
+	s.mu.RUnlock()
 	if !ok {
 		submission.Status = models.StatusFailed
 		submission.Info = models.JSONMap{"error": "Invalid cluster specified in problem definition"}
@@ -205,17 +265,22 @@ func (s *Scheduler) Submit(submission *models.Submission, problem *Problem) {
 
 // ReleaseSlot frees one concurrency slot (called by the dispatcher on completion).
 func (s *Scheduler) ReleaseSlot(clusterName string) {
-	if c, ok := s.clusters[clusterName]; ok {
-		select {
-		case <-c.sem:
-		default:
-		}
+	s.mu.RLock()
+	c, ok := s.clusters[clusterName]
+	s.mu.RUnlock()
+	if !ok {
+		return
+	}
+	select {
+	case <-c.sem:
+	default:
 	}
 }
 
 // GetClusterStates returns a snapshot of every cluster's pools + queue length.
 func (s *Scheduler) GetClusterStates() map[string]ClusterStateSnapshot {
 	out := make(map[string]ClusterStateSnapshot)
+	s.mu.RLock()
 	for name, c := range s.clusters {
 		c.Lock()
 		pools := make(map[string]PoolState, len(c.pools))
@@ -233,6 +298,7 @@ func (s *Scheduler) GetClusterStates() map[string]ClusterStateSnapshot {
 			Concurrency: cap(c.sem),
 		}
 	}
+	s.mu.RUnlock()
 	return out
 }
 
@@ -247,9 +313,11 @@ type ClusterStateSnapshot struct {
 
 func (s *Scheduler) GetQueueLengths() map[string]int {
 	out := make(map[string]int)
+	s.mu.RLock()
 	for name, c := range s.clusters {
 		out[name] = len(c.queue)
 	}
+	s.mu.RUnlock()
 	return out
 }
 
@@ -268,7 +336,9 @@ func (s *Scheduler) UpdatePoolResources(clusterName, pool string, cpu int, mem i
 }
 
 func (s *Scheduler) mutatePool(clusterName, pool string, fn func(*PoolState)) error {
+	s.mu.RLock()
 	c, ok := s.clusters[clusterName]
+	s.mu.RUnlock()
 	if !ok {
 		return fmt.Errorf("cluster %q not found", clusterName)
 	}
@@ -291,7 +361,9 @@ func (s *Scheduler) SetConcurrency(clusterName string, n int) error {
 // DeleteSubmissionResources deletes all pods + MPIJobs for a submission across its cluster.
 // Used by the interrupt handlers to clean up a running submission's K8s resources.
 func (s *Scheduler) DeleteSubmissionResources(clusterName, subID string) error {
+	s.mu.RLock()
 	c, ok := s.clusters[clusterName]
+	s.mu.RUnlock()
 	if !ok {
 		return nil
 	}
