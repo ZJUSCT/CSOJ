@@ -13,11 +13,12 @@ import (
 func RegisterRoutes(
 	r *gin.Engine,
 	cfg *config.Config,
+	settings *config.SettingsStore,
 	db *gorm.DB,
 	scheduler *judger.Scheduler,
 	appState *judger.AppState) {
 
-	h := NewHandler(cfg, db, scheduler, appState)
+	h := NewHandler(cfg, settings, db, scheduler, appState)
 
 	v1 := r.Group("/api/v1")
 	{
@@ -30,13 +31,14 @@ func RegisterRoutes(
 			gitlabGroup.GET("/login", h.gitlabAuthHandler.Login)
 			gitlabGroup.GET("/callback", h.gitlabAuthHandler.Callback)
 
-			// Local Username/Password Auth (if enabled)
-			if cfg.Auth.Local.Enabled {
-				localAuthGroup := authGroup.Group("/local")
-				{
-					localAuthGroup.POST("/register", h.localRegister)
-					localAuthGroup.POST("/login", h.localLogin)
-				}
+			// Local Username/Password Auth — registered unconditionally; the
+			// handlers check the `auth.local` toggle (live-reloadable) at
+			// request time. A missing settings row defaults to enabled so a
+			// fresh install can register the first superadmin.
+			localAuthGroup := authGroup.Group("/local")
+			{
+				localAuthGroup.POST("/register", h.localRegister)
+				localAuthGroup.POST("/login", h.localLogin)
 			}
 		}
 

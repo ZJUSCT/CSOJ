@@ -10,6 +10,7 @@ import (
 // Handler holds all dependencies for the user API handlers.
 type Handler struct {
 	cfg               *config.Config
+	settings          *config.SettingsStore
 	db                *gorm.DB
 	scheduler         *judger.Scheduler
 	appState          *judger.AppState
@@ -19,15 +20,17 @@ type Handler struct {
 // NewHandler creates a new user handler with its dependencies.
 func NewHandler(
 	cfg *config.Config,
+	settings *config.SettingsStore,
 	db *gorm.DB,
 	scheduler *judger.Scheduler,
 	appState *judger.AppState,
 ) *Handler {
 	return &Handler{
 		cfg:               cfg,
+		settings:          settings,
 		db:                db,
 		scheduler:         scheduler,
 		appState:          appState,
-		gitlabAuthHandler: auth.NewGitLabHandler(cfg, db),
+		gitlabAuthHandler: auth.NewGitLabHandler(cfg, settings, db),
 	}
 }

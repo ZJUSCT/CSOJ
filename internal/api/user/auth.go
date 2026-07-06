@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/ZJUSCT/CSOJ/internal/auth"
+	"github.com/ZJUSCT/CSOJ/internal/config"
 	"github.com/ZJUSCT/CSOJ/internal/database"
 	"github.com/ZJUSCT/CSOJ/internal/database/models"
 	"github.com/ZJUSCT/CSOJ/internal/util"
@@ -15,13 +16,31 @@ import (
 	"gorm.io/gorm"
 )
 
+// localAuthEnabled reports whether local username/password auth is enabled.
+// The toggle is read live from the `auth.local` settings row; a missing row
+// defaults to enabled so a fresh install can register the first superadmin
+// (who can then disable local auth via the admin panel).
+func (h *Handler) localAuthEnabled() bool {
+	var local config.LocalAuthConfig
+	_ = h.settings.Get("auth.local", &local)
+	if !local.Enabled && !h.settings.HasKey("auth.local") {
+		local.Enabled = true
+	}
+	return local.Enabled
+}
+
 func (h *Handler) getAuthStatus(c *gin.Context) {
 	util.Success(c, gin.H{
-		"local_auth_enabled": h.cfg.Auth.Local.Enabled,
+		"local_auth_enabled": h.localAuthEnabled(),
 	}, "Auth status retrieved")
 }
 
 func (h *Handler) localRegister(c *gin.Context) {
+	if !h.localAuthEnabled() {
+		util.Error(c, http.StatusNotFound, "local auth is disabled")
+		return
+	}
+
 	var req struct {
 		Username string `json:"username" binding:"required"`
 		Password string `json:"password" binding:"required"`
@@ -82,6 +101,11 @@ func (h *Handler) localRegister(c *gin.Context) {
 }
 
 func (h *Handler) localLogin(c *gin.Context) {
+	if !h.localAuthEnabled() {
+		util.Error(c, http.StatusNotFound, "local auth is disabled")
+		return
+	}
+
 	var req struct {
 		Username string `json:"username" binding:"required"`
 		Password string `json:"password" binding:"required"`

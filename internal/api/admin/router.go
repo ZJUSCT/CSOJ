@@ -14,11 +14,12 @@ import (
 func RegisterRoutes(
 	r *gin.Engine,
 	cfg *config.Config,
+	settings *config.SettingsStore,
 	db *gorm.DB,
 	scheduler *judger.Scheduler,
 	appState *judger.AppState) {
 
-	h := NewHandler(cfg, db, scheduler, appState)
+	h := NewHandler(cfg, settings, db, scheduler, appState)
 
 	adminV1 := r.Group("/api/v1/admin")
 	adminV1.Use(api.AdminMiddleware(cfg.Auth.JWT.Secret, db))
