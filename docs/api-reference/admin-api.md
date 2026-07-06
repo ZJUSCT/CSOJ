@@ -2,6 +2,8 @@
 
 The Admin API provides a set of powerful endpoints for system maintenance and management. All Admin API routes are mounted under the main CSOJ service and share its listen address (`listen` in `config.yaml`).
 
+All admin-managed data (contests, problems, announcements, assets, links, cluster node resource caps) is persisted in the database. There are no on-disk `contest.yaml` / `problem.yaml` files to edit — every write goes through the endpoints below and triggers an in-memory `reload` so the running server picks up the change immediately.
+
 ## Authentication
 
 All Admin API routes are prefixed with `/api/v1/admin` and require a valid JWT
@@ -18,18 +20,17 @@ The first user to register (local or GitLab) is automatically granted the
 
 #### `POST /api/v1/admin/reload`
 
-- **Description**: Hot-reloads all contest and problem configurations from disk.
-  - The system rescans the directory specified in `contests_root` in `config.yaml`.
+- **Description**: Hot-reloads all contest and problem state from the database.
+  - The system re-reads the `contests`, `problems`, and `announcements` tables and rebuilds the in-memory app state.
   - New or modified contests/problems will be loaded.
-  - If a problem is deleted, all submission records associated with that problem will also be **permanently deleted from the database**, including any running containers associated with them.
+  - If a problem has been deleted, any submission records whose problem no longer exists are flagged accordingly (running containers associated with them are cleaned up).
 - **Success Response** (`200 OK`):
   ```json
   {
     "code": 0,
     "data": {
       "contests_loaded": 2,
-      "problems_loaded": 15,
-      "submissions_deleted": 5
+      "problems_loaded": 15
     },
     "message": "Reload successful"
   }
@@ -107,8 +108,8 @@ The first user to register (local or GitLab) is automatically granted the
 
 #### `POST /api/v1/admin/contests`
 
-  - **Description**: Creates a new contest by creating the necessary directory and `contest.yaml` file on disk. Requires a `reload` to be active.
-  - **Request Body**: A full `Contest` JSON object.
+  - **Description**: Creates a new contest record in the database. Triggers a system `reload`.
+  - **Request Body**: A full `Contest` JSON object (see [Contest Config](../configuration/contest-config.md)).
 
 #### `GET /api/v1/admin/contests/:id`
 
@@ -116,17 +117,22 @@ The first user to register (local or GitLab) is automatically granted the
 
 #### `PUT /api/v1/admin/contests/:id`
 
-  - **Description**: Updates the `contest.yaml` file for a contest. Triggers a system `reload`.
+  - **Description**: Updates the contest record in the database. The `problems` list is preserved (manage it via the problem endpoints below). Triggers a system `reload`.
   - **Request Body**: A full `Contest` JSON object.
 
 #### `DELETE /api/v1/admin/contests/:id`
 
-  - **Description**: Deletes a contest's directory and all its contents from disk. Triggers a system `reload`.
+  - **Description**: Deletes a contest record from the database. Triggers a system `reload`.
 
 #### `POST /api/v1/admin/contests/:id/problems`
 
-  - **Description**: Creates a new problem within a contest. Triggers a system `reload`.
-  - **Request Body**: A full `Problem` JSON object.
+  - **Description**: Creates a new problem record in the database and appends its ID to the contest's ordered `problems` list. Triggers a system `reload`.
+  - **Request Body**: A full `Problem` JSON object (see [Problem Config](../configuration/problem-config.md)).
+
+#### `PUT /api/v1/admin/contests/:id/problems/order`
+
+  - **Description**: Reorders the problems in a contest. The request must contain the same set of problem IDs as the current list (just reordered); duplicates or foreign IDs are rejected. Triggers a system `reload`.
+  - **Request Body** (`application/json`): `{ "problem_ids": ["p1002-fizzbuzz", "p1001-aplusb"] }`
 
 #### `GET /api/v1/admin/problems`
 
@@ -138,12 +144,12 @@ The first user to register (local or GitLab) is automatically granted the
 
 #### `PUT /api/v1/admin/problems/:id`
 
-  - **Description**: Updates a `problem.yaml` file. Triggers a system `reload`.
+  - **Description**: Updates the problem record in the database. Triggers a system `reload`.
   - **Request Body**: A full `Problem` JSON object.
 
 #### `DELETE /api/v1/admin/problems/:id`
 
-  - **Description**: Deletes a problem's directory from disk. Triggers a system `reload`.
+  - **Description**: Deletes a problem record from the database and removes its ID from the parent contest's `problems` list. Triggers a system `reload`.
 
 -----
 
@@ -155,11 +161,11 @@ The first user to register (local or GitLab) is automatically granted the
 
 #### `POST /api/v1/admin/contests/:id/assets`
 
-  - **Description**: Uploads one or more asset files to a contest's `index.assets` directory.
+  - **Description**: Uploads one or more asset files for a contest. Assets are stored as BLOB rows in the database (no on-disk `index.assets/` directory).
 
 #### `DELETE /api/v1/admin/contests/:id/assets`
 
-  - **Description**: Deletes an asset (file or directory) from a contest.
+  - **Description**: Deletes an asset (file or directory subtree) for a contest.
 
 #### `GET /api/v1/admin/contests/:id/announcements`
 
@@ -187,11 +193,11 @@ The first user to register (local or GitLab) is automatically granted the
 
 #### `POST /api/v1/admin/problems/:id/assets`
 
-  - **Description**: Uploads one or more asset files to a problem's `index.assets` directory.
+  - **Description**: Uploads one or more asset files for a problem. Assets are stored as BLOB rows in the database (no on-disk `index.assets/` directory).
 
 #### `DELETE /api/v1/admin/problems/:id/assets`
 
-  - **Description**: Deletes an asset (file or directory) from a problem.
+  - **Description**: Deletes an asset (file or directory subtree) for a problem.
 
 -----
 
@@ -274,6 +280,20 @@ The first user to register (local or GitLab) is automatically granted the
 
   - **Description**: Resumes a paused node.
 
+#### `PUT /api/v1/admin/clusters/:clusterName/nodes/:nodeName`
+
+  - **Description**: Updates a node's `cpu` and `memory` resource caps. The values are persisted to the `cluster_nodes` table and applied to the running scheduler in place (no restart required). **Requires the `admin` or `superadmin` role.**
+  - **Request Body** (`application/json`):
+    ```json
+    {
+      "cpu": 4,
+      "memory": 4096
+    }
+    ```
+    - `cpu`: (integer, required, positive) Total CPU cores the scheduler may use on this node.
+    - `memory`: (integer, required, positive) Total memory (in MB) the scheduler may use on this node.
+  - **Note**: A node must already be present in `config.yaml` (its Docker connection) for the scheduler to recognize it. This endpoint only sets the runtime resource caps — adding a new node's Docker connection requires editing `config.yaml` and restarting.
+
 #### `GET /api/v1/admin/containers`
 
   - **Description**: Gets a paginated list of all containers. Supports filtering by `submission_id`, `status`, and `user_query`.
@@ -281,6 +301,40 @@ The first user to register (local or GitLab) is automatically granted the
 #### `GET /api/v1/admin/containers/:id`
 
   - **Description**: Gets details for a single container.
+
+-----
+
+### Nav Links
+
+Nav links (the entries in the frontend navigation bar) are stored in the database and managed via the endpoints below. The user-facing `GET /api/v1/links` reads the same rows.
+
+#### `GET /api/v1/admin/links`
+
+  - **Description**: Lists all nav links, ordered by `position` ascending.
+
+#### `POST /api/v1/admin/links`
+
+  - **Description**: Creates a new nav link. If `position` is omitted, the link is appended to the end of the list.
+  - **Request Body** (`application/json`):
+    ```json
+    {
+      "name": "Project Source",
+      "url": "https://github.com/ZJUSCT/CSOJ",
+      "position": 0
+    }
+    ```
+    - `name`: (string, required) The display text for the link.
+    - `url`: (string, required) The destination URL. Can be an internal path (e.g., `/about`) or an external URL.
+    - `position`: (integer, optional) Sort order. Lower values appear earlier. Defaults to the end of the list.
+
+#### `PUT /api/v1/admin/links/:id`
+
+  - **Description**: Updates an existing nav link. All three fields in the body are written through.
+  - **Request Body** (`application/json`): `{ "name": "...", "url": "...", "position": 1 }`
+
+#### `DELETE /api/v1/admin/links/:id`
+
+  - **Description**: Deletes a nav link.
 
 -----
 

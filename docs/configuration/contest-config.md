@@ -1,45 +1,48 @@
-# Contest Config (contest.yaml)
+# Contest Config
 
-Each contest is defined by a separate directory. All such directories should be placed inside the path specified by `contests_root` in the main `config.yaml` file.
+A contest is a **database record** created via `POST /api/v1/admin/contests` and managed through the admin API. The contest definition, its ordered problem list, its announcements, and its static assets are all stored in the database — **not** on disk. There is no `contest.yaml` file and no per-contest directory.
 
-A contest directory must contain a `contest.yaml` file and an `index.md` file for the contest description. It may also contain an `announcements.yaml` file and an `index.assets/` directory for static files, which are managed via the Admin API.
+## JSON Shape
 
-## Directory Structure Example
-
+```json
+{
+  "id": "sample-contest-1",
+  "name": "Sample Introductory Contest",
+  "starttime": "2025-10-01T09:00:00+08:00",
+  "endtime": "2025-10-01T12:00:00+08:00",
+  "problems": ["p1001-aplusb", "p1002-fizzbuzz"],
+  "description": "# Sample Introductory Contest\n\nWelcome..."
+}
 ```
 
-contests/sample-contest/
-├── contest.yaml         \# The core configuration file for the contest
-├── index.md             \# Detailed contest description in Markdown
-├── announcements.yaml   \# (Managed by API) Stores contest announcements
-├── index.assets/        \# (Managed by API) Static assets for the description
-└── p1001-aplusb/        \# A problem directory; the name is arbitrary
+## Creating a Contest
 
+```bash
+curl -X POST /api/v1/admin/contests \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "id": "sample-contest-1",
+    "name": "Sample Introductory Contest",
+    "starttime": "2025-10-01T09:00:00+08:00",
+    "endtime": "2025-10-01T12:00:00+08:00",
+    "description": "# Sample Introductory Contest"
+  }'
 ```
 
----
+## Managing a Contest's Problems
 
-## `contest.yaml` Example
+- **Add a problem** — `POST /api/v1/admin/contests/:id/problems` creates the problem record and appends its ID to the contest's ordered `problems` list.
+- **Reorder problems** — `PUT /api/v1/admin/contests/:id/problems/order` with body `{ "problem_ids": ["p1002-fizzbuzz", "p1001-aplusb"] }` sets the full ordered list. The request must contain the same set of problem IDs as the current list (just reordered); duplicates or foreign IDs are rejected.
 
-```yaml
-# The unique ID for the contest
-id: "sample-contest-1"
+The `problems` field on the contest record is the source of truth for ordering; individual problem definitions live in their own records (see [Problem Config](./problem-config.md)).
 
-# The name of the contest to be displayed on the frontend
-name: "Sample Introductory Contest"
+## Updating and Deleting
 
-# Contest start time (ISO 8601 format)
-starttime: "2025-10-01T09:00:00+08:00"
+- **Update** — `PUT /api/v1/admin/contests/:id` with the full Contest JSON. The `problems` list is preserved (it is managed via the problem endpoints above).
+- **Delete** — `DELETE /api/v1/admin/contests/:id` removes the contest record. (Problem records belonging to the contest should be deleted individually via `DELETE /api/v1/admin/problems/:id`.)
 
-# Contest end time (ISO 8601 format)
-endtime: "2025-10-01T12:00:00+08:00"
-
-# A list of problems included in the contest
-# Each item is a relative path to a directory containing a problem.yaml file
-problems:
-  - "p1001-aplusb"
-  - "p1002-fizzbuzz"
-```
+All write endpoints trigger an in-memory `reload` so the running server picks up the change immediately.
 
 -----
 
@@ -81,5 +84,13 @@ problems:
 ### `problems`
 
   - **Type**: `array of strings`
-  - **Required**: Yes
-  - **Description**: Defines which problems are included in the contest. Each string in the array is a directory path **relative to the current `contest.yaml` file**. This directory must contain a `problem.yaml` file.
+  - **Required**: No (managed via the problem endpoints)
+  - **Description**: The ordered list of problem IDs included in the contest. Order is managed via `PUT /api/v1/admin/contests/:id/problems/order`; appending a problem via `POST /api/v1/admin/contests/:id/problems` adds its ID to the end of this list.
+
+-----
+
+### `description`
+
+  - **Type**: `string` (Markdown)
+  - **Required**: No
+  - **Description**: The contest description shown on the frontend, written in Markdown. Static assets referenced from the description are uploaded and managed via the contest asset endpoints (`POST /api/v1/admin/contests/:id/assets`).

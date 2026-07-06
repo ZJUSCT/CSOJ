@@ -1,130 +1,123 @@
-# Problem Config (problem.yaml)
+# Problem Config
 
-Each problem is defined by a separate directory, the path of which must be declared in the `problems` list of its parent `contest.yaml` file.
+A problem is a **database record** created via `POST /api/v1/admin/contests/:id/problems` and managed through the admin API. The problem definition and its static assets are stored in the database — **not** on disk. There is no `problem.yaml` file and no per-problem directory.
 
-A problem directory must contain a `problem.yaml` file and an `index.md` file for the problem statement. It may also contain an `index.assets/` directory for static files (e.g., images referenced in the statement), which is managed via the Admin API.
-
-## Directory Structure Example
-
-```
-
-...
-├── problem.yaml   \# The core configuration file for the problem
-├── index.md       \# The problem statement in Markdown
-└── index.assets/  \# (Managed by API) Static assets for the statement
-
-```
-
----
-
-## `problem.yaml` Examples
+## JSON Examples
 
 ### Example 1: Standard Scoring
 
-This is a configuration for a classic A+B problem using the standard file upload and a fixed-point scoring system.
+A classic A+B problem using the standard file upload and a fixed-point scoring system.
 
-```yaml
-# The unique ID for the problem
-id: "aplusb"
-
-# The name of the problem
-name: "A+B Problem"
-
-# Independent open time for the problem (optional)
-# If set, it takes precedence over the contest time, but must be within the contest's time range
-starttime: "2025-10-01T09:00:00+08:00"
-endtime: "2025-10-01T12:00:00+08:00"
-
-# Maximum number of valid submissions per user for this problem. 0 means unlimited.
-max_submissions: 10
-
-# Specifies the scoring rule. Defaults to "score".
-score:
-  mode: "score"
-
-# Limits on user-uploaded files (optional)
-upload:
-  upload_form: true # Enables the file upload component on the frontend
-  maxnum: 2    # Max number of files allowed
-  maxsize: 1   # Max total size for all files in MB
-
-# Judging resource configuration
-cluster: "default-cluster"  # Specifies which cluster to judge on
-cpu: 1                      # Number of CPU cores to request for judging
-memory: 256                 # Amount of memory (in MB) to request for judging
-
-# The judging workflow
-workflow:
-  # Step 1: Compile the C++ code
-  - name: "Compile"
-    image: "gcc:latest"
-    root: false
-    timeout: 10
-    show: true
-    network: false
-    steps:
-      - ["g++", "main.cpp", "-o", "main"]
-
-  # Step 2: Run and judge
-  - name: "Run & Judge"
-    image: "zjusct/oj-judger:latest"
-    root: false
-    timeout: 5
-    show: false
-    network: false
-    mounts:
-      - type: bind
-        source: "/path/on/node/testcases/aplusb" # Path on the judger node
-        target: "/data"                         # Path inside the container
-        readonly: true
-    steps:
-      # This hypothetical command runs the user's program and prints the result JSON to stdout.
-      - ["/judge", "--input", "/data/input.txt", "--ans", "/data/ans.txt", "./main"]
+```json
+{
+  "id": "aplusb",
+  "name": "A+B Problem",
+  "level": "easy",
+  "starttime": "2025-10-01T09:00:00+08:00",
+  "endtime": "2025-10-01T12:00:00+08:00",
+  "max_submissions": 10,
+  "cluster": "default-cluster",
+  "cpu": 1,
+  "memory": 256,
+  "upload": {
+    "upload_form": true,
+    "maxnum": 2,
+    "maxsize": 1
+  },
+  "score": {
+    "mode": "score"
+  },
+  "workflow": [
+    {
+      "name": "Compile",
+      "image": "gcc:latest",
+      "root": false,
+      "timeout": 10,
+      "show": true,
+      "network": false,
+      "steps": [["g++", "main.cpp", "-o", "main"]]
+    },
+    {
+      "name": "Run & Judge",
+      "image": "zjusct/oj-judger:latest",
+      "root": false,
+      "timeout": 5,
+      "show": false,
+      "network": false,
+      "mounts": [
+        {
+          "type": "bind",
+          "source": "/path/on/node/testcases/aplusb",
+          "target": "/data",
+          "readonly": true
+        }
+      ],
+      "steps": [["/judge", "--input", "/data/input.txt", "--ans", "/data/ans.txt", "./main"]]
+    }
+  ],
+  "description": "# A+B Problem\n\nGiven two integers..."
+}
 ```
 
 ### Example 2: Performance-Based Scoring
 
-This problem uses a dynamic scoring rule where a user's score is relative to the best-performing submission.
+A dynamic scoring rule where a user's score is relative to the best-performing submission.
 
-```yaml
-id: "performance-example"
-name: "Performance Optimization"
-max_submissions: 5
-cluster: "default-cluster"
-cpu: 1
-memory: 256
-
-# Configure the scoring mode to "performance"
-score:
-  mode: "performance"
-  # Define the maximum score a user can get (i.e., the score for the top performance)
-  max_performance_score: 120
-
-# Configure the online editor
-upload:
-  editor: true
-  editor_files:
-    - "main.cpp"
-    - "CMakeLists.txt"
-  maxsize: 1 # Max total size of 1 MB for all editor content
-
-workflow:
-  - name: "Compile"
-    image: "gcc:latest"
-    timeout: 10
-    show: true
-    steps:
-      - ["cmake", "."]
-      - ["make"]
-  - name: "Judge"
-    image: "zjusct/oj-judger:latest"
-    timeout: 5
-    show: false
-    steps:
-      # The judger for a performance problem should output a "performance" metric.
-      # The system will then calculate the "score" based on this metric.
-      - ["/judge", "./main"]
+```json
+{
+  "id": "performance-example",
+  "name": "Performance Optimization",
+  "level": "hard",
+  "max_submissions": 5,
+  "cluster": "default-cluster",
+  "cpu": 1,
+  "memory": 256,
+  "score": {
+    "mode": "performance",
+    "max_performance_score": 120
+  },
+  "upload": {
+    "editor": true,
+    "editor_files": ["main.cpp", "CMakeLists.txt"],
+    "maxsize": 1
+  },
+  "workflow": [
+    {
+      "name": "Compile",
+      "image": "gcc:latest",
+      "timeout": 10,
+      "show": true,
+      "steps": [["cmake", "."], ["make"]]
+    },
+    {
+      "name": "Judge",
+      "image": "zjusct/oj-judger:latest",
+      "timeout": 5,
+      "show": false,
+      "steps": [["/judge", "./main"]]
+    }
+  ],
+  "description": "# Performance Optimization\n\n..."
+}
 ```
+
+## Creating a Problem
+
+```bash
+curl -X POST /api/v1/admin/contests/sample-contest-1/problems \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{ ... full Problem JSON ... }'
+```
+
+The new problem's ID is appended to the parent contest's ordered `problems` list automatically.
+
+## Updating and Deleting
+
+- **Update** — `PUT /api/v1/admin/problems/:id` with the full Problem JSON.
+- **Delete** — `DELETE /api/v1/admin/problems/:id` removes the problem record and removes its ID from the parent contest's `problems` list.
+
+All write endpoints trigger an in-memory `reload` so the running server picks up the change immediately.
 
 -----
 
@@ -146,6 +139,14 @@ workflow:
 
 -----
 
+### `level`
+
+  - **Type**: `string`
+  - **Required**: No
+  - **Description**: A label for the problem's difficulty (e.g., `"easy"`, `"medium"`, `"hard"`). Display-only.
+
+-----
+
 ### `starttime` / `endtime`
 
   - **Type**: `string` (ISO 8601 format)
@@ -163,15 +164,27 @@ workflow:
 
 -----
 
-### `score`
+### `cluster`
 
-  - **Type**: `object`
-  - **Required**: No
-  - **Description**: Configures the scoring mechanism for the problem.
-      - `mode`: (string) The scoring mode to use.
-          - `"score"`: (Default) The judger directly returns a `score` value.
-          - `"performance"`: The judger returns a `performance` value (a number), and the system calculates the score based on the ratio of the user's performance to the current best performance across all users.
-      - `max_performance_score`: (integer) **Required** when `mode` is `"performance"`. This is the score awarded to the submission with the highest performance.
+  - **Type**: `string`
+  - **Required**: Yes
+  - **Description**: Specifies which cluster the judging tasks for this problem should be scheduled to. This name must match a `name` defined in the `cluster` section of `config.yaml`.
+
+-----
+
+### `cpu`
+
+  - **Type**: `integer`
+  - **Required**: Yes
+  - **Description**: The number of CPU cores to request from the scheduler for a judging task. (Per-node upper bounds are set via the admin API — see [Main Config](./main-config.md).)
+
+-----
+
+### `memory`
+
+  - **Type**: `integer`
+  - **Required**: Yes
+  - **Description**: The amount of memory (in MB) to request from the scheduler for a judging task.
 
 -----
 
@@ -185,30 +198,6 @@ workflow:
       - `editor_files`: (array of strings) When `editor` is `true`, this lists the filenames that will be shown as tabs in the online editor. The content from these editors will be submitted as files with these names.
       - `maxnum`: (integer) The maximum number of files a user can upload in a single submission.
       - `maxsize`: (integer) The maximum **total size** in **megabytes (MB)** for all files in a single submission.
-
------
-
-### `cluster`
-
-  - **Type**: `string`
-  - **Required**: Yes
-  - **Description**: Specifies which cluster the judging tasks for this problem should be scheduled to. This name must match a `name` defined in the `cluster` section of `config.yaml`.
-
------
-
-### `cpu`
-
-  - **Type**: `integer`
-  - **Required**: Yes
-  - **Description**: The number of CPU cores to request from the scheduler for a judging task.
-
------
-
-### `memory`
-
-  - **Type**: `integer`
-  - **Required**: Yes
-  - **Description**: The amount of memory (in MB) to request from the scheduler for a judging task.
 
 -----
 
@@ -232,7 +221,27 @@ workflow:
 
 -----
 
-### Judge Result JSON Format
+### `score`
+
+  - **Type**: `object`
+  - **Required**: No
+  - **Description**: Configures the scoring mechanism for the problem.
+      - `mode`: (string) The scoring mode to use.
+          - `"score"`: (Default) The judger directly returns a `score` value.
+          - `"performance"`: The judger returns a `performance` value (a number), and the system calculates the score based on the ratio of the user's performance to the current best performance across all users.
+      - `max_performance_score`: (integer) **Required** when `mode` is `"performance"`. This is the score awarded to the submission with the highest performance.
+
+-----
+
+### `description`
+
+  - **Type**: `string` (Markdown)
+  - **Required**: No
+  - **Description**: The problem statement shown on the frontend, written in Markdown. Static assets referenced from the description are uploaded and managed via the problem asset endpoints (`POST /api/v1/admin/problems/:id/assets`).
+
+-----
+
+## Judge Result JSON Format
 
 The **final step** of the workflow is responsible for reporting the result by printing a JSON object to **standard output**. The required fields in the JSON depend on the `score.mode`.
 
