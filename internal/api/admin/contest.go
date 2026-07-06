@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	"github.com/ZJUSCT/CSOJ/internal/database"
+	"github.com/ZJUSCT/CSOJ/internal/database/models"
 	"github.com/ZJUSCT/CSOJ/internal/judger"
 	"github.com/ZJUSCT/CSOJ/internal/util"
 	"github.com/gin-gonic/gin"
@@ -51,19 +52,12 @@ func (h *Handler) createContest(c *gin.Context) {
 		return
 	}
 
-	if h.cfg.ContestsRoot == "" {
-		util.Error(c, http.StatusInternalServerError, "contests_root is not configured on the server")
-		return
-	}
-	baseDir := h.cfg.ContestsRoot
-
-	if err := judger.CreateContest(baseDir, &newContest); err != nil {
-		util.Error(c, http.StatusInternalServerError, fmt.Errorf("failed to create contest files: %w", err))
+	mc := judger.ContestToModel(&newContest)
+	if err := h.db.Create(&mc).Error; err != nil {
+		util.Error(c, http.StatusInternalServerError, fmt.Errorf("failed to create contest: %w", err))
 		return
 	}
 	zap.S().Infof("admin created contest '%s'", newContest.ID)
-
-	// Reload state and respond
 	h.reload(c)
 }
 
@@ -74,26 +68,24 @@ func (h *Handler) updateContest(c *gin.Context) {
 		util.Error(c, http.StatusBadRequest, err)
 		return
 	}
-
 	if contestID != updatedContest.ID {
 		util.Error(c, http.StatusBadRequest, "contest ID in path does not match contest ID in body")
 		return
 	}
 
 	h.appState.RLock()
-	existingContest, ok := h.appState.Contests[contestID]
+	existing, ok := h.appState.Contests[contestID]
 	h.appState.RUnlock()
 	if !ok {
 		util.Error(c, http.StatusNotFound, "contest not found")
 		return
 	}
 
-	// Preserve internal fields that are not part of the request body
-	updatedContest.BasePath = existingContest.BasePath
-	updatedContest.ProblemDirs = existingContest.ProblemDirs // Problem list is managed via problem endpoints
-
-	if err := judger.UpdateContest(&updatedContest); err != nil {
-		util.Error(c, http.StatusInternalServerError, fmt.Errorf("failed to update contest files: %w", err))
+	// Preserve the problem list (managed via problem endpoints / order endpoint)
+	updatedContest.ProblemIDs = existing.ProblemIDs
+	mc := judger.ContestToModel(&updatedContest)
+	if err := h.db.Save(&mc).Error; err != nil {
+		util.Error(c, http.StatusInternalServerError, fmt.Errorf("failed to update contest: %w", err))
 		return
 	}
 	zap.S().Infof("admin updated contest '%s'", updatedContest.ID)
@@ -119,52 +111,32 @@ func (h *Handler) handleUpdateContestProblemOrder(c *gin.Context) {
 		return
 	}
 
-	// Basic validation: ensure all provided IDs are actual problems in the contest
-	// and check for duplicates in the request.
-	newProblemSet := make(map[string]struct{})
+	newSet := make(map[string]struct{})
 	for _, pid := range req.ProblemIDs {
-		if _, exists := newProblemSet[pid]; exists {
+		if _, exists := newSet[pid]; exists {
 			util.Error(c, http.StatusBadRequest, fmt.Sprintf("duplicate problem ID in request: %s", pid))
 			return
 		}
-		newProblemSet[pid] = struct{}{}
+		newSet[pid] = struct{}{}
 	}
-
-	originalProblemSet := make(map[string]struct{})
+	origSet := make(map[string]struct{})
 	for _, pid := range contest.ProblemIDs {
-		originalProblemSet[pid] = struct{}{}
+		origSet[pid] = struct{}{}
 	}
-
-	if len(newProblemSet) != len(originalProblemSet) {
+	if len(newSet) != len(origSet) {
 		util.Error(c, http.StatusBadRequest, "number of problems does not match original")
 		return
 	}
-
-	for pid := range newProblemSet {
-		if _, exists := originalProblemSet[pid]; !exists {
+	for pid := range newSet {
+		if _, exists := origSet[pid]; !exists {
 			util.Error(c, http.StatusBadRequest, fmt.Sprintf("problem ID %s not found in original contest", pid))
 			return
 		}
 	}
 
-	// The `ProblemIDs` is for the API response. We should update both to keep the in-memory state consistent before reload.
-	// The `ProblemDirs` field is what's written to contest.yaml as `problems`.
-	newProblemDirs := make([]string, len(req.ProblemIDs))
-	for i, pid := range req.ProblemIDs {
-		// Find the corresponding problem dir for this problem ID
-		for j, origPID := range contest.ProblemIDs {
-			if pid == origPID {
-				newProblemDirs[i] = contest.ProblemDirs[j]
-				break
-			}
-		}
-	}
-
-	contest.ProblemIDs = req.ProblemIDs
-	contest.ProblemDirs = newProblemDirs
-
-	if err := judger.UpdateContest(contest); err != nil {
-		util.Error(c, http.StatusInternalServerError, fmt.Errorf("failed to update contest file: %w", err))
+	newIDs := models.StringArray(req.ProblemIDs)
+	if err := h.db.Model(&models.Contest{}).Where("id = ?", contestID).Update("problem_ids", newIDs).Error; err != nil {
+		util.Error(c, http.StatusInternalServerError, fmt.Errorf("failed to update contest problem order: %w", err))
 		return
 	}
 	zap.S().Infof("admin updated problem order for contest '%s'", contestID)
@@ -173,17 +145,8 @@ func (h *Handler) handleUpdateContestProblemOrder(c *gin.Context) {
 
 func (h *Handler) deleteContest(c *gin.Context) {
 	contestID := c.Param("id")
-
-	h.appState.RLock()
-	contest, ok := h.appState.Contests[contestID]
-	h.appState.RUnlock()
-	if !ok {
-		util.Error(c, http.StatusNotFound, "contest not found")
-		return
-	}
-
-	if err := judger.DeleteContest(contest); err != nil {
-		util.Error(c, http.StatusInternalServerError, fmt.Errorf("failed to delete contest files: %w", err))
+	if err := h.db.Delete(&models.Contest{}, "id = ?", contestID).Error; err != nil {
+		util.Error(c, http.StatusInternalServerError, fmt.Errorf("failed to delete contest: %w", err))
 		return
 	}
 	zap.S().Warnf("admin deleted contest '%s'", contestID)
@@ -207,14 +170,25 @@ func (h *Handler) createProblemInContest(c *gin.Context) {
 	}
 	_, problemExists := h.appState.Problems[newProblem.ID]
 	h.appState.RUnlock()
-
 	if problemExists {
 		util.Error(c, http.StatusConflict, "a problem with this ID already exists")
 		return
 	}
 
-	if err := judger.CreateProblem(contest, &newProblem); err != nil {
-		util.Error(c, http.StatusInternalServerError, fmt.Errorf("failed to create problem files: %w", err))
+	mp, err := judger.ProblemToModel(&newProblem, contestID)
+	if err != nil {
+		util.Error(c, http.StatusInternalServerError, fmt.Errorf("failed to marshal problem: %w", err))
+		return
+	}
+	if err := h.db.Create(&mp).Error; err != nil {
+		util.Error(c, http.StatusInternalServerError, fmt.Errorf("failed to create problem: %w", err))
+		return
+	}
+
+	// Append the problem ID to the contest's ordered list
+	newIDs := append(contest.ProblemIDs, newProblem.ID)
+	if err := h.db.Model(&models.Contest{}).Where("id = ?", contestID).Update("problem_ids", models.StringArray(newIDs)).Error; err != nil {
+		util.Error(c, http.StatusInternalServerError, fmt.Errorf("failed to update contest problem list: %w", err))
 		return
 	}
 	zap.S().Infof("admin created problem '%s' in contest '%s'", newProblem.ID, contestID)
