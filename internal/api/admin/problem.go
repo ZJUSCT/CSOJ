@@ -1,9 +1,9 @@
 package admin
 
 import (
-	"fmt"
 	"net/http"
 
+	"github.com/ZJUSCT/CSOJ/internal/database/models"
 	"github.com/ZJUSCT/CSOJ/internal/judger"
 	"github.com/ZJUSCT/CSOJ/internal/util"
 	"github.com/gin-gonic/gin"
@@ -42,25 +42,34 @@ func (h *Handler) updateProblem(c *gin.Context) {
 		util.Error(c, http.StatusBadRequest, err)
 		return
 	}
-
 	if problemID != updatedProblem.ID {
 		util.Error(c, http.StatusBadRequest, "problem ID in path does not match problem ID in body")
 		return
 	}
 
 	h.appState.RLock()
-	existingProblem, ok := h.appState.Problems[problemID]
+	existing, ok := h.appState.Problems[problemID]
+	parentContest, _ := h.appState.ProblemToContestMap[problemID]
 	h.appState.RUnlock()
 	if !ok {
 		util.Error(c, http.StatusNotFound, "problem not found")
 		return
 	}
 
-	// Preserve internal fields that are not part of the request body
-	updatedProblem.BasePath = existingProblem.BasePath
+	// Preserve the cluster assignment (it's part of the body normally, but be defensive).
+	_ = existing
 
-	if err := judger.UpdateProblem(&updatedProblem); err != nil {
-		util.Error(c, http.StatusInternalServerError, fmt.Errorf("failed to update problem files: %w", err))
+	contestID := ""
+	if parentContest != nil {
+		contestID = parentContest.ID
+	}
+	mp, err := judger.ProblemToModel(&updatedProblem, contestID)
+	if err != nil {
+		util.Error(c, http.StatusInternalServerError, fmt.Errorf("failed to marshal problem: %w", err))
+		return
+	}
+	if err := h.db.Save(&mp).Error; err != nil {
+		util.Error(c, http.StatusInternalServerError, fmt.Errorf("failed to update problem: %w", err))
 		return
 	}
 	zap.S().Infof("admin updated problem '%s'", updatedProblem.ID)
@@ -72,22 +81,33 @@ func (h *Handler) deleteProblem(c *gin.Context) {
 
 	h.appState.RLock()
 	_, ok := h.appState.Problems[problemID]
+	parentContest, contestOk := h.appState.ProblemToContestMap[problemID]
+	h.appState.RUnlock()
 	if !ok {
-		h.appState.RUnlock()
 		util.Error(c, http.StatusNotFound, "problem not found")
 		return
 	}
-	contest, contestOk := h.appState.ProblemToContestMap[problemID]
-	h.appState.RUnlock()
-	if !contestOk {
+	if !contestOk || parentContest == nil {
 		util.Error(c, http.StatusInternalServerError, "could not find parent contest for problem, state may be inconsistent")
 		return
 	}
 
-	if err := judger.DeleteProblem(contest, problemID); err != nil {
-		util.Error(c, http.StatusInternalServerError, fmt.Errorf("failed to delete problem files: %w", err))
+	if err := h.db.Delete(&models.Problem{}, "id = ?", problemID).Error; err != nil {
+		util.Error(c, http.StatusInternalServerError, fmt.Errorf("failed to delete problem: %w", err))
 		return
 	}
-	zap.S().Warnf("admin deleted problem '%s' from contest '%s'", problemID, contest.ID)
+
+	// Remove the problem ID from the parent contest's ordered list
+	newIDs := make([]string, 0, len(parentContest.ProblemIDs))
+	for _, pid := range parentContest.ProblemIDs {
+		if pid != problemID {
+			newIDs = append(newIDs, pid)
+		}
+	}
+	if err := h.db.Model(&models.Contest{}).Where("id = ?", parentContest.ID).Update("problem_ids", models.StringArray(newIDs)).Error; err != nil {
+		util.Error(c, http.StatusInternalServerError, fmt.Errorf("failed to update contest problem list: %w", err))
+		return
+	}
+	zap.S().Warnf("admin deleted problem '%s' from contest '%s'", problemID, parentContest.ID)
 	h.reload(c)
 }
