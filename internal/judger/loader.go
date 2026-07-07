@@ -47,15 +47,17 @@ type Mount struct {
 }
 
 type WorkflowStep struct {
-	Name    string     `yaml:"name" json:"name"`
-	Image   string     `yaml:"image" json:"image"`
-	Root    bool       `yaml:"root" json:"root"`
-	Timeout int        `yaml:"timeout" json:"timeout"`
-	Show    bool       `yaml:"show" json:"show"`
-	Steps   [][]string `yaml:"steps" json:"steps"`
-	Mounts  []Mount    `yaml:"mounts" json:"mounts"`
-	Network bool       `yaml:"network" json:"network"`
-	MPI     *MPIConfig `yaml:"mpi,omitempty" json:"mpi,omitempty"`
+	Name      string     `yaml:"name" json:"name"`
+	Image     string     `yaml:"image" json:"image"`
+	Root      bool       `yaml:"root" json:"root"`
+	Timeout   int        `yaml:"timeout" json:"timeout"`
+	Show      bool       `yaml:"show" json:"show"`
+	Steps     [][]string `yaml:"steps" json:"steps"`
+	Mounts    []Mount    `yaml:"mounts" json:"mounts"`
+	Network   bool       `yaml:"network" json:"network"`
+	MPI       *MPIConfig `yaml:"mpi,omitempty" json:"mpi,omitempty"`
+	Resources  *StepResources  `yaml:"resources,omitempty" json:"resources,omitempty"`
+	Scheduling *StepScheduling `yaml:"scheduling,omitempty" json:"scheduling,omitempty"`
 }
 
 // MPIConfig marks a workflow step as a multi-node MPI job.
@@ -65,6 +67,40 @@ type MPIConfig struct {
 	WorkerReplicas int      `json:"worker_replicas"`
 	SlotsPerWorker int      `json:"slots_per_worker"`
 	LauncherCmd    []string `json:"launcher_cmd"`
+}
+
+// StepResources holds the per-step CPU/memory requests and limits as K8s
+// resource strings (e.g. "2", "500m", "1Gi"). Empty fields fall back to
+// podspec defaults inside BuildPodSpec.
+type StepResources struct {
+	CPURequest    string `json:"cpu_request,omitempty"`
+	CPULimit      string `json:"cpu_limit,omitempty"`
+	MemoryRequest string `json:"memory_request,omitempty"`
+	MemoryLimit   string `json:"memory_limit,omitempty"`
+}
+
+// StepScheduling carries the K8s scheduling constraints applied to a step's
+// Pod (nodeSelector, nodeAffinity, tolerations, priorityClassName,
+// runtimeClassName). All fields optional.
+type StepScheduling struct {
+	NodeSelector      map[string]string  `json:"node_selector,omitempty"`
+	NodeAffinity      []NodeAffinityTerm `json:"node_affinity,omitempty"`
+	Tolerations       []Toleration       `json:"tolerations,omitempty"`
+	PriorityClassName string             `json:"priority_class_name,omitempty"`
+	RuntimeClassName  string             `json:"runtime_class_name,omitempty"`
+}
+
+type NodeAffinityTerm struct {
+	Key      string   `json:"key"`
+	Operator string   `json:"operator"`
+	Values   []string `json:"values,omitempty"`
+}
+
+type Toleration struct {
+	Key      string `json:"key"`
+	Operator string `json:"operator"`
+	Value    string `json:"value,omitempty"`
+	Effect   string `json:"effect,omitempty"`
 }
 
 type ScoreConfig struct {
@@ -80,8 +116,6 @@ type Problem struct {
 	EndTime        time.Time      `json:"endtime"`
 	MaxSubmissions int            `json:"max_submissions"`
 	Cluster        string         `json:"cluster"`
-	CPU            int            `json:"cpu"`
-	Memory         int64          `json:"memory"`
 	Upload         UploadLimit    `json:"upload"`
 	Workflow       []WorkflowStep `json:"workflow"`
 	Score          ScoreConfig    `json:"score"`

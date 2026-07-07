@@ -23,8 +23,6 @@ type ProblemResponse struct {
 	EndTime        time.Time              `json:"endtime"`
 	MaxSubmissions int                    `json:"max_submissions"`
 	Cluster        string                 `json:"cluster"`
-	CPU            int                    `json:"cpu"`
-	Memory         int64                  `json:"memory"`
 	Upload         judger.UploadLimit     `json:"upload"`
 	Workflow       []WorkflowStepResponse `json:"workflow"`
 	Score          judger.ScoreConfig     `json:"score"`
@@ -76,8 +74,6 @@ func (h *Handler) getProblem(c *gin.Context) {
 		EndTime:        problem.EndTime,
 		MaxSubmissions: problem.MaxSubmissions,
 		Cluster:        problem.Cluster,
-		CPU:            problem.CPU,
-		Memory:         problem.Memory,
 		Upload:         problem.Upload,
 		Workflow:       workflowResponse,
 		Score:  	    problem.Score,

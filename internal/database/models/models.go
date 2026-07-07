@@ -208,8 +208,6 @@ type Problem struct {
 	EndTime        time.Time `json:"endtime"`
 	MaxSubmissions int       `json:"max_submissions"`
 	Cluster        string    `gorm:"index" json:"cluster"`
-	CPU            int       `json:"cpu"`
-	Memory         int64     `json:"memory"`
 	Upload         RawJSON   `gorm:"type:text" json:"upload"`
 	Workflow       RawJSON   `gorm:"type:text" json:"workflow"`
 	Score          RawJSON   `gorm:"type:text" json:"score"`

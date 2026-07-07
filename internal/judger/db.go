@@ -77,8 +77,6 @@ func problemFromModel(p models.Problem) (*Problem, error) {
 		EndTime:        p.EndTime,
 		MaxSubmissions: p.MaxSubmissions,
 		Cluster:        p.Cluster,
-		CPU:            p.CPU,
-		Memory:         p.Memory,
 		Description:    p.Description,
 	}
 	if len(p.Upload) > 0 {
@@ -132,8 +130,6 @@ func ProblemToModel(p *Problem, contestID string) (models.Problem, error) {
 		EndTime:        p.EndTime,
 		MaxSubmissions: p.MaxSubmissions,
 		Cluster:        p.Cluster,
-		CPU:            p.CPU,
-		Memory:         p.Memory,
 		Upload:         models.RawJSON(upload),
 		Workflow:       models.RawJSON(workflow),
 		Score:          models.RawJSON(score),
