@@ -43,6 +43,8 @@ export interface Contest {
   name: string;
   starttime: string;
   endtime: string;
+  submit_start_time?: string | null;
+  submit_end_time?: string | null;
   problem_ids: string[];
   description: string;
   announcements?: Announcement[];
@@ -100,6 +102,8 @@ export interface Problem {
     name: string;
     starttime: string;
     endtime: string;
+    submit_start_time?: string | null;
+    submit_end_time?: string | null;
     level: Level;
     cluster: string;
     max_submissions?: number;

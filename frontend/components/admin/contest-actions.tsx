@@ -24,6 +24,8 @@ const contestSchema = z.object({
     name: z.string().min(1, "Name is required"),
     starttime: z.string().refine((val) => !isNaN(Date.parse(val)), "Invalid start time"),
     endtime: z.string().refine((val) => !isNaN(Date.parse(val)), "Invalid end time"),
+    submit_start_time: z.string().optional(),
+    submit_end_time: z.string().optional(),
     description: z.string().optional(),
     registration_mode: z.enum(["auto", "tag_auto", "tag_review", "review"]),
     registration_allowed_tags: z.string().optional(),
@@ -69,6 +71,8 @@ export function ContestFormDialog({
             name: contest?.name || '',
             starttime: contest ? format(new Date(contest.starttime), "yyyy-MM-dd'T'HH:mm") : '',
             endtime: contest ? format(new Date(contest.endtime), "yyyy-MM-dd'T'HH:mm") : '',
+            submit_start_time: contest?.submit_start_time ? format(new Date(contest.submit_start_time), "yyyy-MM-dd'T'HH:mm") : '',
+            submit_end_time: contest?.submit_end_time ? format(new Date(contest.submit_end_time), "yyyy-MM-dd'T'HH:mm") : '',
             description: contest?.description || '',
             registration_mode: existingMode,
             registration_allowed_tags: existingTags,
@@ -84,6 +88,8 @@ export function ContestFormDialog({
                 name: contest?.name || '',
                 starttime: contest ? format(new Date(contest.starttime), "yyyy-MM-dd'T'HH:mm") : '',
                 endtime: contest ? format(new Date(contest.endtime), "yyyy-MM-dd'T'HH:mm") : '',
+                submit_start_time: contest?.submit_start_time ? format(new Date(contest.submit_start_time), "yyyy-MM-dd'T'HH:mm") : '',
+                submit_end_time: contest?.submit_end_time ? format(new Date(contest.submit_end_time), "yyyy-MM-dd'T'HH:mm") : '',
                 description: contest?.description || '',
                 registration_mode: mode,
                 registration_allowed_tags: tags,
@@ -105,6 +111,8 @@ export function ContestFormDialog({
             name: values.name,
             starttime: new Date(values.starttime).toISOString(),
             endtime: new Date(values.endtime).toISOString(),
+            submit_start_time: values.submit_start_time ? new Date(values.submit_start_time).toISOString() : null,
+            submit_end_time: values.submit_end_time ? new Date(values.submit_end_time).toISOString() : null,
             description: values.description || '',
             registration_config: registrationConfig,
         };
@@ -141,12 +149,26 @@ export function ContestFormDialog({
                         <FormField control={form.control} name="name" render={({ field }) => (
                             <FormItem><FormLabel>Name</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>
                         )} />
-                        <FormField control={form.control} name="starttime" render={({ field }) => (
-                            <FormItem><FormLabel>Start Time</FormLabel><FormControl><Input type="datetime-local" {...field} /></FormControl><FormMessage /></FormItem>
-                        )} />
-                        <FormField control={form.control} name="endtime" render={({ field }) => (
-                            <FormItem><FormLabel>End Time</FormLabel><FormControl><Input type="datetime-local" {...field} /></FormControl><FormMessage /></FormItem>
-                        )} />
+                        <div className="border p-4 rounded-md space-y-4">
+                            <h3 className="font-semibold">Time Windows</h3>
+                            <div className="grid grid-cols-2 gap-4">
+                                <FormField control={form.control} name="starttime" render={({ field }) => (
+                                    <FormItem><FormLabel>Visible Start</FormLabel><FormControl><Input type="datetime-local" {...field} /></FormControl><FormMessage /></FormItem>
+                                )} />
+                                <FormField control={form.control} name="endtime" render={({ field }) => (
+                                    <FormItem><FormLabel>Visible End</FormLabel><FormControl><Input type="datetime-local" {...field} /></FormControl><FormMessage /></FormItem>
+                                )} />
+                            </div>
+                            <p className="text-xs text-muted-foreground">Submission window (optional — leave empty to use the same as visibility):</p>
+                            <div className="grid grid-cols-2 gap-4">
+                                <FormField control={form.control} name="submit_start_time" render={({ field }) => (
+                                    <FormItem><FormLabel>Submit Start (optional)</FormLabel><FormControl><Input type="datetime-local" {...field} /></FormControl><FormMessage /></FormItem>
+                                )} />
+                                <FormField control={form.control} name="submit_end_time" render={({ field }) => (
+                                    <FormItem><FormLabel>Submit End (optional)</FormLabel><FormControl><Input type="datetime-local" {...field} /></FormControl><FormMessage /></FormItem>
+                                )} />
+                            </div>
+                        </div>
                         <FormField control={form.control} name="description" render={({ field }) => (
                             <FormItem><FormLabel>Description (Markdown)</FormLabel><FormControl><Textarea {...field} rows={5} /></FormControl><FormMessage /></FormItem>
                         )} />

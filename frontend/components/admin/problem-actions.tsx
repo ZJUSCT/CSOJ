@@ -65,6 +65,8 @@ const problemSchema = z.object({
     level: z.string().optional(),
     starttime: z.string().refine((val) => !isNaN(Date.parse(val)), "Invalid start time"),
     endtime: z.string().refine((val) => !isNaN(Date.parse(val)), "Invalid end time"),
+    submit_start_time: z.string().optional(),
+    submit_end_time: z.string().optional(),
     max_submissions: z.coerce.number().int().min(0, "Must be 0 or more"),
     cluster: z.string().min(1, "Cluster is required"),
     description: z.string().optional(),
@@ -227,6 +229,8 @@ export function ProblemFormDialog({
             level: problem?.level || '',
             starttime: problem ? format(new Date(problem.starttime), "yyyy-MM-dd'T'HH:mm") : '',
             endtime: problem ? format(new Date(problem.endtime), "yyyy-MM-dd'T'HH:mm") : '',
+            submit_start_time: problem?.submit_start_time ? format(new Date(problem.submit_start_time), "yyyy-MM-dd'T'HH:mm") : '',
+            submit_end_time: problem?.submit_end_time ? format(new Date(problem.submit_end_time), "yyyy-MM-dd'T'HH:mm") : '',
             max_submissions: problem?.max_submissions || 0,
             cluster: problem?.cluster || '',
             description: problem?.description || '',
@@ -253,6 +257,8 @@ export function ProblemFormDialog({
                 level: problem?.level || '',
                 starttime: problem ? format(new Date(problem.starttime), "yyyy-MM-dd'T'HH:mm") : '',
                 endtime: problem ? format(new Date(problem.endtime), "yyyy-MM-dd'T'HH:mm") : '',
+                submit_start_time: problem?.submit_start_time ? format(new Date(problem.submit_start_time), "yyyy-MM-dd'T'HH:mm") : '',
+                submit_end_time: problem?.submit_end_time ? format(new Date(problem.submit_end_time), "yyyy-MM-dd'T'HH:mm") : '',
                 max_submissions: problem?.max_submissions || 0,
                 cluster: problem?.cluster || '',
                 description: problem?.description || '',
@@ -284,6 +290,8 @@ export function ProblemFormDialog({
             ...values,
             starttime: new Date(values.starttime).toISOString(),
             endtime: new Date(values.endtime).toISOString(),
+            submit_start_time: values.submit_start_time ? new Date(values.submit_start_time).toISOString() : null,
+            submit_end_time: values.submit_end_time ? new Date(values.submit_end_time).toISOString() : null,
             workflow: entriesToWorkflowSteps(workflowSteps),
             upload: {
                 ...values.upload,
@@ -331,11 +339,30 @@ export function ProblemFormDialog({
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <FormField control={form.control} name="id" render={({ field }) => (<FormItem><FormLabel>ID</FormLabel><FormControl><Input {...field} disabled={isEditing} /></FormControl><FormMessage /></FormItem>)} />
                             <FormField control={form.control} name="name" render={({ field }) => (<FormItem><FormLabel>Name</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>)} />
-                            <FormField control={form.control} name="starttime" render={({ field }) => (<FormItem><FormLabel>Start Time</FormLabel><FormControl><Input type="datetime-local" {...field} /></FormControl><FormMessage /></FormItem>)} />
-                            <FormField control={form.control} name="endtime" render={({ field }) => (<FormItem><FormLabel>End Time</FormLabel><FormControl><Input type="datetime-local" {...field} /></FormControl><FormMessage /></FormItem>)} />
                             <FormField control={form.control} name="level" render={({ field }) => (<FormItem><FormLabel>Level</FormLabel><FormControl><Input placeholder="e.g., Easy, Medium, Hard" {...field} /></FormControl><FormMessage /></FormItem>)} />
                             <FormField control={form.control} name="cluster" render={({ field }) => (<FormItem><FormLabel>Cluster</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>)} />
                             <FormField control={form.control} name="max_submissions" render={({ field }) => (<FormItem><FormLabel>Max Submissions</FormLabel><FormControl><Input type="number" {...field} /></FormControl><FormMessage /></FormItem>)} />
+                        </div>
+
+                        <div className="border p-4 rounded-md space-y-4">
+                            <h3 className="font-semibold">Time Windows</h3>
+                            <div className="grid grid-cols-2 gap-4">
+                                <FormField control={form.control} name="starttime" render={({ field }) => (
+                                    <FormItem><FormLabel>Visible Start</FormLabel><FormControl><Input type="datetime-local" {...field} /></FormControl><FormMessage /></FormItem>
+                                )} />
+                                <FormField control={form.control} name="endtime" render={({ field }) => (
+                                    <FormItem><FormLabel>Visible End</FormLabel><FormControl><Input type="datetime-local" {...field} /></FormControl><FormMessage /></FormItem>
+                                )} />
+                            </div>
+                            <p className="text-xs text-muted-foreground">Submission window (optional — leave empty to use the same as visibility):</p>
+                            <div className="grid grid-cols-2 gap-4">
+                                <FormField control={form.control} name="submit_start_time" render={({ field }) => (
+                                    <FormItem><FormLabel>Submit Start (optional)</FormLabel><FormControl><Input type="datetime-local" {...field} /></FormControl><FormMessage /></FormItem>
+                                )} />
+                                <FormField control={form.control} name="submit_end_time" render={({ field }) => (
+                                    <FormItem><FormLabel>Submit End (optional)</FormLabel><FormControl><Input type="datetime-local" {...field} /></FormControl><FormMessage /></FormItem>
+                                )} />
+                            </div>
                         </div>
 
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border p-4 rounded-md">
