@@ -18,6 +18,8 @@ type Contest struct {
 	Name                string             `json:"name"`
 	StartTime           time.Time          `json:"starttime"`
 	EndTime             time.Time          `json:"endtime"`
+	SubmitStartTime     *time.Time         `json:"submit_start_time,omitempty"`
+	SubmitEndTime       *time.Time         `json:"submit_end_time,omitempty"`
 	ProblemIDs          []string           `json:"problem_ids"`
 	Description         string             `json:"description"`
 	Announcements       []*Announcement    `json:"announcements"`
@@ -121,6 +123,8 @@ type Problem struct {
 	Level          string         `json:"level"`
 	StartTime      time.Time      `json:"starttime"`
 	EndTime        time.Time      `json:"endtime"`
+	SubmitStartTime *time.Time    `json:"submit_start_time,omitempty"`
+	SubmitEndTime   *time.Time    `json:"submit_end_time,omitempty"`
 	MaxSubmissions int            `json:"max_submissions"`
 	Cluster        string         `json:"cluster"`
 	Upload         UploadLimit    `json:"upload"`

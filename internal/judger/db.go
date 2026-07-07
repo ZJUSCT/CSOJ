@@ -42,13 +42,15 @@ func LoadFromDB(db *gorm.DB) (map[string]*Contest, map[string]*Problem, map[stri
 		anns := annByContest[c.ID]
 		sort.Slice(anns, func(i, j int) bool { return anns[i].CreatedAt.After(anns[j].CreatedAt) })
 		contests[c.ID] = &Contest{
-			ID:            c.ID,
-			Name:          c.Name,
-			StartTime:     c.StartTime,
-			EndTime:       c.EndTime,
-			ProblemIDs:    append([]string(nil), c.ProblemIDs...),
-			Description:   c.Description,
-			Announcements: anns,
+			ID:              c.ID,
+			Name:            c.Name,
+			StartTime:       c.StartTime,
+			EndTime:         c.EndTime,
+			SubmitStartTime: c.SubmitStartTime,
+			SubmitEndTime:   c.SubmitEndTime,
+			ProblemIDs:      append([]string(nil), c.ProblemIDs...),
+			Description:     c.Description,
+			Announcements:   anns,
 		}
 		if len(c.RegistrationConfig) > 0 {
 			var rc RegistrationConfig
@@ -76,14 +78,16 @@ func LoadFromDB(db *gorm.DB) (map[string]*Contest, map[string]*Problem, map[stri
 
 func problemFromModel(p models.Problem) (*Problem, error) {
 	prob := &Problem{
-		ID:             p.ID,
-		Name:           p.Name,
-		Level:          p.Level,
-		StartTime:      p.StartTime,
-		EndTime:        p.EndTime,
-		MaxSubmissions: p.MaxSubmissions,
-		Cluster:        p.Cluster,
-		Description:    p.Description,
+		ID:              p.ID,
+		Name:            p.Name,
+		Level:           p.Level,
+		StartTime:       p.StartTime,
+		EndTime:         p.EndTime,
+		SubmitStartTime: p.SubmitStartTime,
+		SubmitEndTime:   p.SubmitEndTime,
+		MaxSubmissions:  p.MaxSubmissions,
+		Cluster:         p.Cluster,
+		Description:     p.Description,
 	}
 	if len(p.Upload) > 0 {
 		if err := json.Unmarshal(p.Upload, &prob.Upload); err != nil {
@@ -128,30 +132,34 @@ func ProblemToModel(p *Problem, contestID string) (models.Problem, error) {
 		return models.Problem{}, fmt.Errorf("marshal score: %w", err)
 	}
 	return models.Problem{
-		ID:             p.ID,
-		ContestID:      contestID,
-		Name:           p.Name,
-		Level:          p.Level,
-		StartTime:      p.StartTime,
-		EndTime:        p.EndTime,
-		MaxSubmissions: p.MaxSubmissions,
-		Cluster:        p.Cluster,
-		Upload:         models.RawJSON(upload),
-		Workflow:       models.RawJSON(workflow),
-		Score:          models.RawJSON(score),
-		Description:    p.Description,
+		ID:              p.ID,
+		ContestID:       contestID,
+		Name:            p.Name,
+		Level:           p.Level,
+		StartTime:       p.StartTime,
+		EndTime:         p.EndTime,
+		SubmitStartTime: p.SubmitStartTime,
+		SubmitEndTime:   p.SubmitEndTime,
+		MaxSubmissions:  p.MaxSubmissions,
+		Cluster:         p.Cluster,
+		Upload:          models.RawJSON(upload),
+		Workflow:        models.RawJSON(workflow),
+		Score:           models.RawJSON(score),
+		Description:     p.Description,
 	}, nil
 }
 
 // ContestToModel converts a judger.Contest into a models.Contest for DB persistence.
 func ContestToModel(c *Contest) models.Contest {
 	mc := models.Contest{
-		ID:          c.ID,
-		Name:        c.Name,
-		StartTime:   c.StartTime,
-		EndTime:     c.EndTime,
-		Description: c.Description,
-		ProblemIDs:  models.StringArray(append([]string(nil), c.ProblemIDs...)),
+		ID:              c.ID,
+		Name:            c.Name,
+		StartTime:       c.StartTime,
+		EndTime:         c.EndTime,
+		SubmitStartTime: c.SubmitStartTime,
+		SubmitEndTime:   c.SubmitEndTime,
+		Description:     c.Description,
+		ProblemIDs:      models.StringArray(append([]string(nil), c.ProblemIDs...)),
 	}
 	if c.RegistrationConfig != nil {
 		rc, _ := json.Marshal(c.RegistrationConfig)

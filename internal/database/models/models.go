@@ -191,6 +191,8 @@ type Contest struct {
 	Name                string         `json:"name"`
 	StartTime           time.Time      `gorm:"index" json:"starttime"`
 	EndTime             time.Time      `json:"endtime"`
+	SubmitStartTime     *time.Time     `json:"submit_start_time,omitempty"`
+	SubmitEndTime       *time.Time     `json:"submit_end_time,omitempty"`
 	Description         string         `gorm:"type:text" json:"description"`
 	ProblemIDs          StringArray    `gorm:"type:text" json:"problem_ids"`
 	RegistrationConfig  RawJSON        `gorm:"type:text" json:"registration_config"`
@@ -219,6 +221,8 @@ type Problem struct {
 	Level          string    `json:"level"`
 	StartTime      time.Time `json:"starttime"`
 	EndTime        time.Time `json:"endtime"`
+	SubmitStartTime *time.Time `json:"submit_start_time,omitempty"`
+	SubmitEndTime   *time.Time `json:"submit_end_time,omitempty"`
 	MaxSubmissions int       `json:"max_submissions"`
 	Cluster        string    `gorm:"index" json:"cluster"`
 	Upload         RawJSON   `gorm:"type:text" json:"upload"`
