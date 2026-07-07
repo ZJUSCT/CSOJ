@@ -9,20 +9,43 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
+// NodeAffinityTerm mirrors judger.NodeAffinityTerm in the podspec package.
+// A node-affinity match expression: key + operator (In, NotIn, Exists, etc.)
+// + values.
+type NodeAffinityTerm struct {
+	Key      string
+	Operator string
+	Values   []string
+}
+
+// Toleration mirrors judger.Toleration in the podspec package.
+type Toleration struct {
+	Key      string
+	Operator string
+	Value    string
+	Effect   string
+}
+
 type PodSpecInput struct {
-	Name       string
-	Namespace  string
-	Image      string
-	Script     string
-	CPU        int
-	MemoryMi   int64
-	NodeSel    map[string]string
-	Env        []corev1.EnvVar
-	SubID      string
-	Step       int
-	AsRoot     bool
-	Network    bool
-	TimeoutSec int64
+	Name              string
+	Namespace         string
+	Image             string
+	Script            string
+	CPURequest        string
+	CPULimit          string
+	MemoryRequest     string
+	MemoryLimit       string
+	NodeSel           map[string]string
+	NodeAffinity      []NodeAffinityTerm
+	Tolerations       []Toleration
+	PriorityClassName string
+	RuntimeClassName  string
+	Env               []corev1.EnvVar
+	SubID             string
+	Step              int
+	AsRoot            bool
+	Network           bool
+	TimeoutSec        int64
 }
 
 // BuildPodSpec constructs the *corev1.Pod for a single non-MPI workflow step.
@@ -36,12 +59,12 @@ func BuildPodSpec(in PodSpecInput) *corev1.Pod {
 		Env:             in.Env,
 		Resources: corev1.ResourceRequirements{
 			Requests: corev1.ResourceList{
-				corev1.ResourceCPU:    *resource.NewQuantity(int64(in.CPU), resource.DecimalSI),
-				corev1.ResourceMemory: *resource.NewQuantity(in.MemoryMi*1024*1024, resource.BinarySI),
+				corev1.ResourceCPU:    parseResource(in.CPURequest, "1"),
+				corev1.ResourceMemory: parseResource(in.MemoryRequest, "256Mi"),
 			},
 			Limits: corev1.ResourceList{
-				corev1.ResourceCPU:    *resource.NewQuantity(int64(in.CPU), resource.DecimalSI),
-				corev1.ResourceMemory: *resource.NewQuantity(in.MemoryMi*1024*1024, resource.BinarySI),
+				corev1.ResourceCPU:    parseResource(in.CPULimit, "1"),
+				corev1.ResourceMemory: parseResource(in.MemoryLimit, "256Mi"),
 			},
 		},
 		VolumeMounts: []corev1.VolumeMount{
@@ -65,9 +88,13 @@ func BuildPodSpec(in PodSpecInput) *corev1.Pod {
 			},
 		},
 		Spec: corev1.PodSpec{
-			RestartPolicy:        corev1.RestartPolicyNever,
-			Containers:           []corev1.Container{container},
-			NodeSelector:         in.NodeSel,
+			RestartPolicy:         corev1.RestartPolicyNever,
+			Containers:            []corev1.Container{container},
+			NodeSelector:          in.NodeSel,
+			Affinity:              buildNodeAffinity(in.NodeAffinity),
+			Tolerations:           buildTolerations(in.Tolerations),
+			PriorityClassName:     in.PriorityClassName,
+			RuntimeClassName:      runtimeClassNamePtr(in.RuntimeClassName),
 			ActiveDeadlineSeconds: ptrInt64(in.TimeoutSec),
 			Volumes: []corev1.Volume{
 				{
@@ -84,16 +111,22 @@ func BuildPodSpec(in PodSpecInput) *corev1.Pod {
 }
 
 type MPIJobSpecInput struct {
-	Name           string
-	Namespace      string
-	Image          string
-	LauncherScript string
-	WorkerReplicas int
-	CPU            int
-	MemoryMi       int64
-	NodeSel        map[string]string
-	SubID          string
-	Step           int
+	Name              string
+	Namespace         string
+	Image             string
+	LauncherScript    string
+	WorkerReplicas    int
+	CPURequest        string
+	CPULimit          string
+	MemoryRequest     string
+	MemoryLimit       string
+	NodeSel           map[string]string
+	NodeAffinity      []NodeAffinityTerm
+	Tolerations       []Toleration
+	PriorityClassName string
+	RuntimeClassName  string
+	SubID             string
+	Step              int
 }
 
 // MPIJobGVR is the GroupVersionResource for the mpi-operator MPIJob CRD.
@@ -135,12 +168,12 @@ func BuildMPIJobSpec(in MPIJobSpecInput) *unstructured.Unstructured {
 func mpiContainerTemplates(in MPIJobSpecInput) (corev1.Container, corev1.Container) {
 	res := corev1.ResourceRequirements{
 		Requests: corev1.ResourceList{
-			corev1.ResourceCPU:    *resource.NewQuantity(int64(in.CPU), resource.DecimalSI),
-			corev1.ResourceMemory: *resource.NewQuantity(in.MemoryMi*1024*1024, resource.BinarySI),
+			corev1.ResourceCPU:    parseResource(in.CPURequest, "1"),
+			corev1.ResourceMemory: parseResource(in.MemoryRequest, "256Mi"),
 		},
 		Limits: corev1.ResourceList{
-			corev1.ResourceCPU:    *resource.NewQuantity(int64(in.CPU), resource.DecimalSI),
-			corev1.ResourceMemory: *resource.NewQuantity(in.MemoryMi*1024*1024, resource.BinarySI),
+			corev1.ResourceCPU:    parseResource(in.CPULimit, "1"),
+			corev1.ResourceMemory: parseResource(in.MemoryLimit, "256Mi"),
 		},
 	}
 	vm := corev1.VolumeMount{Name: "submission", MountPath: "/mnt/work", SubPath: in.SubID}
@@ -163,9 +196,13 @@ func mpiContainerTemplates(in MPIJobSpecInput) (corev1.Container, corev1.Contain
 
 func podTemplate(in MPIJobSpecInput, c corev1.Container) map[string]interface{} {
 	podSpec := corev1.PodSpec{
-		RestartPolicy:   corev1.RestartPolicyNever,
-		Containers:      []corev1.Container{c},
-		NodeSelector:    in.NodeSel,
+		RestartPolicy:     corev1.RestartPolicyNever,
+		Containers:        []corev1.Container{c},
+		NodeSelector:      in.NodeSel,
+		Affinity:          buildNodeAffinity(in.NodeAffinity),
+		Tolerations:       buildTolerations(in.Tolerations),
+		PriorityClassName: in.PriorityClassName,
+		RuntimeClassName:  runtimeClassNamePtr(in.RuntimeClassName),
 		Volumes: []corev1.Volume{{
 			Name: "submission",
 			VolumeSource: corev1.VolumeSource{
@@ -176,6 +213,72 @@ func podTemplate(in MPIJobSpecInput, c corev1.Container) map[string]interface{} 
 	raw, _ := runtime.DefaultUnstructuredConverter.ToUnstructured(&podSpec)
 	tmpl := map[string]interface{}{"spec": raw}
 	return tmpl
+}
+
+// parseResource parses a K8s resource quantity string (e.g. "2", "500m", "1Gi"),
+// falling back to `fallback` when s is empty. Panics on invalid input — callers
+// (admin/frontend) are responsible for validating strings before persistence.
+func parseResource(s, fallback string) resource.Quantity {
+	if s == "" {
+		return resource.MustParse(fallback)
+	}
+	return resource.MustParse(s)
+}
+
+// buildNodeAffinity translates the podspec NodeAffinityTerm list into a
+// *corev1.Affinity with required node affinity. Returns nil when no terms.
+func buildNodeAffinity(terms []NodeAffinityTerm) *corev1.Affinity {
+	if len(terms) == 0 {
+		return nil
+	}
+	var nodeSelectorTerms []corev1.NodeSelectorTerm
+	for _, t := range terms {
+		vals := t.Values
+		if vals == nil {
+			vals = []string{}
+		}
+		nodeSelectorTerms = append(nodeSelectorTerms, corev1.NodeSelectorTerm{
+			MatchExpressions: []corev1.NodeSelectorRequirement{{
+				Key:      t.Key,
+				Operator: corev1.NodeSelectorOperator(t.Operator),
+				Values:   vals,
+			}},
+		})
+	}
+	return &corev1.Affinity{
+		NodeAffinity: &corev1.NodeAffinity{
+			RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
+				NodeSelectorTerms: nodeSelectorTerms,
+			},
+		},
+	}
+}
+
+// buildTolerations translates the podspec Toleration list into corev1.Toleration
+// entries. Returns nil when no tolerations (so the field is omitted from the Pod).
+func buildTolerations(tols []Toleration) []corev1.Toleration {
+	if len(tols) == 0 {
+		return nil
+	}
+	result := make([]corev1.Toleration, 0, len(tols))
+	for _, t := range tols {
+		result = append(result, corev1.Toleration{
+			Key:      t.Key,
+			Operator: corev1.TolerationOperator(t.Operator),
+			Value:    t.Value,
+			Effect:   corev1.TaintEffect(t.Effect),
+		})
+	}
+	return result
+}
+
+// runtimeClassNamePtr returns a pointer to name when non-empty, else nil (so the
+// runtimeClassName field is omitted from the Pod spec).
+func runtimeClassNamePtr(name string) *string {
+	if name == "" {
+		return nil
+	}
+	return &name
 }
 
 // helpers
