@@ -38,7 +38,11 @@
       "successTitle": "报名成功",
       "successDescription": "您已成功报名参加本次比赛",
       "failTitle": "报名失败",
-      "unexpectedError": "发生未知错误，请稍后重试"
+      "unexpectedError": "发生未知错误，请稍后重试",
+      "pendingTitle": "报名已提交",
+      "pendingDescription": "您的报名正在等待管理员审核。",
+      "pending": "审核中",
+      "rejected": "报名被拒绝"
     },
     "list": {
       "loadFail": "加载比赛列表失败",
@@ -96,7 +100,7 @@
       "score": "分数",
       "notRanked": "您尚未上榜，提交解答后即可显示排名",
       "rankDisabled": "排名已关闭"
-     }
+    }
   },
   "ProblemDetails": {
     "noProblem": {

@@ -23,6 +23,21 @@ export interface Announcement {
   description: string;
 }
 
+export interface RegistrationConfig {
+  mode: "auto" | "tag_auto" | "tag_review" | "review";
+  allowed_tags?: string[];
+}
+
+export interface ContestRegistration {
+  id: string;
+  contest_id: string;
+  user_id: string;
+  user: { nickname: string; username: string; tags: string };
+  status: "approved" | "pending" | "rejected";
+  created_at: string;
+  reviewed_at?: string;
+}
+
 export interface Contest {
   id: string;
   name: string;
@@ -31,6 +46,7 @@ export interface Contest {
   problem_ids: string[];
   description: string;
   announcements?: Announcement[];
+  registration_config?: RegistrationConfig;
 }
 
 export interface WorkflowStep {

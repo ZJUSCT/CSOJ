@@ -38,7 +38,11 @@
       "successTitle": "Success",
       "successDescription": "You have successfully registered for the contest.",
       "failTitle": "Registration Failed",
-      "unexpectedError": "An unexpected error occurred."
+      "unexpectedError": "An unexpected error occurred.",
+      "pendingTitle": "Registration Submitted",
+      "pendingDescription": "Your registration is pending admin review.",
+      "pending": "Pending Review",
+      "rejected": "Registration Rejected"
     },
     "list": {
       "loadFail": "Failed to load contests.",
@@ -96,7 +100,7 @@
       "score": "Score",
       "notRanked": "You are not ranked yet. Make a submission to appear on the leaderboard.",
       "rankDisabled": "Rank Disabled"
-     }
+    }
   },
   "ProblemDetails": {
     "noProblem": {

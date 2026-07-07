@@ -2,7 +2,7 @@
 import { useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useMemo, useState } from 'react';
 import useSWR, { useSWRConfig } from 'swr';
-import { Contest, Problem, LeaderboardEntry, TrendEntry, ScoreHistoryPoint } from '@/lib/types';
+import { Contest, Problem, LeaderboardEntry, TrendEntry } from '@/lib/types';
 import api from '@/lib/api';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -11,7 +11,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { format } from 'date-fns';
 import { zhCN, enUS, Locale } from "date-fns/locale";
 import { useLocale, useTranslations } from "next-intl";
-import { Calendar, Clock, BookOpen, Trophy, CheckCircle, Edit3, Loader2, Swords, CheckCheck } from 'lucide-react';
+import { Calendar, Clock, BookOpen, Trophy, CheckCircle, Edit3, Loader2, Swords, CheckCheck, Hourglass, XCircle } from 'lucide-react';
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import MarkdownViewer from '@/components/shared/markdown-viewer';
@@ -144,24 +144,26 @@ function ContestCard({ contest }: { contest: Contest }) {
         en: enUS,
     };
     const t = useTranslations('contests');
-    const { data: history, isLoading: isHistoryLoading } = useSWR<ScoreHistoryPoint[]>(`/contests/${contest.id}/history`, fetcher);
+    const { data: registrationStatus, isLoading: isRegistrationLoading } = useSWR<{ status: string }>(`/contests/${contest.id}/registration`, fetcher);
     const { mutate } = useSWRConfig();
     const { toast } = useToast();
-    const [isRegistered, setIsRegistered] = useState(false);
     const [isRegistering, setIsRegistering] = useState(false);
 
-    useEffect(() => {
-        setIsRegistered(!!history && history.length > 0);
-    }, [history]);
+    const status = registrationStatus?.status || 'not_registered';
 
     const handleRegister = async (e: React.MouseEvent) => {
         e.preventDefault();
         e.stopPropagation();
         setIsRegistering(true);
         try {
-            await api.post(`/contests/${contest.id}/register`);
-            toast({ title: t('registration.successTitle'), description: t('registration.successDescription') });
-            mutate(`/contests/${contest.id}/history`);
+            const res = await api.post(`/contests/${contest.id}/register`);
+            const regStatus = res.data?.data?.status;
+            if (regStatus === 'pending') {
+                toast({ title: t('registration.pendingTitle'), description: t('registration.pendingDescription') });
+            } else {
+                toast({ title: t('registration.successTitle'), description: t('registration.successDescription') });
+            }
+            mutate(`/contests/${contest.id}/registration`);
         } catch (error: any) {
             toast({ variant: "destructive", title: t('registration.failTitle'), description: error.response?.data?.message || t('registration.unexpectedError') });
         } finally {
@@ -180,7 +182,63 @@ function ContestCard({ contest }: { contest: Contest }) {
     if (hasEnded) statusText = t('status.finished');
 
     const canRegister = statusText === t('status.ongoing');
-    const isLoadingRegistration = isHistoryLoading || isRegistering;
+    const isLoadingRegistration = isRegistrationLoading || isRegistering;
+
+    const renderRegisterButton = () => {
+        if (hasEnded) {
+            return (
+                <Button disabled className="ml-auto opacity-60 cursor-not-allowed">
+                    <CheckCheck className="mr-2 h-4 w-4" /> {t('status.finished')}
+                </Button>
+            );
+        }
+        if (!hasStarted) {
+            return (
+                <Button disabled className="ml-auto opacity-60 cursor-not-allowed">
+                    <Calendar className="mr-2 h-4 w-4" /> {t('status.upcoming')}
+                </Button>
+            );
+        }
+        if (status === 'approved') {
+            return (
+                <Button disabled className="ml-auto">
+                    <CheckCircle className="mr-2 h-4 w-4" /> {t('registered')}
+                </Button>
+            );
+        }
+        if (status === 'pending') {
+            return (
+                <Button disabled className="ml-auto" variant="outline">
+                    <Hourglass className="mr-2 h-4 w-4" /> {t('registration.pending')}
+                </Button>
+            );
+        }
+        if (status === 'rejected') {
+            return (
+                <Button disabled className="ml-auto" variant="outline">
+                    <XCircle className="mr-2 h-4 w-4" /> {t('registration.rejected')}
+                </Button>
+            );
+        }
+        // not_registered
+        return (
+            <Button
+                onClick={(e) => {
+                    e.preventDefault();
+                    handleRegister(e);
+                }}
+                disabled={isLoadingRegistration}
+                className="ml-auto"
+            >
+                {isLoadingRegistration ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                    <Edit3 className="mr-2 h-4 w-4" />
+                )}
+                {isLoadingRegistration ? t('checking') : t('register')}
+            </Button>
+        );
+    };
 
     return (
         <Link href={`/contests?id=${contest.id}`} passHref>
@@ -205,37 +263,7 @@ function ContestCard({ contest }: { contest: Contest }) {
                     <ContestTimeline contest={contest} />
                 </CardContent>
                 <CardFooter className="flex">
-                    {hasEnded ? (
-                        <Button disabled className="ml-auto opacity-60 cursor-not-allowed">
-                            <CheckCheck className="mr-2 h-4 w-4" /> {t('status.finished')}
-                        </Button>
-                    ) : !hasStarted ? (
-                        <Button disabled className="ml-auto opacity-60 cursor-not-allowed">
-                            <Calendar className="mr-2 h-4 w-4" /> {t('status.upcoming')}
-                        </Button>
-                    ) : (
-                        isRegistered ? (
-                            <Button disabled className="ml-auto">
-                                <CheckCircle className="mr-2 h-4 w-4" /> {t('registered')}
-                            </Button>
-                        ) : (
-                            <Button
-                                onClick={(e) => {
-                                    e.preventDefault();
-                                    handleRegister(e);
-                                }}
-                                disabled={isLoadingRegistration}
-                                className="ml-auto"
-                            >
-                                {isLoadingRegistration ? (
-                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                ) : (
-                                    <Edit3 className="mr-2 h-4 w-4" />
-                                )}
-                                {isLoadingRegistration ? t('checking') : t('register')}
-                            </Button>
-                        )
-                    )}
+                    {renderRegisterButton()}
                 </CardFooter>
             </Card>
         </Link>
@@ -590,24 +618,22 @@ function ContestLeaderboard({ contestId }: { contestId: string }) {
 function ContestDetailView({ contestId, view }: { contestId: string, view: string }) {
     const t = useTranslations('contests');
     const { data: contest, isLoading: isContestLoading } = useSWR<Contest>(`/contests/${contestId}`, fetcher);
-    const { data: history, isLoading: isHistoryLoading } = useSWR<ScoreHistoryPoint[]>(`/contests/${contestId}/history`, fetcher);
+    const { data: registrationData, isLoading: isRegistrationLoading } = useSWR<{ status: string }>(`/contests/${contestId}/registration`, fetcher);
     const { mutate } = useSWRConfig();
     const { toast } = useToast();
-    const [isRegistered, setIsRegistered] = useState(false);
 
-    useEffect(() => {
-        if (history && history.length > 0) {
-            setIsRegistered(true);
-        } else if (history) {
-            setIsRegistered(false);
-        }
-    }, [history]);
+    const registrationStatus = registrationData?.status || 'not_registered';
 
     const handleRegister = async () => {
         try {
-            await api.post(`/contests/${contestId}/register`);
-            toast({ title: t('registration.successTitle'), description: t('registration.successDescription') });
-            mutate(`/contests/${contestId}/history`);
+            const res = await api.post(`/contests/${contestId}/register`);
+            const regStatus = res.data?.data?.status;
+            if (regStatus === 'pending') {
+                toast({ title: t('registration.pendingTitle'), description: t('registration.pendingDescription') });
+            } else {
+                toast({ title: t('registration.successTitle'), description: t('registration.successDescription') });
+            }
+            mutate(`/contests/${contestId}/registration`);
         } catch (error: any) {
             toast({ variant: "destructive", title: t('registration.failTitle'), description: error.response?.data?.message || t('registration.unexpectedError') });
         }
@@ -637,22 +663,43 @@ function ContestDetailView({ contestId, view }: { contestId: string, view: strin
         return <div>{t('detail.notFound')}</div>;
     }
 
+    const renderRegisterControl = () => {
+        if (!canRegister) return null;
+        if (registrationStatus === 'approved') {
+            return (
+                <Button disabled variant="secondary">
+                    <CheckCircle className="mr-2 h-4 w-4" /> {t('registered')}
+                </Button>
+            );
+        }
+        if (registrationStatus === 'pending') {
+            return (
+                <Button disabled variant="outline">
+                    <Hourglass className="mr-2 h-4 w-4" /> {t('registration.pending')}
+                </Button>
+            );
+        }
+        if (registrationStatus === 'rejected') {
+            return (
+                <Button disabled variant="outline" className="text-red-600">
+                    <XCircle className="mr-2 h-4 w-4" /> {t('registration.rejected')}
+                </Button>
+            );
+        }
+        // not_registered
+        return (
+            <Button onClick={handleRegister} disabled={isRegistrationLoading}>
+                {isRegistrationLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Edit3 className="mr-2 h-4 w-4" />}
+                {isRegistrationLoading ? t('loading') : t('registerForContest')}
+            </Button>
+        );
+    };
+
     return (
         <div className="space-y-6">
             <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
                 <h1 className="text-3xl font-bold">{contest.name}</h1>
-                {canRegister && (
-                    isRegistered ? (
-                        <Button disabled variant="secondary">
-                            <CheckCircle className="mr-2 h-4 w-4" /> {t('registered')}
-                        </Button>
-                    ) : (
-                        <Button onClick={handleRegister} disabled={isHistoryLoading}>
-                            {isHistoryLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Edit3 className="mr-2 h-4 w-4" />}
-                            {isHistoryLoading ? t('loading') : t('registerForContest')}
-                        </Button>
-                    )
-                )}
+                {renderRegisterControl()}
             </div>
 
             <div className="grid gap-8 lg:grid-cols-4 items-start">
