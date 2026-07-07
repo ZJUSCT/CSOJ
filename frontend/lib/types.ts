@@ -42,6 +42,36 @@ export interface WorkflowStep {
   steps: string[][];
   mounts?: any[];
   network?: boolean;
+  resources?: StepResources;
+  scheduling?: StepScheduling;
+}
+
+export interface StepResources {
+  cpu_request?: string;
+  cpu_limit?: string;
+  memory_request?: string;
+  memory_limit?: string;
+}
+
+export interface StepScheduling {
+  node_selector?: Record<string, string>;
+  node_affinity?: NodeAffinityTerm[];
+  tolerations?: Toleration[];
+  priority_class_name?: string;
+  runtime_class_name?: string;
+}
+
+export interface NodeAffinityTerm {
+  key: string;
+  operator: string;
+  values?: string[];
+}
+
+export interface Toleration {
+  key: string;
+  operator: string;
+  value?: string;
+  effect?: string;
 }
 
 export interface ScoreConfig {
@@ -56,8 +86,6 @@ export interface Problem {
     endtime: string;
     level: Level;
     cluster: string;
-    cpu: number;
-    memory: number;
     max_submissions?: number;
     upload: {
         max_num: number;

@@ -11,7 +11,7 @@ import { Suspense } from 'react';
 import SubmissionStatusBadge from '@/components/shared/submission-status-badge';
 import { format } from 'date-fns';
 import { Badge } from '@/components/ui/badge';
-import { Bot, Calendar, Clock, Code2, Cpu, FolderSymlink, Hash, MemoryStick, Network, Server, Target, UploadCloud, PlusCircle, Edit, Trash2, Star } from 'lucide-react';
+import { Bot, Calendar, Clock, Code2, FolderSymlink, Hash, Network, Server, Target, UploadCloud, PlusCircle, Edit, Trash2, Star } from 'lucide-react';
 import { formatBytes } from '@/lib/utils';
 import React from 'react';
 import { ProblemFormDialog, DeleteProblemButton } from '@/components/admin/problem-actions';
@@ -123,8 +123,6 @@ function ProblemDetails({ problemId }: { problemId: string }) {
                         <InfoItem icon={Clock} label="End Time" value={format(new Date(problem.endtime), "Pp")} />
                         <InfoItem icon={Server} label="Cluster" value={problem.cluster} />
                         <InfoItem icon={Hash} label="Max Submissions" value={(problem.max_submissions ?? 0) > 0 ? problem.max_submissions : "Unlimited"} />
-                        <InfoItem icon={Cpu} label="CPU" value={`${problem.cpu} Core(s)`} />
-                        <InfoItem icon={MemoryStick} label="Memory" value={formatBytes(problem.memory * 1024 * 1024)} />
                         <InfoItem icon={Target} label="Score Mode" value={<Badge variant="secondary">{problem.score.mode}</Badge>} />
                         <InfoItem icon={UploadCloud} label="Upload Limit" value={`${problem.upload.max_num} file(s), ${formatBytes(problem.upload.max_size * 1024 * 1024)} max`} />
                     </div>

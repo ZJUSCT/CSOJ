@@ -15,8 +15,7 @@ import { useRouter } from 'next/navigation';
 import { getScoreColor } from '@/lib/utils';
 import { CopyButton } from '@/components/ui/shadcn-io/copy-button';
 import { Suspense, useState } from 'react';
-import { Cpu, Gauge, Info, Layers, MemoryStick, Swords, Trophy } from 'lucide-react';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Gauge, Info, Layers, Swords, Trophy } from 'lucide-react';import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { AlertDialogHeader } from '@/components/ui/alert-dialog';
 import { metadata } from '@/app/layout';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
@@ -135,32 +134,6 @@ function ProblemDetails() {
                     </TooltipTrigger>
                     <TooltipContent side="bottom">
                         {t("meta.cluster")}
-                    </TooltipContent>
-                    </Tooltip>
-
-                    <Tooltip>
-                    <TooltipTrigger asChild>
-                        <div className="flex items-center gap-1 cursor-pointer text-muted-foreground hover:text-foreground">
-                        <Cpu size={16} />
-                        <span>
-                            {problem.cpu} {t("meta.core")}
-                        </span>
-                        </div>
-                    </TooltipTrigger>
-                    <TooltipContent side="bottom">
-                        {t("meta.maxCore")}
-                    </TooltipContent>
-                    </Tooltip>
-
-                    <Tooltip>
-                    <TooltipTrigger asChild>
-                        <div className="flex items-center gap-1 cursor-pointer text-muted-foreground hover:text-foreground">
-                        <MemoryStick size={16} />
-                        <span>{(problem.memory / 1024).toFixed(1)} GiB</span>
-                        </div>
-                    </TooltipTrigger>
-                    <TooltipContent side="bottom">
-                        {t("meta.maxMemory")}
                     </TooltipContent>
                     </Tooltip>
 

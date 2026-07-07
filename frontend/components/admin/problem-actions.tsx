@@ -19,7 +19,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { format } from "date-fns";
-import { PlusCircle, Trash2, ChevronUp, ChevronDown, Code2, Server, HardDrive, Network, Zap } from "lucide-react";
+import { PlusCircle, Trash2, ChevronUp, ChevronDown, Code2, Server, HardDrive, Network, Zap, Cpu, Calendar } from "lucide-react";
 
 // ---------- Types ----------
 
@@ -47,6 +47,14 @@ interface WorkflowStepEntry {
     steps: string[][];   // array of commands; each command is string[]
     mounts: MountEntry[];
     mpi?: MPIConfig | null;
+    resources: { cpu_request: string; cpu_limit: string; memory_request: string; memory_limit: string };
+    scheduling: {
+        node_selector: { key: string; value: string }[];
+        node_affinity: { key: string; operator: string; values: string }[];
+        tolerations: { key: string; operator: string; value: string; effect: string }[];
+        priority_class_name: string;
+        runtime_class_name: string;
+    };
 }
 
 // ---------- Zod Schema ----------
@@ -59,8 +67,6 @@ const problemSchema = z.object({
     endtime: z.string().refine((val) => !isNaN(Date.parse(val)), "Invalid end time"),
     max_submissions: z.coerce.number().int().min(0, "Must be 0 or more"),
     cluster: z.string().min(1, "Cluster is required"),
-    cpu: z.coerce.number().int().min(1, "CPU must be at least 1"),
-    memory: z.coerce.number().int().min(1, "Memory must be at least 1"),
     description: z.string().optional(),
     score: z.object({
         mode: z.string().min(1, "Score mode is required"),
@@ -102,6 +108,28 @@ function workflowStepsToEntries(steps: any[]): WorkflowStepEntry[] {
             slots_per_worker: s.mpi.slots_per_worker ?? 1,
             launcher_cmd: s.mpi.launcher_cmd || [],
         } : null,
+        resources: {
+            cpu_request: s.resources?.cpu_request || '',
+            cpu_limit: s.resources?.cpu_limit || '',
+            memory_request: s.resources?.memory_request || '',
+            memory_limit: s.resources?.memory_limit || '',
+        },
+        scheduling: {
+            node_selector: Object.entries(s.scheduling?.node_selector || {}).map(([k, v]) => ({ key: k, value: v as string })),
+            node_affinity: (s.scheduling?.node_affinity || []).map((t: any) => ({
+                key: t.key || '',
+                operator: t.operator || 'In',
+                values: (t.values || []).join(', '),
+            })),
+            tolerations: (s.scheduling?.tolerations || []).map((t: any) => ({
+                key: t.key || '',
+                operator: t.operator || 'Equal',
+                value: t.value || '',
+                effect: t.effect || '(none)',
+            })),
+            priority_class_name: s.scheduling?.priority_class_name || '',
+            runtime_class_name: s.scheduling?.runtime_class_name || '',
+        },
     }));
 }
 
@@ -127,6 +155,37 @@ function entriesToWorkflowSteps(entries: WorkflowStepEntry[]): any[] {
         if (e.mpi && e.mpi.enabled) {
             step.mpi = e.mpi;
         }
+        const res = e.resources;
+        if (res.cpu_request || res.cpu_limit || res.memory_request || res.memory_limit) {
+            step.resources = {
+                cpu_request: res.cpu_request || undefined,
+                cpu_limit: res.cpu_limit || undefined,
+                memory_request: res.memory_request || undefined,
+                memory_limit: res.memory_limit || undefined,
+            };
+        }
+        const sched = e.scheduling;
+        const nodeSelector = sched.node_selector.filter(p => p.key && p.value).reduce((acc, p) => { acc[p.key] = p.value; return acc; }, {} as Record<string, string>);
+        const nodeAffinity = sched.node_affinity.filter(t => t.key).map(t => ({
+            key: t.key,
+            operator: t.operator,
+            values: t.values.split(',').map(v => v.trim()).filter(Boolean),
+        }));
+        const tolerations = sched.tolerations.filter(t => t.key).map(t => ({
+            key: t.key,
+            operator: t.operator,
+            value: t.value || undefined,
+            effect: t.effect && t.effect !== '(none)' ? t.effect : undefined,
+        }));
+        if (Object.keys(nodeSelector).length > 0 || nodeAffinity.length > 0 || tolerations.length > 0 || sched.priority_class_name || sched.runtime_class_name) {
+            step.scheduling = {
+                ...(Object.keys(nodeSelector).length > 0 ? { node_selector: nodeSelector } : {}),
+                ...(nodeAffinity.length > 0 ? { node_affinity: nodeAffinity } : {}),
+                ...(tolerations.length > 0 ? { tolerations } : {}),
+                ...(sched.priority_class_name ? { priority_class_name: sched.priority_class_name } : {}),
+                ...(sched.runtime_class_name ? { runtime_class_name: sched.runtime_class_name } : {}),
+            };
+        }
         return step;
     });
 }
@@ -135,9 +194,10 @@ function emptyStep(): WorkflowStepEntry {
     return {
         name: '', image: '', root: false, timeout: 30, show: true, network: false,
         steps: [], mounts: [], mpi: null,
+        resources: { cpu_request: '', cpu_limit: '', memory_request: '', memory_limit: '' },
+        scheduling: { node_selector: [], node_affinity: [], tolerations: [], priority_class_name: '', runtime_class_name: '' },
     };
 }
-
 // ---------- Component ----------
 
 export function ProblemFormDialog({
@@ -169,8 +229,6 @@ export function ProblemFormDialog({
             endtime: problem ? format(new Date(problem.endtime), "yyyy-MM-dd'T'HH:mm") : '',
             max_submissions: problem?.max_submissions || 0,
             cluster: problem?.cluster || '',
-            cpu: problem?.cpu || 1,
-            memory: problem?.memory || 128,
             description: problem?.description || '',
             score: {
                 mode: problem?.score?.mode || 'score',
@@ -197,8 +255,6 @@ export function ProblemFormDialog({
                 endtime: problem ? format(new Date(problem.endtime), "yyyy-MM-dd'T'HH:mm") : '',
                 max_submissions: problem?.max_submissions || 0,
                 cluster: problem?.cluster || '',
-                cpu: problem?.cpu || 1,
-                memory: problem?.memory || 128,
                 description: problem?.description || '',
                 score: {
                     mode: problem?.score?.mode || 'score',
@@ -280,8 +336,6 @@ export function ProblemFormDialog({
                             <FormField control={form.control} name="level" render={({ field }) => (<FormItem><FormLabel>Level</FormLabel><FormControl><Input placeholder="e.g., Easy, Medium, Hard" {...field} /></FormControl><FormMessage /></FormItem>)} />
                             <FormField control={form.control} name="cluster" render={({ field }) => (<FormItem><FormLabel>Cluster</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>)} />
                             <FormField control={form.control} name="max_submissions" render={({ field }) => (<FormItem><FormLabel>Max Submissions</FormLabel><FormControl><Input type="number" {...field} /></FormControl><FormMessage /></FormItem>)} />
-                            <FormField control={form.control} name="cpu" render={({ field }) => (<FormItem><FormLabel>CPU Cores</FormLabel><FormControl><Input type="number" {...field} /></FormControl><FormMessage /></FormItem>)} />
-                            <FormField control={form.control} name="memory" render={({ field }) => (<FormItem><FormLabel>Memory (MB)</FormLabel><FormControl><Input type="number" {...field} /></FormControl><FormMessage /></FormItem>)} />
                         </div>
 
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border p-4 rounded-md">
@@ -438,6 +492,22 @@ function StepCard({ index, total, step, onChange, onRemove, onMoveUp, onMoveDown
 
             <Separator />
 
+            {/* Resources */}
+            <ResourcesEditor
+                res={step.resources}
+                onChange={(r) => onChange({ resources: r })}
+            />
+
+            <Separator />
+
+            {/* Scheduling */}
+            <SchedulingEditor
+                sched={step.scheduling}
+                onChange={(s) => onChange({ scheduling: s })}
+            />
+
+            <Separator />
+
             {/* MPI */}
             <MPIEditor
                 mpi={step.mpi ?? null}
@@ -518,6 +588,184 @@ function MountsEditor({ mounts, onChange }: { mounts: MountEntry[], onChange: (m
                 </div>
             ))}
             {mounts.length === 0 && <p className="text-xs text-muted-foreground">No mounts.</p>}
+        </div>
+    );
+}
+
+// ---------- Resources Editor ----------
+
+function ResourcesEditor({ res, onChange }: {
+    res: { cpu_request: string; cpu_limit: string; memory_request: string; memory_limit: string };
+    onChange: (r: { cpu_request: string; cpu_limit: string; memory_request: string; memory_limit: string }) => void;
+}) {
+    const update = (patch: Partial<typeof res>) => onChange({ ...res, ...patch });
+    return (
+        <div className="space-y-2">
+            <div className="flex items-center justify-between">
+                <Label className="flex items-center gap-1"><Cpu className="h-3 w-3" /> Resources</Label>
+                <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => update({ cpu_limit: res.cpu_request, memory_limit: res.memory_request })}
+                >
+                    Make Guaranteed
+                </Button>
+            </div>
+            <div className="grid grid-cols-2 gap-2 pl-4">
+                <div>
+                    <Label className="text-xs">CPU Request</Label>
+                    <Input className="text-xs font-mono" value={res.cpu_request} onChange={e => update({ cpu_request: e.target.value })} placeholder="2 / 500m" />
+                </div>
+                <div>
+                    <Label className="text-xs">CPU Limit</Label>
+                    <Input className="text-xs font-mono" value={res.cpu_limit} onChange={e => update({ cpu_limit: e.target.value })} placeholder="2" />
+                </div>
+                <div>
+                    <Label className="text-xs">Memory Request</Label>
+                    <Input className="text-xs font-mono" value={res.memory_request} onChange={e => update({ memory_request: e.target.value })} placeholder="1Gi / 256Mi" />
+                </div>
+                <div>
+                    <Label className="text-xs">Memory Limit</Label>
+                    <Input className="text-xs font-mono" value={res.memory_limit} onChange={e => update({ memory_limit: e.target.value })} placeholder="1Gi" />
+                </div>
+            </div>
+            <p className="text-xs text-muted-foreground pl-4">Set request == limit for Guaranteed QoS + CPU pinning.</p>
+        </div>
+    );
+}
+
+// ---------- Scheduling Editor ----------
+
+interface NodeSelectorPair { key: string; value: string }
+interface NodeAffinityEntry { key: string; operator: string; values: string }
+interface TolerationEntry { key: string; operator: string; value: string; effect: string }
+interface SchedulingState {
+    node_selector: NodeSelectorPair[];
+    node_affinity: NodeAffinityEntry[];
+    tolerations: TolerationEntry[];
+    priority_class_name: string;
+    runtime_class_name: string;
+}
+
+function SchedulingEditor({ sched, onChange }: { sched: SchedulingState, onChange: (s: SchedulingState) => void }) {
+    const update = (patch: Partial<SchedulingState>) => onChange({ ...sched, ...patch });
+
+    // --- Node Selector ---
+    const addNodeSelector = () => update({ node_selector: [...sched.node_selector, { key: '', value: '' }] });
+    const removeNodeSelector = (i: number) => update({ node_selector: sched.node_selector.filter((_, idx) => idx !== i) });
+    const updateNodeSelector = (i: number, patch: Partial<NodeSelectorPair>) => {
+        const arr = [...sched.node_selector];
+        arr[i] = { ...arr[i], ...patch };
+        update({ node_selector: arr });
+    };
+
+    // --- Node Affinity ---
+    const addAffinity = () => update({ node_affinity: [...sched.node_affinity, { key: '', operator: 'In', values: '' }] });
+    const removeAffinity = (i: number) => update({ node_affinity: sched.node_affinity.filter((_, idx) => idx !== i) });
+    const updateAffinity = (i: number, patch: Partial<NodeAffinityEntry>) => {
+        const arr = [...sched.node_affinity];
+        arr[i] = { ...arr[i], ...patch };
+        update({ node_affinity: arr });
+    };
+
+    // --- Tolerations ---
+    const addToleration = () => update({ tolerations: [...sched.tolerations, { key: '', operator: 'Equal', value: '', effect: '' }] });
+    const removeToleration = (i: number) => update({ tolerations: sched.tolerations.filter((_, idx) => idx !== i) });
+    const updateToleration = (i: number, patch: Partial<TolerationEntry>) => {
+        const arr = [...sched.tolerations];
+        arr[i] = { ...arr[i], ...patch };
+        update({ tolerations: arr });
+    };
+
+    return (
+        <div className="space-y-3">
+            <Label className="flex items-center gap-1"><Calendar className="h-3 w-3" /> Scheduling Constraints</Label>
+
+            {/* Node Selector */}
+            <div className="space-y-2 pl-4 border-l-2 border-primary/20">
+                <div className="flex items-center justify-between">
+                    <Label className="text-xs">Node Selector</Label>
+                    <Button type="button" variant="outline" size="sm" onClick={addNodeSelector}><PlusCircle className="h-3 w-3 mr-1" /> Add</Button>
+                </div>
+                {sched.node_selector.map((pair, i) => (
+                    <div key={i} className="grid grid-cols-[1fr_1fr_32px] gap-2 items-center">
+                        <Input className="text-xs font-mono" value={pair.key} onChange={e => updateNodeSelector(i, { key: e.target.value })} placeholder="disktype" />
+                        <Input className="text-xs font-mono" value={pair.value} onChange={e => updateNodeSelector(i, { value: e.target.value })} placeholder="ssd" />
+                        <Button type="button" variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => removeNodeSelector(i)}><Trash2 className="h-3 w-3" /></Button>
+                    </div>
+                ))}
+                {sched.node_selector.length === 0 && <p className="text-xs text-muted-foreground">No node selector.</p>}
+            </div>
+
+            {/* Node Affinity */}
+            <div className="space-y-2 pl-4 border-l-2 border-primary/20">
+                <div className="flex items-center justify-between">
+                    <Label className="text-xs">Node Affinity (required, AND across terms)</Label>
+                    <Button type="button" variant="outline" size="sm" onClick={addAffinity}><PlusCircle className="h-3 w-3 mr-1" /> Add</Button>
+                </div>
+                {sched.node_affinity.map((term, i) => (
+                    <div key={i} className="grid grid-cols-[1fr_120px_1fr_32px] gap-2 items-center">
+                        <Input className="text-xs font-mono" value={term.key} onChange={e => updateAffinity(i, { key: e.target.value })} placeholder="cpu-manager" />
+                        <Select value={term.operator} onValueChange={(v) => updateAffinity(i, { operator: v })}>
+                            <SelectTrigger className="text-xs"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="In">In</SelectItem>
+                                <SelectItem value="NotIn">NotIn</SelectItem>
+                                <SelectItem value="Exists">Exists</SelectItem>
+                                <SelectItem value="DoesNotExist">DoesNotExist</SelectItem>
+                            </SelectContent>
+                        </Select>
+                        <Input className="text-xs font-mono" value={term.values} onChange={e => updateAffinity(i, { values: e.target.value })} placeholder="static (comma-separated)" />
+                        <Button type="button" variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => removeAffinity(i)}><Trash2 className="h-3 w-3" /></Button>
+                    </div>
+                ))}
+                {sched.node_affinity.length === 0 && <p className="text-xs text-muted-foreground">No node affinity.</p>}
+            </div>
+
+            {/* Tolerations */}
+            <div className="space-y-2 pl-4 border-l-2 border-primary/20">
+                <div className="flex items-center justify-between">
+                    <Label className="text-xs">Tolerations</Label>
+                    <Button type="button" variant="outline" size="sm" onClick={addToleration}><PlusCircle className="h-3 w-3 mr-1" /> Add</Button>
+                </div>
+                {sched.tolerations.map((t, i) => (
+                    <div key={i} className="grid grid-cols-[1fr_100px_1fr_120px_32px] gap-2 items-center">
+                        <Input className="text-xs font-mono" value={t.key} onChange={e => updateToleration(i, { key: e.target.value })} placeholder="dedicated" />
+                        <Select value={t.operator} onValueChange={(v) => updateToleration(i, { operator: v })}>
+                            <SelectTrigger className="text-xs"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="Equal">Equal</SelectItem>
+                                <SelectItem value="Exists">Exists</SelectItem>
+                            </SelectContent>
+                        </Select>
+                        <Input className="text-xs font-mono" value={t.value} onChange={e => updateToleration(i, { value: e.target.value })} placeholder="cpu-pinning" />
+                        <Select value={t.effect} onValueChange={(v) => updateToleration(i, { effect: v })}>
+                            <SelectTrigger className="text-xs"><SelectValue placeholder="(none)" /></SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="(none)">(none)</SelectItem>
+                                <SelectItem value="NoSchedule">NoSchedule</SelectItem>
+                                <SelectItem value="NoExecute">NoExecute</SelectItem>
+                                <SelectItem value="PreferNoSchedule">PreferNoSchedule</SelectItem>
+                            </SelectContent>
+                        </Select>
+                        <Button type="button" variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => removeToleration(i)}><Trash2 className="h-3 w-3" /></Button>
+                    </div>
+                ))}
+                {sched.tolerations.length === 0 && <p className="text-xs text-muted-foreground">No tolerations.</p>}
+            </div>
+
+            {/* Priority / Runtime Class */}
+            <div className="grid grid-cols-2 gap-2 pl-4 border-l-2 border-primary/20">
+                <div>
+                    <Label className="text-xs">Priority Class Name</Label>
+                    <Input className="text-xs font-mono" value={sched.priority_class_name} onChange={e => update({ priority_class_name: e.target.value })} placeholder="latency-critical" />
+                </div>
+                <div>
+                    <Label className="text-xs">Runtime Class Name</Label>
+                    <Input className="text-xs font-mono" value={sched.runtime_class_name} onChange={e => update({ runtime_class_name: e.target.value })} placeholder="runc" />
+                </div>
+            </div>
         </div>
     );
 }
