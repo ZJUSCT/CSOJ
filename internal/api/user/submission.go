@@ -95,14 +95,64 @@ func (h *Handler) submitToProblem(c *gin.Context) {
 
 	// Check time restrictions for submission
 	now := time.Now()
-	if now.Before(parentContest.StartTime) || now.After(parentContest.EndTime) {
+	// Contest visibility check
+	if now.Before(parentContest.StartTime) {
 		h.appState.RUnlock()
-		util.Error(c, http.StatusForbidden, fmt.Errorf("cannot submit because the contest is not active"))
+		util.Error(c, http.StatusForbidden, fmt.Errorf("contest has not started yet"))
 		return
 	}
-	if now.Before(problem.StartTime) || now.After(problem.EndTime) {
+	if now.After(parentContest.EndTime) {
 		h.appState.RUnlock()
-		util.Error(c, http.StatusForbidden, fmt.Errorf("cannot submit because the problem is not active"))
+		util.Error(c, http.StatusForbidden, fmt.Errorf("contest has ended"))
+		return
+	}
+	// Contest submission window (nil = fall back to visibility)
+	contestSubmitStart := parentContest.SubmitStartTime
+	if contestSubmitStart == nil {
+		contestSubmitStart = &parentContest.StartTime
+	}
+	contestSubmitEnd := parentContest.SubmitEndTime
+	if contestSubmitEnd == nil {
+		contestSubmitEnd = &parentContest.EndTime
+	}
+	if now.Before(*contestSubmitStart) {
+		h.appState.RUnlock()
+		util.Error(c, http.StatusForbidden, fmt.Errorf("contest submission has not opened yet"))
+		return
+	}
+	if now.After(*contestSubmitEnd) {
+		h.appState.RUnlock()
+		util.Error(c, http.StatusForbidden, fmt.Errorf("contest submission has ended"))
+		return
+	}
+	// Problem visibility check
+	if now.Before(problem.StartTime) {
+		h.appState.RUnlock()
+		util.Error(c, http.StatusForbidden, fmt.Errorf("problem has not started yet"))
+		return
+	}
+	if now.After(problem.EndTime) {
+		h.appState.RUnlock()
+		util.Error(c, http.StatusForbidden, fmt.Errorf("problem has ended"))
+		return
+	}
+	// Problem submission window (nil = fall back to visibility)
+	probSubmitStart := problem.SubmitStartTime
+	if probSubmitStart == nil {
+		probSubmitStart = &problem.StartTime
+	}
+	probSubmitEnd := problem.SubmitEndTime
+	if probSubmitEnd == nil {
+		probSubmitEnd = &problem.EndTime
+	}
+	if now.Before(*probSubmitStart) {
+		h.appState.RUnlock()
+		util.Error(c, http.StatusForbidden, fmt.Errorf("problem submission has not opened yet"))
+		return
+	}
+	if now.After(*probSubmitEnd) {
+		h.appState.RUnlock()
+		util.Error(c, http.StatusForbidden, fmt.Errorf("problem submission has ended"))
 		return
 	}
 	h.appState.RUnlock()

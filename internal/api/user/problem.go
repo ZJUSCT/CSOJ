@@ -16,17 +16,19 @@ type WorkflowStepResponse struct {
 }
 
 type ProblemResponse struct {
-	ID             string                 `json:"id"`
-	Name           string                 `json:"name"`
-	Level          string                 `yaml:"level" json:"level"`
-	StartTime      time.Time              `json:"starttime"`
-	EndTime        time.Time              `json:"endtime"`
-	MaxSubmissions int                    `json:"max_submissions"`
-	Cluster        string                 `json:"cluster"`
-	Upload         judger.UploadLimit     `json:"upload"`
-	Workflow       []WorkflowStepResponse `json:"workflow"`
-	Score          judger.ScoreConfig     `json:"score"`
-	Description    string                 `json:"description"`
+	ID              string                 `json:"id"`
+	Name            string                 `json:"name"`
+	Level           string                 `yaml:"level" json:"level"`
+	StartTime       time.Time              `json:"starttime"`
+	EndTime         time.Time              `json:"endtime"`
+	SubmitStartTime *time.Time             `json:"submit_start_time,omitempty"`
+	SubmitEndTime   *time.Time             `json:"submit_end_time,omitempty"`
+	MaxSubmissions  int                    `json:"max_submissions"`
+	Cluster         string                 `json:"cluster"`
+	Upload          judger.UploadLimit     `json:"upload"`
+	Workflow        []WorkflowStepResponse `json:"workflow"`
+	Score           judger.ScoreConfig     `json:"score"`
+	Description     string                 `json:"description"`
 }
 
 func (h *Handler) getProblem(c *gin.Context) {
@@ -67,17 +69,19 @@ func (h *Handler) getProblem(c *gin.Context) {
 	}
 
 	response := ProblemResponse{
-		ID:             problem.ID,
-		Name:           problem.Name,
-		Level:          problem.Level,
-		StartTime:      problem.StartTime,
-		EndTime:        problem.EndTime,
-		MaxSubmissions: problem.MaxSubmissions,
-		Cluster:        problem.Cluster,
-		Upload:         problem.Upload,
-		Workflow:       workflowResponse,
+		ID:              problem.ID,
+		Name:            problem.Name,
+		Level:           problem.Level,
+		StartTime:       problem.StartTime,
+		EndTime:         problem.EndTime,
+		SubmitStartTime: problem.SubmitStartTime,
+		SubmitEndTime:   problem.SubmitEndTime,
+		MaxSubmissions:  problem.MaxSubmissions,
+		Cluster:         problem.Cluster,
+		Upload:          problem.Upload,
+		Workflow:        workflowResponse,
 		Score:  	    problem.Score,
-		Description:    problem.Description,
+		Description:     problem.Description,
 	}
 
 	util.Success(c, response, "Problem found")
