@@ -72,6 +72,7 @@ func RegisterRoutes(
 
 			// Contest
 			authed.POST("/contests/:id/register", h.registerForContest)
+			authed.GET("/contests/:id/registration", h.getRegistrationStatus)
 			authed.GET("/contests/:id/history", h.getContestHistory)
 
 			// Problems & Submissions

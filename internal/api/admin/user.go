@@ -237,11 +237,23 @@ func (h *Handler) registerUserForContest(c *gin.Context) {
 		return
 	}
 
-	if err := database.RegisterForContest(h.db, userID, req.ContestID); err != nil {
-		if err.Error() == "already registered" {
-			util.Error(c, http.StatusConflict, err)
-			return
-		}
+	existing, err := database.GetRegistration(h.db, userID, req.ContestID)
+	if err != nil {
+		util.Error(c, http.StatusInternalServerError, err)
+		return
+	}
+	if existing != nil {
+		util.Error(c, http.StatusConflict, fmt.Errorf("already registered"))
+		return
+	}
+
+	reg := &models.ContestRegistration{
+		ID:        uuid.NewString(),
+		ContestID: req.ContestID,
+		UserID:    userID,
+		Status:    "approved",
+	}
+	if err := database.CreateRegistration(h.db, reg); err != nil {
 		util.Error(c, http.StatusInternalServerError, err)
 		return
 	}

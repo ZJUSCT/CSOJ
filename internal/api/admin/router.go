@@ -71,6 +71,7 @@ func RegisterRoutes(
 			contests.GET("/:id/trend", h.getContestTrend)
 			contests.POST("/:id/problems", h.createProblemInContest)
 			contests.PUT("/:id/problems/order", h.handleUpdateContestProblemOrder)
+			contests.GET("/:id/registrations", h.listRegistrations)
 			// Contest Assets
 			contests.GET("/:id/assets", h.handleListContestAssets)
 			contests.GET("/:id/assets/*assetpath", h.serveContestAsset)
@@ -140,6 +141,9 @@ func RegisterRoutes(
 			containers.GET("", h.getAllContainers)
 			containers.GET("/:id", h.getContainer)
 		}
+
+		// Registration review (admin)
+		adminV1.PATCH("/registrations/:regID", h.reviewRegistration)
 	}
 
 	// Role management — superadmin only.

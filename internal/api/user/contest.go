@@ -3,6 +3,7 @@ package user
 import (
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/ZJUSCT/CSOJ/internal/database"
@@ -10,6 +11,7 @@ import (
 	"github.com/ZJUSCT/CSOJ/internal/judger"
 	"github.com/ZJUSCT/CSOJ/internal/util"
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 )
 
 func (h *Handler) getLinks(c *gin.Context) {
@@ -185,21 +187,105 @@ func (h *Handler) registerForContest(c *gin.Context) {
 		return
 	}
 
+	// Check existing registration
+	existing, err := database.GetRegistration(h.db, userID, contestID)
+	if err != nil {
+		util.Error(c, http.StatusInternalServerError, err)
+		return
+	}
+	if existing != nil {
+		util.Error(c, http.StatusConflict, fmt.Errorf("already registered"))
+		return
+	}
+
+	// Determine registration mode
+	mode := "auto"
+	allowedTags := []string{}
+	if contest.RegistrationConfig != nil {
+		mode = contest.RegistrationConfig.Mode
+		allowedTags = contest.RegistrationConfig.AllowedTags
+	}
+
 	user, err := database.GetUserByID(h.db, userID)
 	if err != nil {
 		util.Error(c, http.StatusNotFound, err)
 		return
 	}
 
-	if err := database.RegisterForContest(h.db, user.ID, contestID); err != nil {
-		if err.Error() == "already registered" {
-			util.Error(c, http.StatusConflict, err)
+	userTags := strings.Split(user.Tags, ",")
+	hasTag := false
+	for _, t := range allowedTags {
+		for _, ut := range userTags {
+			if strings.TrimSpace(t) == strings.TrimSpace(ut) && t != "" {
+				hasTag = true
+				break
+			}
+		}
+		if hasTag {
+			break
+		}
+	}
+
+	var status string
+	var msg string
+	switch mode {
+	case "auto":
+		status = "approved"
+		msg = "Successfully registered for contest"
+	case "tag_auto":
+		if hasTag {
+			status = "approved"
+			msg = "Successfully registered for contest"
+		} else {
+			util.Error(c, http.StatusForbidden, fmt.Errorf("you are not allowed to register for this contest"))
 			return
 		}
+	case "tag_review":
+		if hasTag {
+			status = "approved"
+			msg = "Successfully registered for contest"
+		} else {
+			status = "pending"
+			msg = "Registration submitted, pending review"
+		}
+	case "review":
+		status = "pending"
+		msg = "Registration submitted, pending review"
+	default:
+		status = "approved"
+		msg = "Successfully registered for contest"
+	}
+
+	reg := &models.ContestRegistration{
+		ID:        uuid.NewString(),
+		ContestID: contestID,
+		UserID:    userID,
+		Status:    status,
+	}
+	if err := database.CreateRegistration(h.db, reg); err != nil {
 		util.Error(c, http.StatusInternalServerError, err)
 		return
 	}
-	util.Success(c, nil, "Successfully registered for contest")
+
+	util.Success(c, gin.H{"status": status}, msg)
+}
+
+func (h *Handler) getRegistrationStatus(c *gin.Context) {
+	userID := c.GetString("userID")
+	contestID := c.Param("id")
+
+	reg, err := database.GetRegistration(h.db, userID, contestID)
+	if err != nil {
+		util.Error(c, http.StatusInternalServerError, err)
+		return
+	}
+
+	status := "not_registered"
+	if reg != nil {
+		status = reg.Status
+	}
+
+	util.Success(c, gin.H{"status": status}, "Registration status retrieved")
 }
 
 func (h *Handler) getContestHistory(c *gin.Context) {

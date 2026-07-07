@@ -295,3 +295,45 @@ func (h *Handler) getContestTrend(c *gin.Context) {
 
 	util.Success(c, trendData, "Trend data retrieved")
 }
+
+// listRegistrations returns all registrations for a contest, optionally filtered by status.
+func (h *Handler) listRegistrations(c *gin.Context) {
+	contestID := c.Param("id")
+	status := c.Query("status")
+	regs, err := database.GetRegistrationsByContest(h.db, contestID, status)
+	if err != nil {
+		util.Error(c, http.StatusInternalServerError, err)
+		return
+	}
+	util.Success(c, regs, "Registrations retrieved")
+}
+
+// reviewRegistration approves or rejects a pending registration.
+func (h *Handler) reviewRegistration(c *gin.Context) {
+	regID := c.Param("regID")
+	var req struct {
+		Action string `json:"action" binding:"required"` // "approve" | "reject"
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		util.Error(c, http.StatusBadRequest, err)
+		return
+	}
+
+	status := ""
+	switch req.Action {
+	case "approve":
+		status = "approved"
+	case "reject":
+		status = "rejected"
+	default:
+		util.Error(c, http.StatusBadRequest, "action must be 'approve' or 'reject'")
+		return
+	}
+
+	reviewerID := c.GetString("userID")
+	if err := database.UpdateRegistrationStatus(h.db, regID, status, reviewerID); err != nil {
+		util.Error(c, http.StatusInternalServerError, err)
+		return
+	}
+	util.Success(c, nil, "Registration "+status)
+}
