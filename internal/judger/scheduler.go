@@ -213,8 +213,8 @@ func (s *Scheduler) clusterWorker(name string, cluster *ClusterState) {
 		}
 		// Acquire a concurrency slot.
 		cluster.sem <- struct{}{}
-		// Pick a pool (FIFO over non-paused pools with enough caps).
-		pool := s.findAvailablePool(cluster, job.Problem.CPU, job.Problem.Memory)
+		// Pick a pool (FIFO over non-paused, non-zero pools; K8s checks actual resource fit).
+		pool := s.findAvailablePool(cluster)
 		if pool == nil {
 			// No pool; release the slot and requeue after a delay.
 			<-cluster.sem
@@ -238,16 +238,16 @@ func (s *Scheduler) clusterWorker(name string, cluster *ClusterState) {
 	}
 }
 
-func (s *Scheduler) findAvailablePool(cluster *ClusterState, cpu int, mem int64) *PoolState {
+func (s *Scheduler) findAvailablePool(cluster *ClusterState) *PoolState {
 	cluster.Lock()
 	defer cluster.Unlock()
 	for _, p := range cluster.pools {
 		if p.IsPaused || p.CPU == 0 || p.Memory == 0 {
 			continue
 		}
-		if p.CPU >= cpu && p.Memory >= mem {
-			return p
-		}
+		// K8s scheduler checks actual resource fit; caps are a coarse admission
+		// gate (pool must be non-zero).
+		return p
 	}
 	return nil
 }

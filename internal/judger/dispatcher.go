@@ -120,19 +120,25 @@ func (d *Dispatcher) runPodStep(km *KubeManager, sub *models.Submission, prob *P
 	podName := fmt.Sprintf("%s-%d", sub.ID, step)
 	script := podspec.GenerateEntrypointScript(flow.Steps)
 	pod := podspec.BuildPodSpec(podspec.PodSpecInput{
-		Name:       podName,
-		Namespace:  km.ns,
-		Image:      flow.Image,
-		Script:     script,
-		CPU:        prob.CPU,
-		MemoryMi:   prob.Memory,
-		NodeSel:    pool.NodeSelector,
-		Env:        env,
-		SubID:      sub.ID,
-		Step:       step,
-		AsRoot:     flow.Root,
-		Network:    flow.Network,
-		TimeoutSec: int64(flow.Timeout),
+		Name:              podName,
+		Namespace:         km.ns,
+		Image:             flow.Image,
+		Script:            script,
+		CPURequest:        stepCPURequest(flow),
+		CPULimit:          stepCPULimit(flow),
+		MemoryRequest:     stepMemoryRequest(flow),
+		MemoryLimit:       stepMemoryLimit(flow),
+		NodeSel:           pool.NodeSelector,
+		NodeAffinity:      stepNodeAffinity(flow),
+		Tolerations:       stepTolerations(flow),
+		PriorityClassName: stepPriorityClass(flow),
+		RuntimeClassName:  stepRuntimeClass(flow),
+		Env:               env,
+		SubID:             sub.ID,
+		Step:              step,
+		AsRoot:            flow.Root,
+		Network:           flow.Network,
+		TimeoutSec:        int64(flow.Timeout),
 	})
 
 	cont := d.newContainerRecord(sub, flow.Image, step)
@@ -181,16 +187,22 @@ func (d *Dispatcher) runMPIStep(km *KubeManager, sub *models.Submission, prob *P
 	totalRanks := flow.MPI.WorkerReplicas * flow.MPI.SlotsPerWorker
 	launcherScript := fmt.Sprintf("mpirun -np %d %s", totalRanks, joinArgs(flow.MPI.LauncherCmd))
 	obj := podspec.BuildMPIJobSpec(podspec.MPIJobSpecInput{
-		Name:           name,
-		Namespace:      km.ns,
-		Image:          flow.Image,
-		LauncherScript: launcherScript,
-		WorkerReplicas: flow.MPI.WorkerReplicas,
-		CPU:            prob.CPU,
-		MemoryMi:       prob.Memory,
-		NodeSel:        pool.NodeSelector,
-		SubID:          sub.ID,
-		Step:           step,
+		Name:              name,
+		Namespace:         km.ns,
+		Image:             flow.Image,
+		LauncherScript:     launcherScript,
+		WorkerReplicas:    flow.MPI.WorkerReplicas,
+		CPURequest:        stepCPURequest(flow),
+		CPULimit:          stepCPULimit(flow),
+		MemoryRequest:     stepMemoryRequest(flow),
+		MemoryLimit:       stepMemoryLimit(flow),
+		NodeSel:           pool.NodeSelector,
+		NodeAffinity:      stepNodeAffinity(flow),
+		Tolerations:       stepTolerations(flow),
+		PriorityClassName: stepPriorityClass(flow),
+		RuntimeClassName:  stepRuntimeClass(flow),
+		SubID:             sub.ID,
+		Step:              step,
 	})
 
 	cont := d.newContainerRecord(sub, flow.Image, step)
@@ -286,6 +298,73 @@ func joinArgs(args []string) string {
 		out += strconv.Quote(a)
 	}
 	return out
+}
+
+// Per-step resource/scheduling extractors. Each returns the zero value when
+// flow.Resources / flow.Scheduling is nil, letting podspec apply its defaults.
+
+func stepCPURequest(flow WorkflowStep) string {
+	if flow.Resources == nil {
+		return ""
+	}
+	return flow.Resources.CPURequest
+}
+
+func stepCPULimit(flow WorkflowStep) string {
+	if flow.Resources == nil {
+		return ""
+	}
+	return flow.Resources.CPULimit
+}
+
+func stepMemoryRequest(flow WorkflowStep) string {
+	if flow.Resources == nil {
+		return ""
+	}
+	return flow.Resources.MemoryRequest
+}
+
+func stepMemoryLimit(flow WorkflowStep) string {
+	if flow.Resources == nil {
+		return ""
+	}
+	return flow.Resources.MemoryLimit
+}
+
+func stepNodeAffinity(flow WorkflowStep) []podspec.NodeAffinityTerm {
+	if flow.Scheduling == nil || len(flow.Scheduling.NodeAffinity) == 0 {
+		return nil
+	}
+	out := make([]podspec.NodeAffinityTerm, 0, len(flow.Scheduling.NodeAffinity))
+	for _, a := range flow.Scheduling.NodeAffinity {
+		out = append(out, podspec.NodeAffinityTerm{Key: a.Key, Operator: a.Operator, Values: a.Values})
+	}
+	return out
+}
+
+func stepTolerations(flow WorkflowStep) []podspec.Toleration {
+	if flow.Scheduling == nil || len(flow.Scheduling.Tolerations) == 0 {
+		return nil
+	}
+	out := make([]podspec.Toleration, 0, len(flow.Scheduling.Tolerations))
+	for _, t := range flow.Scheduling.Tolerations {
+		out = append(out, podspec.Toleration{Key: t.Key, Operator: t.Operator, Value: t.Value, Effect: t.Effect})
+	}
+	return out
+}
+
+func stepPriorityClass(flow WorkflowStep) string {
+	if flow.Scheduling == nil {
+		return ""
+	}
+	return flow.Scheduling.PriorityClassName
+}
+
+func stepRuntimeClass(flow WorkflowStep) string {
+	if flow.Scheduling == nil {
+		return ""
+	}
+	return flow.Scheduling.RuntimeClassName
 }
 
 func durationWithDefault(timeoutSec, defaultSec int) time.Duration {
