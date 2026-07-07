@@ -1,123 +1,9 @@
 "use client";
-import { useState, useEffect, useRef, useMemo } from 'react';
-import useWebSocket, { ReadyState } from 'react-use-websocket';
+import { useState, useEffect, useMemo } from 'react';
 import { Problem, Submission } from '@/lib/types';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../ui/tabs';
-import useSWR from 'swr';
-import api from '@/lib/api';
-import { Skeleton } from '../ui/skeleton';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
-
-interface LogMessage {
-    stream: 'stdout' | 'stderr' | 'info' | 'error';
-    data: string;
-}
-
-const StaticLogViewer = ({ submissionId, containerId }: { submissionId: string, containerId: string }) => {
-    const textFetcher = (url: string) => api.get(url, { responseType: 'text' }).then(res => res.data);
-    const { data: logText, error, isLoading } = useSWR(`/admin/submissions/${submissionId}/containers/${containerId}/log`, textFetcher);
-    const logContainerRef = useRef<HTMLDivElement>(null);
-
-    const messages: LogMessage[] = useMemo(() => {
-        if (!logText) return [];
-        return logText.split('\n').filter(Boolean).map((line: string) => {
-            try { return JSON.parse(line); } catch { return { stream: 'stdout', data: line }; }
-        });
-    }, [logText]);
-
-    useEffect(() => { 
-        if (logContainerRef.current) {
-            logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight;
-        }
-    }, [messages]);
-
-    return (
-        <div className="relative h-full">
-             <div className="absolute top-2 right-6 text-xs font-semibold flex items-center gap-2 z-10">
-                <span className="h-2 w-2 rounded-full bg-gray-400"></span>
-                Finished
-            </div>
-            <div ref={logContainerRef} className="font-mono text-xs bg-muted rounded-md h-[60vh] overflow-y-auto p-4">
-                {isLoading && <Skeleton className="h-[60vh] w-full" />}
-                {error && <p className="text-red-400">Failed to load log.</p>}
-                {messages.map((msg, index) => (
-                    <span key={index} className="whitespace-pre-wrap break-all">
-                        {msg.stream === 'stderr' || msg.stream === 'error' ? (
-                            <span className="text-red-400">{msg.data}</span>
-                        ) : msg.stream === 'info' ? (
-                            <span className="text-blue-400">{msg.data}</span>
-                        ) : (
-                            <span className="text-foreground">{msg.data}</span>
-                        )}
-                    </span>
-                ))}
-            </div>
-        </div>
-    );
-};
-
-const RealtimeLogViewer = ({ wsUrl, onStatusUpdate }: { wsUrl: string | null, onStatusUpdate: () => void }) => {
-    const [messages, setMessages] = useState<LogMessage[]>([]);
-    const logContainerRef = useRef<HTMLDivElement>(null);
-
-    const { readyState, lastMessage } = useWebSocket(wsUrl, {
-        shouldReconnect: (closeEvent) => closeEvent.code !== 1000,
-        reconnectInterval: 3000,
-        onClose: () => {
-            console.log('WebSocket closed. Refetching submission status.');
-            onStatusUpdate();
-        }
-    });
-
-    useEffect(() => { setMessages([]); }, [wsUrl]);
-
-    useEffect(() => {
-        if (lastMessage?.data) { 
-            try { 
-                setMessages(prev => [...prev, JSON.parse(lastMessage.data)]); 
-            } catch (e) {
-                console.error("Failed to parse WebSocket message:", lastMessage.data);
-            } 
-        }
-    }, [lastMessage]);
-
-    useEffect(() => { 
-        if (logContainerRef.current) {
-            logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight;
-        }
-    }, [messages]);
-
-    const connectionStatus = {
-        [ReadyState.CONNECTING]: { text: 'Connecting...', color: 'bg-yellow-500' },
-        [ReadyState.OPEN]: { text: 'Live', color: 'bg-green-500 animate-pulse' },
-        [ReadyState.CLOSING]: { text: 'Closing...', color: 'bg-yellow-500' },
-        [ReadyState.CLOSED]: { text: 'Disconnected', color: 'bg-red-500' },
-        [ReadyState.UNINSTANTIATED]: { text: 'Idle', color: 'bg-gray-500' },
-    }[readyState];
-
-    return (
-        <div className="relative h-full">
-            <div className="absolute top-2 right-6 text-xs font-semibold flex items-center gap-2 z-10">
-                <span className={`h-2 w-2 rounded-full ${connectionStatus.color}`}></span>
-                {connectionStatus.text}
-            </div>
-            <div ref={logContainerRef} className="font-mono text-xs bg-muted rounded-md h-[60vh] overflow-y-auto p-4">
-                {messages.length === 0 && readyState === ReadyState.OPEN && <p className="text-muted-foreground">Waiting for judge output...</p>}
-                {messages.map((msg, index) => (
-                    <span key={index} className="whitespace-pre-wrap break-all">
-                        {msg.stream === 'stderr' || msg.stream === 'error' ? (
-                            <span className="text-red-400">{msg.data}</span>
-                        ) : msg.stream === 'info' ? (
-                            <span className="text-blue-400">{msg.data}</span>
-                        ) : (
-                            <span className="text-foreground">{msg.data}</span>
-                        )}
-                    </span>
-                ))}
-            </div>
-        </div>
-    );
-};
+import { TerminalLogViewer } from '@/components/shared/terminal-log-viewer';
 
 export function AdminSubmissionLogViewer({ submission, problem, onStatusUpdate }: { submission: Submission, problem?: Problem, onStatusUpdate: () => void }) {
     const [selectedContainerId, setSelectedContainerId] = useState<string | null>(null);
@@ -179,8 +65,8 @@ export function AdminSubmissionLogViewer({ submission, problem, onStatusUpdate }
                     {submission.containers.map(c => (
                         <TabsContent key={c.id} value={c.id} className="mt-4 flex-1">
                             {c.status === 'Running' ?
-                                <RealtimeLogViewer wsUrl={getWsUrl(c.id)} onStatusUpdate={onStatusUpdate} /> :
-                                <StaticLogViewer submissionId={submission.id} containerId={c.id} />
+                                <TerminalLogViewer mode="realtime" wsUrl={getWsUrl(c.id)} onStatusUpdate={onStatusUpdate} /> :
+                                <TerminalLogViewer mode="static" staticLogUrl={`/admin/submissions/${submission.id}/containers/${c.id}/log`} />
                             }
                         </TabsContent>
                     ))}
