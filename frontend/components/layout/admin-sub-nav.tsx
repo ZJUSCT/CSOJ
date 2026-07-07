@@ -9,6 +9,7 @@ import {
     Trophy,
     BookCopy,
     Package,
+    Settings,
 } from "lucide-react"
 import { cn } from "@/lib/utils";
 
@@ -19,6 +20,7 @@ const routes = [
     { href: "/admin/containers", label: "Containers", icon: Package },
     { href: "/admin/contests", label: "Contests", icon: Trophy },
     { href: "/admin/problems", label: "Problems", icon: BookCopy },
+    { href: "/admin/settings", label: "Settings", icon: Settings },
 ];
 
 export function AdminSubNav() {
