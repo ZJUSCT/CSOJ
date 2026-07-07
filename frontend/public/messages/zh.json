@@ -32,7 +32,9 @@
       "ongoing": "进行中",
       "finished": "已结束",
       "ended": "已结束",
-      "live": "进行中"
+      "live": "进行中",
+      "submissionOpensAt": "提交将于 {time} 开放",
+      "submissionClosed": "提交已关闭"
     },
     "registration": {
       "successTitle": "报名成功",
@@ -113,7 +115,9 @@
       "id": "题目编号"
     },
     "submitForm": {
-      "title": "提交解答"
+      "title": "提交解答",
+      "submissionOpensAt": "提交将于 {time} 开放",
+      "submissionClosed": "提交已结束"
     },
     "submissions": {
       "title": "提交历史",

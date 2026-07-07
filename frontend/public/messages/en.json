@@ -32,7 +32,9 @@
       "ongoing": "Ongoing",
       "finished": "Finished",
       "ended": "Ended",
-      "live": "Live"
+      "live": "Live",
+      "submissionOpensAt": "Submission opens at {time}",
+      "submissionClosed": "Submission closed"
     },
     "registration": {
       "successTitle": "Success",
@@ -113,7 +115,9 @@
       "id": "Problem"
     },
     "submitForm": {
-      "title": "Submit Solution"
+      "title": "Submit Solution",
+      "submissionOpensAt": "Submission opens at {time}",
+      "submissionClosed": "Submission has ended"
     },
     "submissions": {
       "title": "Your Submissions",

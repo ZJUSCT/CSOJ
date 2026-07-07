@@ -177,11 +177,25 @@ function ContestCard({ contest }: { contest: Contest }) {
     const hasStarted = now >= startTime;
     const hasEnded = now > endTime;
 
+    // Submission window (optional — falls back to visibility times when null)
+    const submitStartTime = contest.submit_start_time ? new Date(contest.submit_start_time) : startTime;
+    const submitEndTime = contest.submit_end_time ? new Date(contest.submit_end_time) : endTime;
+    const submitNotOpened = now < submitStartTime;
+    const submitClosed = now > submitEndTime;
+
     let statusText = t('status.upcoming');
-    if (hasStarted && !hasEnded) statusText = t('status.ongoing');
+    if (hasStarted && !hasEnded) {
+        if (submitNotOpened) {
+            statusText = t('status.submissionOpensAt', { time: format(submitStartTime, 'MMM d, HH:mm') });
+        } else if (submitClosed) {
+            statusText = t('status.submissionClosed');
+        } else {
+            statusText = t('status.ongoing');
+        }
+    }
     if (hasEnded) statusText = t('status.finished');
 
-    const canRegister = statusText === t('status.ongoing');
+    const canRegister = hasStarted && !hasEnded;
     const isLoadingRegistration = isRegistrationLoading || isRegistering;
 
     const renderRegisterButton = () => {
@@ -642,6 +656,22 @@ function ContestDetailView({ contestId, view }: { contestId: string, view: strin
     const now = new Date();
     const canRegister = contest && now >= new Date(contest.starttime) && now <= new Date(contest.endtime);
 
+    // Submission window status (optional — falls back to visibility times when null)
+    let submissionStatusText: string | null = null;
+    if (contest) {
+        const submitStartTime = contest.submit_start_time ? new Date(contest.submit_start_time) : new Date(contest.starttime);
+        const submitEndTime = contest.submit_end_time ? new Date(contest.submit_end_time) : new Date(contest.endtime);
+        if (now < new Date(contest.starttime)) {
+            submissionStatusText = null; // contest not visible yet — no submission status
+        } else if (now > new Date(contest.endtime)) {
+            submissionStatusText = null; // contest ended — finished state covers it
+        } else if (now < submitStartTime) {
+            submissionStatusText = t('status.submissionOpensAt', { time: format(submitStartTime, 'MMM d, HH:mm') });
+        } else if (now > submitEndTime) {
+            submissionStatusText = t('status.submissionClosed');
+        }
+    }
+
     if (isContestLoading) {
         return (
             <div className="space-y-6">
@@ -701,6 +731,12 @@ function ContestDetailView({ contestId, view }: { contestId: string, view: strin
                 <h1 className="text-3xl font-bold">{contest.name}</h1>
                 {renderRegisterControl()}
             </div>
+
+            {submissionStatusText && (
+                <div className="text-sm text-muted-foreground border rounded-md p-3 bg-muted/30">
+                    {submissionStatusText}
+                </div>
+            )}
 
             <div className="grid gap-8 lg:grid-cols-4 items-start">
                 <div className="lg:col-span-3 space-y-6">

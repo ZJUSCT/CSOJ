@@ -115,6 +115,14 @@ function ProblemDetails() {
     if (error) return <div>{t('details.loadFail')}</div>;
     if (!problem) return <div>{t('details.notFound')}</div>;
 
+    // Submission window (optional — falls back to visibility times when null)
+    const now = new Date();
+    const submitStartTime = problem.submit_start_time ? new Date(problem.submit_start_time) : new Date(problem.starttime);
+    const submitEndTime = problem.submit_end_time ? new Date(problem.submit_end_time) : new Date(problem.endtime);
+    const submitNotOpened = now < submitStartTime;
+    const submitClosed = now > submitEndTime;
+    const submissionDisabled = submitNotOpened || submitClosed;
+
     return (
         <div className="grid gap-6 lg:grid-cols-[6fr_4fr]">
         <div className="space-y-6">
@@ -208,10 +216,18 @@ function ProblemDetails() {
                 <CardTitle>{t("submitForm.title")}</CardTitle>
             </CardHeader>
             <CardContent>
-                <SubmissionUploadForm
-                problemId={problem.id}
-                uploadLimits={problem.upload}
-                />
+                {submissionDisabled ? (
+                    <div className="text-center text-sm text-muted-foreground p-4 border rounded-md">
+                        {submitNotOpened
+                            ? t('submitForm.submissionOpensAt', { time: format(submitStartTime, 'MMM d, HH:mm') })
+                            : t('submitForm.submissionClosed')}
+                    </div>
+                ) : (
+                    <SubmissionUploadForm
+                    problemId={problem.id}
+                    uploadLimits={problem.upload}
+                    />
+                )}
             </CardContent>
             </Card>
 
