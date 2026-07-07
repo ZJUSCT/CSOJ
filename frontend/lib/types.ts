@@ -183,32 +183,42 @@ export interface AssetFile {
     mod_time: string;
 }
 
-export interface ConfigNode {
+export interface ClusterRow {
   name: string;
+  kubeconfig: string;
+  context: string;
+  namespace: string;
+  concurrency: number;
+  heartbeat_ttl: number;
+}
+
+export interface ClusterNodePool {
+  cluster_name: string;
+  pool_name: string;
+  node_selector: Record<string, string>;
   cpu: number;
   memory: number;
-  docker: {
-    host: string;
-  };
+  is_paused: boolean;
 }
 
-export interface NodeState extends ConfigNode {
-    used_memory: number;
-    is_paused: boolean;
-    used_cores: boolean[];
+export interface PoolState {
+  Name: string;
+  NodeSelector: Record<string, string>;
+  CPU: number;
+  Memory: number;
+  IsPaused: boolean;
 }
 
-export interface ClusterState {
-    name: string;
-    node: ConfigNode[];
-    nodes: Record<string, NodeState>;
+export interface ClusterStateSnapshot {
+  Name: string;
+  Namespace: string;
+  Pools: Record<string, PoolState>;
+  MPIEnabled: boolean;
+  QueueLength: number;
+  Concurrency: number;
 }
 
 export interface ClusterStatusResponse {
-    resource_status: Record<string, ClusterState>;
-    queue_lengths: Record<string, number>;
-}
-
-export interface NodeDetail extends NodeState {
-    used_cores: boolean[];
+  resource_status: Record<string, ClusterStateSnapshot>;
+  queue_lengths: Record<string, number>;
 }
