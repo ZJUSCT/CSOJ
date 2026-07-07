@@ -142,7 +142,7 @@ func (h *Handler) createCluster(c *gin.Context) {
 
 // updateCluster updates an existing cluster row by name (including kubeconfig).
 func (h *Handler) updateCluster(c *gin.Context) {
-	name := c.Param("name")
+	name := c.Param("cluster")
 	var cl models.Cluster
 	if err := c.ShouldBindJSON(&cl); err != nil {
 		util.Error(c, http.StatusBadRequest, err)
@@ -161,7 +161,7 @@ func (h *Handler) updateCluster(c *gin.Context) {
 
 // deleteCluster deletes a cluster row by name.
 func (h *Handler) deleteCluster(c *gin.Context) {
-	name := c.Param("name")
+	name := c.Param("cluster")
 	if err := database.DeleteCluster(h.db, name); err != nil {
 		util.Error(c, http.StatusInternalServerError, err)
 		return

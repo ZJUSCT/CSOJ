@@ -107,15 +107,15 @@ func RegisterRoutes(
 		{
 			clusters.GET("", h.listClusters)
 			clusters.POST("", h.createCluster)
-			clusters.PUT("/:name", h.updateCluster)
-			clusters.DELETE("/:name", h.deleteCluster)
 			clusters.POST("/reload", h.reloadClusters)
 			clusters.GET("/status", h.getClusterStatus)
+			clusters.PUT("/:cluster/concurrency", h.setConcurrency)
+			clusters.PUT("/:cluster", h.updateCluster)
+			clusters.DELETE("/:cluster", h.deleteCluster)
 			clusters.GET("/:cluster/pools", h.listPools)
 			clusters.POST("/:cluster/pools", h.createPool)
 			clusters.PUT("/:cluster/pools/:pool", h.updatePool)
 			clusters.DELETE("/:cluster/pools/:pool", h.deletePool)
-			clusters.PUT("/:cluster/concurrency", h.setConcurrency)
 		}
 
 		// Settings Management
