@@ -187,15 +187,28 @@ type UserProblemBestScore struct {
 
 // Contest is a backend-managed contest definition.
 type Contest struct {
-	ID          string      `gorm:"primaryKey" json:"id"`
-	Name        string      `json:"name"`
-	StartTime   time.Time   `gorm:"index" json:"starttime"`
-	EndTime     time.Time   `json:"endtime"`
-	Description string      `gorm:"type:text" json:"description"`
-	ProblemIDs  StringArray `gorm:"type:text" json:"problem_ids"`
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
-	DeletedAt   gorm.DeletedAt `gorm:"index"`
+	ID                  string         `gorm:"primaryKey" json:"id"`
+	Name                string         `json:"name"`
+	StartTime           time.Time      `gorm:"index" json:"starttime"`
+	EndTime             time.Time      `json:"endtime"`
+	Description         string         `gorm:"type:text" json:"description"`
+	ProblemIDs          StringArray    `gorm:"type:text" json:"problem_ids"`
+	RegistrationConfig  RawJSON        `gorm:"type:text" json:"registration_config"`
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
+	DeletedAt           gorm.DeletedAt `gorm:"index"`
+}
+
+// ContestRegistration tracks a user's registration for a contest.
+type ContestRegistration struct {
+	ID         string     `gorm:"primaryKey" json:"id"`
+	ContestID  string     `gorm:"index:idx_reg_user_contest,unique" json:"contest_id"`
+	UserID     string     `gorm:"index:idx_reg_user_contest,unique" json:"user_id"`
+	User       User       `gorm:"foreignKey:UserID" json:"user"`
+	Status     string     `gorm:"default:pending" json:"status"` // "approved" | "pending" | "rejected"
+	CreatedAt  time.Time  `json:"created_at"`
+	ReviewedAt *time.Time `json:"reviewed_at,omitempty"`
+	ReviewerID string     `json:"reviewer_id,omitempty"`
 }
 
 // Problem is a backend-managed problem definition.

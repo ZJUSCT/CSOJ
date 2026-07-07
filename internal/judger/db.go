@@ -50,6 +50,12 @@ func LoadFromDB(db *gorm.DB) (map[string]*Contest, map[string]*Problem, map[stri
 			Description:   c.Description,
 			Announcements: anns,
 		}
+		if len(c.RegistrationConfig) > 0 {
+			var rc RegistrationConfig
+			if err := json.Unmarshal(c.RegistrationConfig, &rc); err == nil {
+				contests[c.ID].RegistrationConfig = &rc
+			}
+		}
 	}
 
 	problems := make(map[string]*Problem, len(dbProblems))
@@ -139,7 +145,7 @@ func ProblemToModel(p *Problem, contestID string) (models.Problem, error) {
 
 // ContestToModel converts a judger.Contest into a models.Contest for DB persistence.
 func ContestToModel(c *Contest) models.Contest {
-	return models.Contest{
+	mc := models.Contest{
 		ID:          c.ID,
 		Name:        c.Name,
 		StartTime:   c.StartTime,
@@ -147,4 +153,9 @@ func ContestToModel(c *Contest) models.Contest {
 		Description: c.Description,
 		ProblemIDs:  models.StringArray(append([]string(nil), c.ProblemIDs...)),
 	}
+	if c.RegistrationConfig != nil {
+		rc, _ := json.Marshal(c.RegistrationConfig)
+		mc.RegistrationConfig = models.RawJSON(rc)
+	}
+	return mc
 }

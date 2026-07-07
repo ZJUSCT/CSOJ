@@ -14,13 +14,20 @@ type Announcement struct {
 }
 
 type Contest struct {
-	ID            string          `json:"id"`
-	Name          string          `json:"name"`
-	StartTime     time.Time       `json:"starttime"`
-	EndTime       time.Time       `json:"endtime"`
-	ProblemIDs    []string        `json:"problem_ids"`
-	Description   string          `json:"description"`
-	Announcements []*Announcement `json:"announcements"`
+	ID                  string             `json:"id"`
+	Name                string             `json:"name"`
+	StartTime           time.Time          `json:"starttime"`
+	EndTime             time.Time          `json:"endtime"`
+	ProblemIDs          []string           `json:"problem_ids"`
+	Description         string             `json:"description"`
+	Announcements       []*Announcement    `json:"announcements"`
+	RegistrationConfig  *RegistrationConfig `json:"registration_config,omitempty"`
+}
+
+// RegistrationConfig controls how users register for a contest.
+type RegistrationConfig struct {
+	Mode        string   `json:"mode"`                    // "auto" | "tag_auto" | "tag_review" | "review"
+	AllowedTags []string `json:"allowed_tags,omitempty"`
 }
 
 type UploadLimit struct {

@@ -42,6 +42,7 @@ func Init(dsn string) (*gorm.DB, error) {
 		&models.Heartbeat{},
 		&models.Setting{},
 		&models.Cluster{},
+		&models.ContestRegistration{},
 	)
 	if err != nil {
 		return nil, err

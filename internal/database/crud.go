@@ -822,3 +822,53 @@ func UpsertCluster(db *gorm.DB, c *models.Cluster) error {
 func DeleteCluster(db *gorm.DB, name string) error {
 	return db.Where("name = ?", name).Delete(&models.Cluster{}).Error
 }
+
+// --- Contest Registrations ---
+
+func CreateRegistration(db *gorm.DB, reg *models.ContestRegistration) error {
+	return db.Create(reg).Error
+}
+
+func GetRegistration(db *gorm.DB, userID, contestID string) (*models.ContestRegistration, error) {
+	var reg models.ContestRegistration
+	err := db.Where("user_id = ? AND contest_id = ?", userID, contestID).First(&reg).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	return &reg, err
+}
+
+func GetRegistrationsByContest(db *gorm.DB, contestID string, status string) ([]models.ContestRegistration, error) {
+	var regs []models.ContestRegistration
+	q := db.Preload("User").Where("contest_id = ?", contestID)
+	if status != "" {
+		q = q.Where("status = ?", status)
+	}
+	err := q.Order("created_at desc").Find(&regs).Error
+	return regs, err
+}
+
+func UpdateRegistrationStatus(db *gorm.DB, regID, status, reviewerID string) error {
+	now := time.Now()
+	return db.Model(&models.ContestRegistration{}).Where("id = ?", regID).
+		Updates(map[string]interface{}{
+			"status":      status,
+			"reviewer_id": reviewerID,
+			"reviewed_at": now,
+		}).Error
+}
+
+func IsUserApprovedForContest(db *gorm.DB, userID, contestID string) (bool, error) {
+	var count int64
+	err := db.Model(&models.ContestRegistration{}).
+		Where("user_id = ? AND contest_id = ? AND status = ?", userID, contestID, "approved").
+		Count(&count).Error
+	if err != nil {
+		return false, err
+	}
+	if count > 0 {
+		return true, nil
+	}
+	// Fallback: check ContestScoreHistory for backward compat (pre-feature registrations).
+	return IsUserRegisteredForContest(db, userID, contestID)
+}
