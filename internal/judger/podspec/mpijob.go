@@ -1,6 +1,7 @@
 package podspec
 
 import (
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -283,6 +284,51 @@ func runtimeClassNamePtr(name string) *string {
 
 // helpers
 func ptrInt64(v int64) *int64 { return &v }
+
+func ptrInt32(v int32) *int32 { return &v }
+
+// JobSpecInput wraps PodSpecInput with a Kueue queue name. When QueueName is
+// non-empty, the resulting Job gets a `kueue.x-k8s.io/queue-name` label so
+// Kueue's webhook admits it into the named LocalQueue.
+type JobSpecInput struct {
+	PodSpecInput
+	QueueName string
+}
+
+// BuildJobSpec wraps the PodSpec built from in.PodSpecInput into a batchv1.Job
+// suitable for Kueue admission. The Job's pod template carries the same labels
+// as the Pod (app=csoj-judger, csoj-submission, csoj-step), plus the Kueue
+// queue-name label when QueueName is set. BackoffLimit=0 (no retries),
+// TTLSecondsAfterFinished=60 (auto-cleanup), ActiveDeadlineSeconds from the
+// step timeout.
+func BuildJobSpec(in JobSpecInput) *batchv1.Job {
+	pod := BuildPodSpec(in.PodSpecInput)
+	labels := make(map[string]string, len(pod.Labels)+1)
+	for k, v := range pod.Labels {
+		labels[k] = v
+	}
+	if in.QueueName != "" {
+		labels["kueue.x-k8s.io/queue-name"] = in.QueueName
+	}
+	return &batchv1.Job{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      in.Name,
+			Namespace: in.Namespace,
+			Labels:    labels,
+		},
+		Spec: batchv1.JobSpec{
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: pod.Labels,
+				},
+				Spec: pod.Spec,
+			},
+			BackoffLimit:            ptrInt32(0),
+			TTLSecondsAfterFinished: ptrInt32(60),
+			ActiveDeadlineSeconds:   ptrInt64(in.TimeoutSec),
+		},
+	}
+}
 
 func intToString(i int) string {
 	if i == 0 {

@@ -252,3 +252,33 @@ func getReplicaContainer(obj *unstructured.Unstructured, role string) *corev1.Co
 	}
 	return &ps.Containers[0]
 }
+
+func TestBuildJobSpec_Basic(t *testing.T) {
+	job := BuildJobSpec(JobSpecInput{
+		PodSpecInput: PodSpecInput{
+			Name: "sub1-0", Namespace: "csoj-judger", Image: "gcc:13",
+			Script: "echo hi", CPURequest: "1", CPULimit: "1",
+			MemoryRequest: "256Mi", MemoryLimit: "256Mi",
+			SubID: "sub1", Step: 0, TimeoutSec: 30,
+		},
+		QueueName: "test-queue",
+	})
+	if job.Name != "sub1-0" {
+		t.Errorf("name: %s", job.Name)
+	}
+	if job.Labels["kueue.x-k8s.io/queue-name"] != "test-queue" {
+		t.Errorf("queue label: %v", job.Labels)
+	}
+	if job.Labels["app"] != "csoj-judger" {
+		t.Errorf("app label: %v", job.Labels)
+	}
+	if *job.Spec.BackoffLimit != 0 {
+		t.Errorf("backoffLimit: %d", *job.Spec.BackoffLimit)
+	}
+	if *job.Spec.TTLSecondsAfterFinished != 60 {
+		t.Errorf("ttl: %d", *job.Spec.TTLSecondsAfterFinished)
+	}
+	if job.Spec.Template.Spec.Containers[0].Image != "gcc:13" {
+		t.Errorf("image: %s", job.Spec.Template.Spec.Containers[0].Image)
+	}
+}
