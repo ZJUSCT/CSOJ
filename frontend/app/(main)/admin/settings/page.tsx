@@ -33,14 +33,17 @@ function SettingsPage() {
     const { data, isLoading, mutate } = useSWR<SettingsResponse>('/admin/settings', fetcher);
 
     if (isLoading || !data) return (
-        <div className="space-y-6">
+        <div className="flex min-h-[calc(100vh-3.5rem)]">
             <AdminSubNav />
-            <Skeleton className="h-96 w-full" />
+            <div className="flex-1 p-6 space-y-6 overflow-auto">
+                <Skeleton className="h-96 w-full" />
+            </div>
         </div>
     );
 
     return (
-        <div className="space-y-6">
+        <div className="flex min-h-[calc(100vh-3.5rem)]">
+            <div className="flex-1 p-6 space-y-6 overflow-auto">
             <AdminSubNav />
             <h1 className="text-3xl font-bold">System Settings</h1>
 
@@ -80,6 +83,7 @@ function SettingsPage() {
                     <CORSTab settings={data.settings} onSaved={() => mutate()} />
                 </TabsContent>
             </Tabs>
+        </div>
         </div>
     );
 }

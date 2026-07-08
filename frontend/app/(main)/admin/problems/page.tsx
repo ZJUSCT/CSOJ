@@ -212,9 +212,11 @@ function ProblemsPageContent() {
     const problemId = searchParams.get('id');
 
     return (
-        <div className="space-y-6">
+        <div className="flex min-h-[calc(100vh-3.5rem)]">
             <AdminSubNav />
+            <div className="flex-1 p-6 space-y-6 overflow-auto">
             {problemId ? <ProblemDetails problemId={problemId} /> : <ProblemList />}
+            </div>
         </div>
     );
 }

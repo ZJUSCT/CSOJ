@@ -332,11 +332,13 @@ function PoolTable({ clusterName, pools }: { clusterName: string; pools: Record<
 
 function ClusterPage() {
     return (
-        <div className="space-y-6">
+        <div className="flex min-h-[calc(100vh-3.5rem)]">
             <AdminSubNav />
+            <div className="flex-1 p-6 space-y-6 overflow-auto">
             <h1 className="text-3xl font-bold">Cluster Management</h1>
             <ClusterRowsSection />
             <PoolStatusSection />
+            </div>
         </div>
     );
 }

@@ -173,8 +173,9 @@ function RegistrationsPageContent() {
     const effectiveContestId = selectedContestId || (contestList.length > 0 ? contestList[0].id : '');
 
     return (
-        <div className="space-y-6">
+        <div className="flex min-h-[calc(100vh-3.5rem)]">
             <AdminSubNav />
+            <div className="flex-1 p-6 space-y-6 overflow-auto">
             <div className="flex items-center justify-between">
                 <h1 className="text-3xl font-bold">Registration Review</h1>
             </div>
@@ -231,6 +232,7 @@ function RegistrationsPageContent() {
                     </CardContent>
                 </Card>
             )}
+            </div>
         </div>
     );
 }
