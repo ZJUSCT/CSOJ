@@ -238,6 +238,7 @@ export interface ClusterRow {
   namespace: string;
   concurrency: number;
   heartbeat_ttl: number;
+  queue_mode: string;
 }
 
 export interface ClusterNodePool {
@@ -264,6 +265,7 @@ export interface ClusterStateSnapshot {
   MPIEnabled: boolean;
   QueueLength: number;
   Concurrency: number;
+  QueueMode: string;
 }
 
 export interface ClusterStatusResponse {

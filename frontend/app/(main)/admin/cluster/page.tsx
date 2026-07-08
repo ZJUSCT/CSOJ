@@ -17,6 +17,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { useToast } from '@/hooks/use-toast';
 import { useSWRConfig } from 'swr';
 import { Server, PlusCircle, RefreshCw, Trash2, Edit, Pause, Play, Settings2 } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import withAdmin from '@/components/layout/with-admin';
 import { AdminSubNav } from '@/components/layout/admin-sub-nav';
 
@@ -139,6 +140,7 @@ function ClusterFormDialog({ open, onOpenChange, mode, cluster, onSuccess }: {
         namespace: cluster?.namespace || 'csoj-judger',
         concurrency: cluster?.concurrency || 4,
         heartbeat_ttl: cluster?.heartbeat_ttl || 30,
+        queue_mode: cluster?.queue_mode || 'channel',
     });
 
     const handleSave = async () => {
@@ -184,6 +186,21 @@ function ClusterFormDialog({ open, onOpenChange, mode, cluster, onSuccess }: {
                             <Label>Heartbeat TTL (seconds)</Label>
                             <Input type="number" value={form.heartbeat_ttl} onChange={e => setForm({ ...form, heartbeat_ttl: parseInt(e.target.value) || 30 })} />
                         </div>
+                        <div>
+                            <Label>Queue Mode</Label>
+                            <Select value={form.queue_mode} onValueChange={v => setForm({ ...form, queue_mode: v })}>
+                                <SelectTrigger><SelectValue /></SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="channel">channel</SelectItem>
+                                    <SelectItem value="kueue">kueue</SelectItem>
+                                </SelectContent>
+                            </Select>
+                            {form.queue_mode === 'kueue' && (
+                                <p className="text-xs text-muted-foreground mt-1">
+                                    Requires Kueue operator. Jobs use queue name <code className="font-mono">{form.name || '<name>'}-queue</code>.
+                                </p>
+                            )}
+                        </div>
                     </div>
                     <div>
                         <Label>Kubeconfig (full YAML text)</Label>
@@ -219,6 +236,9 @@ function PoolStatusSection() {
                         <CardTitle className="flex items-center gap-2">
                             {clusterName.toUpperCase()} Cluster
                             {cluster.MPIEnabled && <Badge variant="secondary">MPI</Badge>}
+                            <Badge variant={cluster.QueueMode === 'kueue' ? 'default' : 'outline'}>
+                                {cluster.QueueMode === 'kueue' ? 'Kueue' : 'Channel'}
+                            </Badge>
                         </CardTitle>
                         <CardDescription>
                             Namespace: {cluster.Namespace} | Queue: {cluster.QueueLength} | Concurrency: {cluster.Concurrency}
