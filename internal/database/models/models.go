@@ -299,6 +299,7 @@ type Cluster struct {
 	Namespace    string    `json:"namespace"`
 	Concurrency  int       `json:"concurrency"`
 	HeartbeatTTL int       `json:"heartbeat_ttl"`
+	QueueMode    string    `gorm:"default:channel" json:"queue_mode"`
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
 }

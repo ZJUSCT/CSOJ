@@ -45,6 +45,7 @@ type ClusterState struct {
 	sem        chan struct{}
 	queue      chan QueuedSubmission
 	mpiEnabled bool
+	queueMode  string
 }
 
 type QueuedSubmission struct {
@@ -130,6 +131,13 @@ func buildClusterState(db *gorm.DB, cc models.Cluster) (*ClusterState, error) {
 		queue:     make(chan QueuedSubmission, 1024),
 	}
 	cluster.mpiEnabled = probeMPIOperator(cs, cc.Namespace)
+	cluster.queueMode = cc.QueueMode
+	if cluster.queueMode == "kueue" {
+		if !probeKueue(cs) {
+			zap.S().Warnf("cluster %s: queue_mode=kueue but Kueue CRD not found; falling back to channel", cc.Name)
+			cluster.queueMode = "channel"
+		}
+	}
 	return cluster, nil
 }
 
@@ -299,6 +307,7 @@ func (s *Scheduler) GetClusterStates() map[string]ClusterStateSnapshot {
 			MPIEnabled:  c.mpiEnabled,
 			QueueLength: len(c.queue),
 			Concurrency: cap(c.sem),
+			QueueMode:   c.queueMode,
 		}
 	}
 	s.mu.RUnlock()
@@ -312,6 +321,7 @@ type ClusterStateSnapshot struct {
 	MPIEnabled  bool
 	QueueLength int
 	Concurrency int
+	QueueMode   string
 }
 
 func (s *Scheduler) GetQueueLengths() map[string]int {
