@@ -271,6 +271,15 @@ func (s *Scheduler) Submit(submission *models.Submission, problem *Problem) {
 		pubsubPublishError(submission.ID, "Invalid cluster specified in problem definition")
 		return
 	}
+	if cluster.queueMode == "kueue" {
+		// Bypass the in-process queue + semaphore: Kueue manages admission.
+		// No pool is needed (Kueue handles scheduling); pass nil.
+		submission.Node = ""
+		submission.Status = models.StatusRunning
+		database.UpdateSubmission(s.db, submission)
+		go s.dispatcher.Dispatch(submission, problem, cluster, nil)
+		return
+	}
 	cluster.queue <- QueuedSubmission{Submission: submission, Problem: problem}
 }
 

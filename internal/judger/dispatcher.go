@@ -17,6 +17,7 @@ import (
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 )
 
@@ -44,12 +45,18 @@ type JudgeResult struct {
 func (d *Dispatcher) Dispatch(sub *models.Submission, prob *Problem, cluster *ClusterState, pool *PoolState) {
 	km := NewKubeManager(cluster.k8s, cluster.dyn, cluster.Namespace)
 	defer func() {
-		// Clean up all pods/MPIJobs for this submission, release the slot, close the topic.
+		// Clean up all pods/MPIJobs/Jobs for this submission, release the slot (channel
+		// mode only — Kueue mode bypasses the in-process semaphore), close the topic.
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		_ = km.DeleteSubmissionPods(ctx, sub.ID)
 		_ = km.DeleteSubmissionMPIJobs(ctx, sub.ID)
+		if cluster.queueMode == "kueue" {
+			_ = km.DeleteSubmissionJobs(ctx, sub.ID)
+		}
 		cancel()
-		d.scheduler.ReleaseSlot(cluster.Name)
+		if cluster.queueMode != "kueue" {
+			d.scheduler.ReleaseSlot(cluster.Name)
+		}
 		pubsub.GetBroker().CloseTopic(sub.ID)
 	}()
 
@@ -66,7 +73,7 @@ func (d *Dispatcher) Dispatch(sub *models.Submission, prob *Problem, cluster *Cl
 		if flow.MPI != nil && flow.MPI.Enabled {
 			err = d.runMPIStep(km, sub, prob, flow, cluster, pool, env, i)
 		} else {
-			err = d.runPodStep(km, sub, prob, flow, pool, env, i)
+			err = d.runPodStep(km, sub, prob, flow, cluster, pool, env, i)
 		}
 		if err != nil {
 			d.failSubmission(sub, fmt.Sprintf("workflow step %d failed: %v", i+1, err))
@@ -116,7 +123,12 @@ func (d *Dispatcher) Dispatch(sub *models.Submission, prob *Problem, cluster *Cl
 }
 
 // runPodStep builds + creates a Pod, tails its logs into pubsub, waits for completion.
-func (d *Dispatcher) runPodStep(km *KubeManager, sub *models.Submission, prob *Problem, flow WorkflowStep, pool *PoolState, env []corev1.EnvVar, step int) error {
+// In Kueue mode it delegates to runJobStep (creates a batch/v1 Job instead of a
+// bare Pod, so Kueue can admit it through a LocalQueue).
+func (d *Dispatcher) runPodStep(km *KubeManager, sub *models.Submission, prob *Problem, flow WorkflowStep, cluster *ClusterState, pool *PoolState, env []corev1.EnvVar, step int) error {
+	if cluster.queueMode == "kueue" {
+		return d.runJobStep(km, sub, prob, flow, cluster, env, step)
+	}
 	podName := fmt.Sprintf("%s-%d", sub.ID, step)
 	script := podspec.GenerateEntrypointScript(flow.Steps)
 	pod := podspec.BuildPodSpec(podspec.PodSpecInput{
@@ -171,6 +183,74 @@ func (d *Dispatcher) runPodStep(km *KubeManager, sub *models.Submission, prob *P
 	if phase == corev1.PodFailed {
 		d.failContainer(cont, -1, "pod failed")
 		return fmt.Errorf("pod %s failed", podName)
+	}
+	cont.Status = models.StatusSuccess
+	cont.FinishedAt = time.Now()
+	database.UpdateContainer(d.db, cont)
+	return nil
+}
+
+// runJobStep is the Kueue-mode equivalent of runPodStep: it builds a batch/v1
+// Job (wrapping the same Pod spec) and lets Kueue admit it through a LocalQueue.
+// Kueue handles scheduling, so no node-pool is consulted.
+func (d *Dispatcher) runJobStep(km *KubeManager, sub *models.Submission, prob *Problem, flow WorkflowStep, cluster *ClusterState, env []corev1.EnvVar, step int) error {
+	jobName := fmt.Sprintf("%s-%d", sub.ID, step)
+	script := podspec.GenerateEntrypointScript(flow.Steps)
+
+	job := podspec.BuildJobSpec(podspec.JobSpecInput{
+		PodSpecInput: podspec.PodSpecInput{
+			Name:              jobName,
+			Namespace:         km.ns,
+			Image:             flow.Image,
+			Script:            script,
+			CPURequest:        stepCPURequest(flow),
+			CPULimit:          stepCPULimit(flow),
+			MemoryRequest:     stepMemoryRequest(flow),
+			MemoryLimit:       stepMemoryLimit(flow),
+			NodeSel:           nil, // Kueue handles scheduling
+			NodeAffinity:      stepNodeAffinity(flow),
+			Tolerations:       stepTolerations(flow),
+			PriorityClassName: stepPriorityClass(flow),
+			RuntimeClassName:  stepRuntimeClass(flow),
+			Env:               env,
+			SubID:             sub.ID,
+			Step:              step,
+			AsRoot:            flow.Root,
+			Network:           flow.Network,
+			TimeoutSec:        int64(flow.Timeout),
+		},
+		QueueName: cluster.Name + "-queue",
+	})
+
+	cont := d.newContainerRecord(sub, flow.Image, step)
+	cont.PodName = jobName
+	database.CreateContainer(d.db, cont)
+	defer pubsub.GetBroker().CloseTopic(cont.ID)
+
+	ctx, cancel := context.WithTimeout(context.Background(), durationWithDefault(flow.Timeout, 30*60))
+	defer cancel()
+
+	if err := km.CreateJob(ctx, job); err != nil {
+		d.failContainer(cont, -1, fmt.Sprintf("failed to create job: %v", err))
+		return err
+	}
+
+	logCtx, logCancel := context.WithCancel(ctx)
+	go func() {
+		_ = km.StreamJobLogs(logCtx, jobName, func(chunk string) {
+			pubsub.GetBroker().Publish(cont.ID, pubsub.FormatMessage("stdout", chunk))
+		})
+	}()
+
+	cond, err := km.WaitForJob(ctx, jobName)
+	logCancel()
+	if err != nil && cond == "" {
+		d.failContainer(cont, -1, fmt.Sprintf("timeout/error: %v", err))
+		return err
+	}
+	if cond == batchv1.JobFailed {
+		d.failContainer(cont, -1, "job failed")
+		return fmt.Errorf("job %s failed", jobName)
 	}
 	cont.Status = models.StatusSuccess
 	cont.FinishedAt = time.Now()
