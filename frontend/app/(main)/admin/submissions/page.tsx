@@ -7,6 +7,7 @@ import { Submission, Problem, PaginatedResponse } from '@/lib/types';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Checkbox } from '@/components/ui/checkbox';
 import Link from 'next/link';
 import SubmissionStatusBadge from '@/components/shared/submission-status-badge';
 import { format, formatDistanceToNow } from 'date-fns';
@@ -30,6 +31,8 @@ function SubmissionsList() {
 	const [page, setPage] = useState(1);
 	const [filters, setFilters] = useState({ user_query: '', problem_id: '', status: '' });
 	const [refreshInterval, setRefreshInterval] = useState(1000);
+	const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+	const { toast } = useToast();
 
 	const queryParams = new URLSearchParams({
 		...filters,
@@ -46,16 +49,66 @@ function SubmissionsList() {
 
 	const handleFilterChange = (e: React.ChangeEvent<HTMLInputElement>) => {
 		setFilters({ ...filters, [e.target.name]: e.target.value });
-		setPage(1); // Reset to page 1 on filter change
+		setPage(1);
+		setSelectedIds(new Set());
 	};
 
 	const submissions = data?.items;
 
+	const allSelected = submissions && submissions.length > 0 && submissions.every(s => selectedIds.has(s.id));
+	const someSelected = selectedIds.size > 0 && !allSelected;
+
+	const toggleAll = () => {
+		if (allSelected) {
+			setSelectedIds(new Set());
+		} else if (submissions) {
+			setSelectedIds(new Set(submissions.map(s => s.id)));
+		}
+	};
+
+	const toggleOne = (id: string) => {
+		const next = new Set(selectedIds);
+		if (next.has(id)) {
+			next.delete(id);
+		} else {
+			next.add(id);
+		}
+		setSelectedIds(next);
+	};
+
+	function handleBatchDownload() {
+		if (selectedIds.size === 0) return;
+		const ids = Array.from(selectedIds);
+		ids.forEach(function(id) {
+			api.get('/admin/submissions/' + id + '/content', { responseType: 'blob' }).then(function(response) {
+				const url = window.URL.createObjectURL(new Blob([response.data], { type: 'application/zip' }));
+				const link = document.createElement('a');
+				link.href = url;
+				link.setAttribute('download', 'submission-' + id.substring(0, 8) + '.zip');
+				document.body.appendChild(link);
+				link.click();
+				document.body.removeChild(link);
+				window.URL.revokeObjectURL(url);
+			}).catch(function() {});
+		});
+		toast({ title: 'Download started', description: ids.length + ' submission(s) downloading.' });
+	}
+
 	return (
 		<Card>
 			<CardHeader>
-				<CardTitle>All Submissions</CardTitle>
-				<CardDescription>Browse and filter all submissions in the system.</CardDescription>
+				<div className="flex items-center justify-between">
+					<div>
+						<CardTitle>All Submissions</CardTitle>
+						<CardDescription>Browse and filter all submissions in the system.</CardDescription>
+					</div>
+					{selectedIds.size > 0 && (
+						<Button variant="outline" size="sm" onClick={handleBatchDownload}>
+							<Download className="h-4 w-4 mr-2" />
+							Download Selected ({selectedIds.size})
+						</Button>
+					)}
+				</div>
 			</CardHeader>
 			<CardContent className="space-y-4">
 				<div className="flex flex-col md:flex-row gap-2 justify-between">
@@ -74,6 +127,12 @@ function SubmissionsList() {
 						<Table>
 							<TableHeader>
 								<TableRow>
+									<TableHead className="w-[40px]">
+										<Checkbox
+											checked={allSelected ? true : someSelected ? "indeterminate" : false}
+											onCheckedChange={toggleAll}
+										/>
+									</TableHead>
 									<TableHead className="w-[100px]">ID</TableHead>
 									<TableHead>Problem</TableHead>
 									<TableHead>User</TableHead>
@@ -87,6 +146,12 @@ function SubmissionsList() {
 							<TableBody>
 								{submissions?.map(s => (
 									<TableRow key={s.id}>
+										<TableCell>
+											<Checkbox
+												checked={selectedIds.has(s.id)}
+												onCheckedChange={() => toggleOne(s.id)}
+											/>
+										</TableCell>
 										<TableCell><Link href={`/admin/submissions?id=${s.id}`} className="font-mono text-primary hover:underline">{s.id.substring(0, 8)}</Link></TableCell>
 										<TableCell><Link href={`/admin/problems?id=${s.problem_id}`} className="hover:underline">{s.problem_id}</Link></TableCell>
 										<TableCell><Link href={`/admin/users?id=${s.user_id}`} className="hover:underline">{s.user.nickname}</Link></TableCell>
@@ -119,7 +184,7 @@ function SubmissionDetails({ submissionId }: { submissionId: string }) {
 		refreshInterval: (data) => (data?.status === 'Queued' || data?.status === 'Running' ? 2000 : 0),
 	});
 	const { data: problem } = useSWR<Problem>(submission ? `/admin/problems/${submission.problem_id}` : null, fetcher, {
-        shouldRetryOnError: false // Prevent retrying if the problem is not found (404)
+        shouldRetryOnError: false
     });
 
 	const handleAction = async (action: 'rejudge' | 'interrupt' | 'delete' | 'validity', payload?: any) => {
