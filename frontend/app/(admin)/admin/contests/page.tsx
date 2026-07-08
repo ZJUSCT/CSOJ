@@ -26,8 +26,6 @@ import { StrictModeDroppable } from '@/components/shared/strict-mode-droppable';
 import { cn, getTagColorClasses } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import withAdmin from "@/components/layout/with-admin";
-import { AdminSubNav } from "@/components/layout/admin-sub-nav";
 
 const fetcher = (url: string) => api.get(url).then(res => res.data.data);
 
@@ -486,11 +484,8 @@ function ContestsPageContent() {
     const contestId = searchParams.get('id');
     const view = searchParams.get('view') || 'problems';
     return (
-        <div className="flex min-h-[calc(100vh-3.5rem)]">
-            <AdminSubNav />
-            <div className="flex-1 p-6 space-y-6 overflow-auto">
+        <div className="space-y-6">
             {contestId ? <ContestDetailView contestId={contestId} view={view} /> : <ContestList />}
-            </div>
         </div>
     );
 }
@@ -499,4 +494,4 @@ function ContestsPage() {
     return (<Suspense fallback={<Skeleton className="w-full h-96" />}><ContestsPageContent /></Suspense>);
 }
 
-export default withAdmin(ContestsPage);
+export default ContestsPage;

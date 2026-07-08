@@ -22,8 +22,6 @@ import { SubmissionTableActions } from '@/components/admin/submission-table-acti
 import { RefreshIntervalSelector } from '@/components/shared/refresh-interval-selector';
 import { Separator } from '@/components/ui/separator';
 import MarkdownViewer from '@/components/shared/markdown-viewer';
-import withAdmin from "@/components/layout/with-admin";
-import { AdminSubNav } from "@/components/layout/admin-sub-nav";
 
 const fetcher = (url: string) => api.get(url).then(res => res.data.data);
 
@@ -281,11 +279,8 @@ function SubmissionsPageContent() {
 	const submissionId = searchParams.get('id');
 
 	return (
-		<div className="flex min-h-[calc(100vh-3.5rem)]">
-			<AdminSubNav />
-			<div className="flex-1 p-6 space-y-6 overflow-auto">
+		<div className="space-y-6">
 			{submissionId ? <SubmissionDetails submissionId={submissionId} /> : <SubmissionsList />}
-			</div>
 		</div>
 	);
 }
@@ -298,4 +293,4 @@ function SubmissionsPage() {
 	);
 }
 
-export default withAdmin(SubmissionsPage);
+export default SubmissionsPage;

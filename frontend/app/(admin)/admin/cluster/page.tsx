@@ -18,8 +18,6 @@ import { useToast } from '@/hooks/use-toast';
 import { useSWRConfig } from 'swr';
 import { Server, PlusCircle, RefreshCw, Trash2, Edit, Pause, Play, Settings2 } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import withAdmin from '@/components/layout/with-admin';
-import { AdminSubNav } from '@/components/layout/admin-sub-nav';
 
 const fetcher = (url: string) => api.get(url).then(res => res.data.data);
 
@@ -332,15 +330,11 @@ function PoolTable({ clusterName, pools }: { clusterName: string; pools: Record<
 
 function ClusterPage() {
     return (
-        <div className="flex min-h-[calc(100vh-3.5rem)]">
-            <AdminSubNav />
-            <div className="flex-1 p-6 space-y-6 overflow-auto">
-            <h1 className="text-3xl font-bold">Cluster Management</h1>
+        <div className="space-y-6">
             <ClusterRowsSection />
             <PoolStatusSection />
-            </div>
         </div>
     );
 }
 
-export default withAdmin(ClusterPage);
+export default ClusterPage;

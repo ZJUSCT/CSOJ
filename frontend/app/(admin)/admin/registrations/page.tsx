@@ -12,8 +12,6 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
 import { ClipboardCheck, Check, X } from 'lucide-react';
-import withAdmin from '@/components/layout/with-admin';
-import { AdminSubNav } from '@/components/layout/admin-sub-nav';
 import { getTagColorClasses, cn } from '@/lib/utils';
 import { format } from 'date-fns';
 
@@ -173,12 +171,9 @@ function RegistrationsPageContent() {
     const effectiveContestId = selectedContestId || (contestList.length > 0 ? contestList[0].id : '');
 
     return (
-        <div className="flex min-h-[calc(100vh-3.5rem)]">
-            <AdminSubNav />
-            <div className="flex-1 p-6 space-y-6 overflow-auto">
+        <div className="space-y-6">
             <div className="flex items-center justify-between">
-                <h1 className="text-3xl font-bold">Registration Review</h1>
-            </div>
+</div>
 
             <Card>
                 <CardHeader>
@@ -232,7 +227,6 @@ function RegistrationsPageContent() {
                     </CardContent>
                 </Card>
             )}
-            </div>
         </div>
     );
 }
@@ -241,4 +235,4 @@ function RegistrationsPage() {
     return <RegistrationsPageContent />;
 }
 
-export default withAdmin(RegistrationsPage);
+export default RegistrationsPage;

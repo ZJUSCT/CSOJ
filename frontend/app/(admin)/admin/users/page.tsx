@@ -19,8 +19,6 @@ import Link from "next/link";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import withAdmin from "@/components/layout/with-admin";
-import { AdminSubNav } from "@/components/layout/admin-sub-nav";
 import { useAuth } from "@/hooks/use-auth";
 
 const fetcher = (url: string) => api.get(url).then(res => res.data.data);
@@ -314,11 +312,8 @@ function UsersPageContent() {
     const userId = searchParams.get('id')
 
     return (
-        <div className="flex min-h-[calc(100vh-3.5rem)]">
-            <AdminSubNav />
-            <div className="flex-1 p-6 space-y-6 overflow-auto">
+        <div className="space-y-6">
             {userId ? <UserDetails userId={userId} /> : <UserList />}
-            </div>
         </div>
     );
 }
@@ -331,4 +326,4 @@ function UsersPage() {
     );
 }
 
-export default withAdmin(UsersPage);
+export default UsersPage;

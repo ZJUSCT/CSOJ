@@ -18,8 +18,6 @@ import { ProblemFormDialog, DeleteProblemButton } from '@/components/admin/probl
 import { Button } from '@/components/ui/button';
 import { useRouter } from 'next/navigation';
 import { AssetManager } from '@/components/admin/asset-manager';
-import withAdmin from "@/components/layout/with-admin";
-import { AdminSubNav } from "@/components/layout/admin-sub-nav";
 
 const fetcher = (url: string) => api.get(url).then(res => res.data.data);
 
@@ -212,11 +210,8 @@ function ProblemsPageContent() {
     const problemId = searchParams.get('id');
 
     return (
-        <div className="flex min-h-[calc(100vh-3.5rem)]">
-            <AdminSubNav />
-            <div className="flex-1 p-6 space-y-6 overflow-auto">
+        <div className="space-y-6">
             {problemId ? <ProblemDetails problemId={problemId} /> : <ProblemList />}
-            </div>
         </div>
     );
 }
@@ -229,4 +224,4 @@ function ProblemsPage() {
     );
 }
 
-export default withAdmin(ProblemsPage);
+export default ProblemsPage;

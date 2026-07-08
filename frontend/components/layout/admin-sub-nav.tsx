@@ -29,11 +29,8 @@ export function AdminSubNav() {
     const pathname = usePathname();
 
     return (
-        <aside className="hidden md:flex md:w-[220px] md:flex-col md:gap-1 border-r md:min-h-[calc(100vh-3.5rem)] md:sticky md:top-14">
-            <div className="flex h-14 items-center border-b px-4">
-                <span className="font-semibold text-sm">Admin Panel</span>
-            </div>
-            <nav className="flex flex-col gap-0.5 p-2">
+        <aside className="hidden md:flex md:w-[200px] md:flex-col border-r bg-muted/30 md:sticky md:top-0 md:h-[calc(100vh-4rem)]">
+            <nav className="flex flex-col gap-0.5 p-3 pt-4">
                 {routes.map(route => {
                     const Icon = route.icon;
                     const active = pathname.startsWith(route.href);
@@ -42,10 +39,10 @@ export function AdminSubNav() {
                             key={route.href}
                             href={route.href}
                             className={cn(
-                                "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-all",
+                                "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
                                 active
                                     ? "bg-primary/10 text-primary"
-                                    : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                                    : "text-muted-foreground hover:text-foreground hover:bg-muted"
                             )}
                         >
                             <Icon className="h-4 w-4 shrink-0" />

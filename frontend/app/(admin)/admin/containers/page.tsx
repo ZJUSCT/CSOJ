@@ -16,8 +16,6 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Button } from '@/components/ui/button';
 import { PaginationControls } from '@/components/shared/pagination-controls';
 import { RefreshIntervalSelector } from '@/components/shared/refresh-interval-selector';
-import withAdmin from "@/components/layout/with-admin";
-import { AdminSubNav } from "@/components/layout/admin-sub-nav";
 
 const fetcher = (url: string) => api.get(url).then(res => res.data.data);
 
@@ -154,11 +152,8 @@ function ContainerList() {
 
 function ContainersPageContent() {
     return (
-        <div className="flex min-h-[calc(100vh-3.5rem)]">
-            <AdminSubNav />
-            <div className="flex-1 p-6 space-y-6 overflow-auto">
+        <div className="space-y-6">
             <ContainerList />
-            </div>
         </div>
     );
 }
@@ -171,4 +166,4 @@ function ContainersPage() {
     );
 }
 
-export default withAdmin(ContainersPage);
+export default ContainersPage;

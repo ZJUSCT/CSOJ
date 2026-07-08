@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import useSWR from 'swr';
 import api from '@/lib/api';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -14,9 +14,7 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/hooks/use-toast';
-import withAdmin from '@/components/layout/with-admin';
-import { AdminSubNav } from '@/components/layout/admin-sub-nav';
-import { Save, RotateCcw } from 'lucide-react';
+import { Save } from 'lucide-react';
 
 const fetcher = (url: string) => api.get(url).then(res => res.data.data);
 
@@ -29,28 +27,22 @@ interface SettingsResponse {
     };
 }
 
+function parseSetting<T>(settings: Record<string, string>, key: string, fallback: T): T {
+    const raw = settings[key];
+    if (!raw) return fallback;
+    try { return JSON.parse(raw) as T; } catch { return fallback; }
+}
+
 function SettingsPage() {
     const { data, isLoading, mutate } = useSWR<SettingsResponse>('/admin/settings', fetcher);
 
-    if (isLoading || !data) return (
-        <div className="flex min-h-[calc(100vh-3.5rem)]">
-            <AdminSubNav />
-            <div className="flex-1 p-6 space-y-6 overflow-auto">
-                <Skeleton className="h-96 w-full" />
-            </div>
-        </div>
-    );
+    if (isLoading || !data) return <Skeleton className="h-96 w-full" />;
 
     return (
-        <div className="flex min-h-[calc(100vh-3.5rem)]">
-            <div className="flex-1 p-6 space-y-6 overflow-auto">
-            <AdminSubNav />
-            <h1 className="text-3xl font-bold">System Settings</h1>
-
-            {/* Boot Facts (read-only) */}
+        <div className="space-y-6">
             <Card>
                 <CardHeader>
-                    <CardTitle>Boot Configuration (config.yaml — restart required to change)</CardTitle>
+                    <CardTitle>Boot Configuration (config.yaml - restart required to change)</CardTitle>
                 </CardHeader>
                 <CardContent className="grid grid-cols-2 gap-4 text-sm">
                     <div><span className="text-muted-foreground">Listen:</span> {data.boot.listen}</div>
@@ -61,7 +53,6 @@ function SettingsPage() {
                     <div><span className="text-muted-foreground">JWT Secret:</span> <Badge variant={data.boot.jwt_secret_present ? "default" : "destructive"}>{data.boot.jwt_secret_present ? "Set" : "MISSING"}</Badge></div>
                 </CardContent>
             </Card>
-
             <Tabs defaultValue="general">
                 <TabsList className="grid w-full grid-cols-4">
                     <TabsTrigger value="general">General</TabsTrigger>
@@ -69,29 +60,13 @@ function SettingsPage() {
                     <TabsTrigger value="gitlab">GitLab OIDC</TabsTrigger>
                     <TabsTrigger value="cors">CORS</TabsTrigger>
                 </TabsList>
-
-                <TabsContent value="general">
-                    <GeneralTab settings={data.settings} onSaved={() => mutate()} />
-                </TabsContent>
-                <TabsContent value="security">
-                    <SecurityTab settings={data.settings} onSaved={() => mutate()} />
-                </TabsContent>
-                <TabsContent value="gitlab">
-                    <GitLabTab settings={data.settings} onSaved={() => mutate()} />
-                </TabsContent>
-                <TabsContent value="cors">
-                    <CORSTab settings={data.settings} onSaved={() => mutate()} />
-                </TabsContent>
+                <TabsContent value="general"><GeneralTab settings={data.settings} onSaved={() => mutate()} /></TabsContent>
+                <TabsContent value="security"><SecurityTab settings={data.settings} onSaved={() => mutate()} /></TabsContent>
+                <TabsContent value="gitlab"><GitLabTab settings={data.settings} onSaved={() => mutate()} /></TabsContent>
+                <TabsContent value="cors"><CORSTab settings={data.settings} onSaved={() => mutate()} /></TabsContent>
             </Tabs>
         </div>
-        </div>
     );
-}
-
-function parseSetting<T>(settings: Record<string, string>, key: string, fallback: T): T {
-    const raw = settings[key];
-    if (!raw) return fallback;
-    try { return JSON.parse(raw) as T; } catch { return fallback; }
 }
 
 function GeneralTab({ settings, onSaved }: { settings: Record<string, string>; onSaved: () => void }) {
@@ -100,14 +75,13 @@ function GeneralTab({ settings, onSaved }: { settings: Record<string, string>; o
     const [level, setLevel] = useState(logger.level);
     const [file, setFile] = useState(logger.file);
 
-    const handleSave = async () => {
-        try {
-            await api.put('/admin/settings/logger', { value: { level, file } });
+    const handleSave = function() {
+        api.put('/admin/settings/logger', { value: { level, file } }).then(function() {
             toast({ title: 'Logger updated', description: 'Restart required for the change to take effect.' });
             onSaved();
-        } catch (err: any) {
-            toast({ variant: 'destructive', title: 'Update failed', description: err.response?.data?.message });
-        }
+        }).catch(function() {
+            toast({ variant: 'destructive', title: 'Update failed' });
+        });
     };
 
     return (
@@ -146,24 +120,22 @@ function SecurityTab({ settings, onSaved }: { settings: Record<string, string>; 
     const expireHours = parseSetting(settings, 'auth.jwt.expire_hours', 72);
     const [expire, setExpire] = useState(expireHours);
 
-    const handleSaveLocal = async () => {
-        try {
-            await api.put('/admin/settings/auth.local', { value: { enabled: localEnabled } });
+    const handleSaveLocal = function() {
+        api.put('/admin/settings/auth.local', { value: { enabled: localEnabled } }).then(function() {
             toast({ title: 'Local auth setting updated' });
             onSaved();
-        } catch (err: any) {
-            toast({ variant: 'destructive', title: 'Update failed', description: err.response?.data?.message });
-        }
+        }).catch(function() {
+            toast({ variant: 'destructive', title: 'Update failed' });
+        });
     };
 
-    const handleSaveExpire = async () => {
-        try {
-            await api.put('/admin/settings/auth.jwt.expire_hours', { value: expire });
+    const handleSaveExpire = function() {
+        api.put('/admin/settings/auth.jwt.expire_hours', { value: expire }).then(function() {
             toast({ title: 'JWT expiry updated' });
             onSaved();
-        } catch (err: any) {
-            toast({ variant: 'destructive', title: 'Update failed', description: err.response?.data?.message });
-        }
+        }).catch(function() {
+            toast({ variant: 'destructive', title: 'Update failed' });
+        });
     };
 
     return (
@@ -203,14 +175,13 @@ function GitLabTab({ settings, onSaved }: { settings: Record<string, string>; on
     const gl = parseSetting(settings, 'auth.gitlab', { url: '', client_id: '', client_secret: '', redirect_uri: '', frontend_callback_url: '' });
     const [form, setForm] = useState(gl);
 
-    const handleSave = async () => {
-        try {
-            await api.put('/admin/settings/auth.gitlab', { value: form });
+    const handleSave = function() {
+        api.put('/admin/settings/auth.gitlab', { value: form }).then(function() {
             toast({ title: 'GitLab OIDC settings updated' });
             onSaved();
-        } catch (err: any) {
-            toast({ variant: 'destructive', title: 'Update failed', description: err.response?.data?.message });
-        }
+        }).catch(function() {
+            toast({ variant: 'destructive', title: 'Update failed' });
+        });
     };
 
     return (
@@ -251,15 +222,14 @@ function CORSTab({ settings, onSaved }: { settings: Record<string, string>; onSa
     const cors = parseSetting(settings, 'cors', { allowed_origins: [] as string[] });
     const [origins, setOrigins] = useState(cors.allowed_origins.join('\n'));
 
-    const handleSave = async () => {
-        const list = origins.split('\n').map(s => s.trim()).filter(Boolean);
-        try {
-            await api.put('/admin/settings/cors', { value: { allowed_origins: list } });
+    const handleSave = function() {
+        const list = origins.split('\n').map(function(s) { return s.trim(); }).filter(Boolean);
+        api.put('/admin/settings/cors', { value: { allowed_origins: list } }).then(function() {
             toast({ title: 'CORS settings updated' });
             onSaved();
-        } catch (err: any) {
-            toast({ variant: 'destructive', title: 'Update failed', description: err.response?.data?.message });
-        }
+        }).catch(function() {
+            toast({ variant: 'destructive', title: 'Update failed' });
+        });
     };
 
     return (
@@ -271,12 +241,7 @@ function CORSTab({ settings, onSaved }: { settings: Record<string, string>; onSa
             <CardContent className="space-y-4">
                 <div>
                     <Label>Allowed Origins</Label>
-                    <Textarea
-                        className="font-mono text-sm min-h-[100px]"
-                        value={origins}
-                        onChange={e => setOrigins(e.target.value)}
-                        placeholder="https://oj.example.com&#10;https://admin.oj.example.com&#10;*"
-                    />
+                    <Textarea className="font-mono text-sm min-h-[100px]" value={origins} onChange={e => setOrigins(e.target.value)} placeholder="https://oj.example.com" />
                 </div>
                 <Button onClick={handleSave}><Save className="h-4 w-4 mr-2" /> Save</Button>
             </CardContent>
@@ -284,4 +249,4 @@ function CORSTab({ settings, onSaved }: { settings: Record<string, string>; onSa
     );
 }
 
-export default withAdmin(SettingsPage);
+export default SettingsPage;
