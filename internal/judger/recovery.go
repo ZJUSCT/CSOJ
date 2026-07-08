@@ -55,6 +55,9 @@ func RecoverAndCleanup(db *gorm.DB, instanceID string) error {
 		if err := km.DeleteAllJudgerMPIJobs(ctx); err != nil {
 			zap.S().Warnf("cluster %s: failed to delete judger MPIJobs: %v", cc.Name, err)
 		}
+		if err := km.DeleteAllJudgerJobs(ctx); err != nil {
+			zap.S().Warnf("cluster %s: failed to delete judger Jobs: %v", cc.Name, err)
+		}
 	}
 
 	// Mark all Running submissions + their containers Failed.
