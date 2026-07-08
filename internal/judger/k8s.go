@@ -8,6 +8,7 @@ import (
 
 	"github.com/ZJUSCT/CSOJ/internal/judger/podspec"
 	"go.uber.org/zap"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -205,6 +206,71 @@ func (k *KubeManager) DeleteAllJudgerPods(ctx context.Context) error {
 // DeleteAllJudgerMPIJobs force-deletes all MPIJobs labeled app=csoj-judger (for recovery).
 func (k *KubeManager) DeleteAllJudgerMPIJobs(ctx context.Context) error {
 	return k.dyn.Resource(podspec.MPIJobGVR()).Namespace(k.ns).DeleteCollection(ctx, metav1.DeleteOptions{
+		GracePeriodSeconds: ptrInt64(0),
+	}, metav1.ListOptions{LabelSelector: "app=csoj-judger"})
+}
+
+// CreateJob creates a batch/v1 Job (used by Kueue mode).
+func (k *KubeManager) CreateJob(ctx context.Context, job *batchv1.Job) error {
+	_, err := k.cs.BatchV1().Jobs(k.ns).Create(ctx, job, metav1.CreateOptions{})
+	return err
+}
+
+// WaitForJob polls the Job until it reaches a terminal condition (Complete or
+// Failed) or ctx is canceled. Returns the terminating JobConditionType.
+func (k *KubeManager) WaitForJob(ctx context.Context, jobName string) (batchv1.JobConditionType, error) {
+	for {
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		default:
+		}
+		job, err := k.cs.BatchV1().Jobs(k.ns).Get(ctx, jobName, metav1.GetOptions{})
+		if err != nil {
+			return "", err
+		}
+		for _, cond := range job.Status.Conditions {
+			if cond.Type == batchv1.JobComplete && cond.Status == corev1.ConditionTrue {
+				return batchv1.JobComplete, nil
+			}
+			if cond.Type == batchv1.JobFailed && cond.Status == corev1.ConditionTrue {
+				return batchv1.JobFailed, nil
+			}
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+}
+
+// StreamJobLogs tails the logs of the pod created by jobName (selected via the
+// job-name label K8s sets on a Job's pod). Blocks until the stream closes or
+// ctx is canceled.
+func (k *KubeManager) StreamJobLogs(ctx context.Context, jobName string, onChunk func(string)) error {
+	pods, err := k.cs.CoreV1().Pods(k.ns).List(ctx, metav1.ListOptions{
+		LabelSelector: fmt.Sprintf("job-name=%s", jobName),
+	})
+	if err != nil || len(pods.Items) == 0 {
+		return fmt.Errorf("no pods found for job %s", jobName)
+	}
+	return k.StreamPodLogs(ctx, pods.Items[0].Name, onChunk)
+}
+
+// DeleteJob force-deletes a single Job by name.
+func (k *KubeManager) DeleteJob(ctx context.Context, jobName string) error {
+	return k.cs.BatchV1().Jobs(k.ns).Delete(ctx, jobName, metav1.DeleteOptions{
+		GracePeriodSeconds: ptrInt64(0),
+	})
+}
+
+// DeleteSubmissionJobs deletes all Jobs labeled csoj-submission=<subID>.
+func (k *KubeManager) DeleteSubmissionJobs(ctx context.Context, subID string) error {
+	return k.cs.BatchV1().Jobs(k.ns).DeleteCollection(ctx, metav1.DeleteOptions{
+		GracePeriodSeconds: ptrInt64(0),
+	}, metav1.ListOptions{LabelSelector: fmt.Sprintf("csoj-submission=%s", subID)})
+}
+
+// DeleteAllJudgerJobs force-deletes all Jobs labeled app=csoj-judger (for recovery).
+func (k *KubeManager) DeleteAllJudgerJobs(ctx context.Context) error {
+	return k.cs.BatchV1().Jobs(k.ns).DeleteCollection(ctx, metav1.DeleteOptions{
 		GracePeriodSeconds: ptrInt64(0),
 	}, metav1.ListOptions{LabelSelector: "app=csoj-judger"})
 }
