@@ -32,8 +32,8 @@ function ContainerDetails({ containerId }: { containerId: string }) {
                 <div><strong>Status:</strong> <SubmissionStatusBadge status={container.status} /></div>
                 <div><strong>Image:</strong> <span className="font-mono">{container.image}</span></div>
                 <div><strong>Exit Code:</strong> {container.exit_code}</div>
-                <div><strong>Started At:</strong> {container.started_at ? format(new Date(container.started_at), 'Pp') : 'N/A'}</div>
-                <div><strong>Finished At:</strong> {container.finished_at ? format(new Date(container.finished_at), 'Pp') : 'N/A'}</div>
+                <div><strong>Started At:</strong> {container.started_at ? format(new Date(container.started_at), 'MMM d HH:mm') : 'N/A'}</div>
+                <div><strong>Finished At:</strong> {container.finished_at ? format(new Date(container.finished_at), 'MMM d HH:mm') : 'N/A'}</div>
             </div>
             <div>
                 <strong>Log File Path:</strong>
@@ -119,7 +119,7 @@ function ContainerList() {
                                         </TableCell>
 										<TableCell>{c.image}</TableCell>
 										<TableCell><SubmissionStatusBadge status={c.status} /></TableCell>
-										<TableCell>{format(new Date(c.CreatedAt), 'Pp')}</TableCell>
+										<TableCell>{format(new Date(c.CreatedAt), 'MMM d HH:mm')}</TableCell>
 										<TableCell>
 											<Dialog>
 												<DialogTrigger asChild>

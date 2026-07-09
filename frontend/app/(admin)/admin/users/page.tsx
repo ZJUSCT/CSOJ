@@ -200,7 +200,7 @@ function UserContestHistory({ userId }: { userId: string }) {
                         <TableBody>
                             {history.map((h, i) => (
                                 <TableRow key={i}>
-                                    <TableCell>{format(new Date(h.time), 'Pp')}</TableCell>
+                                    <TableCell>{format(new Date(h.time), 'MMM d HH:mm')}</TableCell>
                                     <TableCell>{h.problem_id ? <Link href={`/admin/problems?id=${h.problem_id}`} className="text-primary hover:underline">{h.problem_id}</Link> : <span className="text-muted-foreground">Registration</span>}</TableCell>
                                     <TableCell>{h.score}</TableCell>
                                 </TableRow>
@@ -246,7 +246,7 @@ function UserDetails({ userId }: { userId: string }) {
                         {user?.banned_until && new Date(user.banned_until) > new Date() && (
                              <div className="mt-2 border-l-4 border-destructive pl-4">
                                  <p className="text-sm font-semibold">Ban Reason: <span className="font-normal">{user.ban_reason || "No reason provided."}</span></p>
-                                 <p className="text-sm font-semibold">Banned Until: <span className="font-normal">{format(new Date(user.banned_until), 'Pp')}</span></p>
+                                 <p className="text-sm font-semibold">Banned Until: <span className="font-normal">{format(new Date(user.banned_until), 'MMM d HH:mm')}</span></p>
                              </div>
                          )}
                         {user?.tags && (

@@ -269,8 +269,7 @@ function ContestCard({ contest }: { contest: Contest }) {
                 </CardHeader>
                 <CardContent className="space-y-4 text-sm text-muted-foreground">
                     <div className="space-y-2">
-                        <div className="flex items-center gap-2"><Calendar className="h-4 w-4" /><span>{format(startTime, 'PPP', { locale: locales[locale] || enUS })} - {format(endTime, 'PPP', { locale: locales[locale] || enUS })}</span></div>
-                        <div className="flex items-center gap-2"><Clock className="h-4 w-4" /><span>{format(startTime, 'HH:mm')} {t('to')} {format(endTime, 'HH:mm')}</span></div>
+                        <div className="flex items-center gap-2"><Calendar className="h-4 w-4" /><span>{format(startTime, 'MMM d HH:mm', { locale: locales[locale] || enUS })} - {format(endTime, 'MMM d HH:mm', { locale: locales[locale] || enUS })}</span></div>
                     </div>
                     <ContestTimeline contest={contest} />
                 </CardContent>

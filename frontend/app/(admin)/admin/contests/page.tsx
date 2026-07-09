@@ -68,8 +68,8 @@ function ContestList() {
                                     </div>
                                 </CardHeader>
                                 <CardContent className="space-y-2 text-sm text-muted-foreground">
-                                    <div className="flex items-center gap-2"><Calendar className="h-4 w-4" /><span>{format(new Date(contest.starttime), 'Pp')}</span></div>
-                                    <div className="flex items-center gap-2"><Clock className="h-4 w-4" /><span>{format(new Date(contest.endtime), 'Pp')}</span></div>
+                                    <div className="flex items-center gap-2"><Calendar className="h-4 w-4" /><span>{format(new Date(contest.starttime), 'MMM d HH:mm')}</span></div>
+                                    <div className="flex items-center gap-2"><Clock className="h-4 w-4" /><span>{format(new Date(contest.endtime), 'MMM d HH:mm')}</span></div>
                                 </CardContent>
                                 <CardFooter>
                                     <Link href={`/admin/contests?id=${contest.id}`} passHref><Button className="w-full">Manage Contest</Button></Link>
