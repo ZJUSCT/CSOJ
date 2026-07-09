@@ -37,16 +37,6 @@ function MainLayout({ children }: { children: React.ReactNode }) {
                 {chunks}
               </a>
             ),
-            github2: (chunks) => (
-              <a
-                href="https://github.com/ZJUSCT/CSOJ-WebUI"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="font-medium text-primary underline-offset-4 hover:underline"
-              >
-                {chunks}
-              </a>
-            ),
           })}
         </div>
       </footer>
