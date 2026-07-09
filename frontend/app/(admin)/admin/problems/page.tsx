@@ -11,7 +11,7 @@ import { Suspense } from 'react';
 import SubmissionStatusBadge from '@/components/shared/submission-status-badge';
 import { format } from 'date-fns';
 import { Badge } from '@/components/ui/badge';
-import { Bot, Calendar, Clock, Code2, FolderSymlink, Hash, Network, Server, Target, UploadCloud, PlusCircle, Edit, Trash2, Star } from 'lucide-react';
+import { Bot, Calendar, Clock, Code2, Cpu, FolderSymlink, Hash, MemoryStick, Network, Server, Target, Trophy, UploadCloud, PlusCircle, Edit, Trash2, Star } from 'lucide-react';
 import { formatBytes } from '@/lib/utils';
 import React from 'react';
 import { ProblemFormDialog, DeleteProblemButton } from '@/components/admin/problem-actions';
@@ -33,30 +33,71 @@ function ProblemList() {
 
     if (isLoading || contestsLoading) return <Skeleton className="h-64 w-full" />;
 
+    const problemList = problems ? Object.values(problems) : [];
+
     return (
-        <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
-                 <div>
-                    <CardTitle>All Problems</CardTitle>
-                    <CardDescription>List of all problems loaded in the system.</CardDescription>
-                </div>
-                 <ProblemFormDialog contests={Object.values(contests || {})} onSuccess={onSuccess} trigger={<Button><PlusCircle/> Create Problem</Button>}/>
-            </CardHeader>
-            <CardContent>
-                <Table>
-                    <TableHeader><TableRow><TableHead>ID</TableHead><TableHead>Name</TableHead><TableHead>Cluster</TableHead></TableRow></TableHeader>
-                    <TableBody>
-                        {problems && Object.values(problems).map(p => (
-                            <TableRow key={p.id}>
-                                <TableCell><Link href={`/admin/problems?id=${p.id}`} className="font-mono text-primary hover:underline">{p.id}</Link></TableCell>
-                                <TableCell>{p.name}</TableCell>
-                                <TableCell>{p.cluster}</TableCell>
-                            </TableRow>
-                        ))}
-                    </TableBody>
-                </Table>
-            </CardContent>
-        </Card>
+        <div className="space-y-4">
+            <div className="flex items-center justify-between">
+                <p className="text-sm text-muted-foreground">{problemList.length} problem(s)</p>
+                <ProblemFormDialog contests={Object.values(contests || {})} onSuccess={onSuccess} trigger={<Button><PlusCircle/> Create Problem</Button>}/>
+            </div>
+            {problemList.length === 0 && (
+                <Card>
+                    <CardContent className="py-8 text-center text-muted-foreground">
+                        No problems yet. Click "Create Problem" to add one.
+                    </CardContent>
+                </Card>
+            )}
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                {problemList.map(p => {
+                    const parentContest = Object.values(contests || {}).find(c => c.problem_ids.includes(p.id));
+                    return (
+                        <Card key={p.id} className="flex flex-col">
+                            <CardHeader>
+                                <div className="flex items-start justify-between">
+                                    <div className="flex-1 min-w-0">
+                                        <Link href={`/admin/problems?id=${p.id}`} className="hover:underline">
+                                            <CardTitle className="text-base truncate">{p.name}</CardTitle>
+                                        </Link>
+                                        <CardDescription className="font-mono text-xs">{p.id}</CardDescription>
+                                    </div>
+                                    <Badge variant="secondary" className="ml-2 shrink-0">{p.level || 'N/A'}</Badge>
+                                </div>
+                            </CardHeader>
+                            <CardContent className="flex-1 space-y-3">
+                                <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                                    {parentContest && (
+                                        <Link href={`/admin/contests?id=${parentContest.id}`} className="hover:underline flex items-center gap-1">
+                                            <Trophy className="h-3 w-3" /> {parentContest.name}
+                                        </Link>
+                                    )}
+                                    <span className="flex items-center gap-1"><Server className="h-3 w-3" /> {p.cluster}</span>
+                                </div>
+                                <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                                    <span className="flex items-center gap-1"><Server className="h-3 w-3" /> {p.cluster}</span>
+                                    {p.workflow && p.workflow.length > 0 && (
+                                        <span className="flex items-center gap-1"><Code2 className="h-3 w-3" /> {p.workflow.length} step(s)</span>
+                                    )}
+                                    {p.max_submissions != null && p.max_submissions > 0 && (
+                                        <span className="flex items-center gap-1"><Hash className="h-3 w-3" /> {p.max_submissions} max</span>
+                                    )}
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <Badge variant="outline">{p.score.mode}</Badge>
+                                    {p.workflow && p.workflow.map((step, i) => (
+                                        <Badge key={i} variant="outline" className="text-xs">{step.name}</Badge>
+                                    ))}
+                                </div>
+                            </CardContent>
+                            <div className="flex items-center gap-2 p-4 pt-0">
+                                <ProblemFormDialog problem={p} contestId={parentContest?.id} contests={Object.values(contests || {})} onSuccess={onSuccess} trigger={<Button variant="outline" size="sm" className="flex-1"><Edit className="h-3 w-3 mr-1" /> Edit</Button>}/>
+                                <DeleteProblemButton problem={p} onSuccess={onSuccess} trigger={<Button variant="outline" size="sm" className="text-destructive"><Trash2 className="h-3 w-3" /></Button>}/>
+                            </div>
+                        </Card>
+                    );
+                })}
+            </div>
+        </div>
     );
 }
 
