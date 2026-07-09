@@ -3,8 +3,10 @@ package user
 import (
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
+	"github.com/ZJUSCT/CSOJ/internal/database"
 	"github.com/ZJUSCT/CSOJ/internal/judger"
 	"github.com/ZJUSCT/CSOJ/internal/util"
 	"github.com/gin-gonic/gin"
@@ -16,23 +18,25 @@ type WorkflowStepResponse struct {
 }
 
 type ProblemResponse struct {
-	ID              string                 `json:"id"`
-	Name            string                 `json:"name"`
-	Level           string                 `yaml:"level" json:"level"`
-	StartTime       time.Time              `json:"starttime"`
-	EndTime         time.Time              `json:"endtime"`
-	SubmitStartTime *time.Time             `json:"submit_start_time,omitempty"`
-	SubmitEndTime   *time.Time             `json:"submit_end_time,omitempty"`
-	MaxSubmissions  int                    `json:"max_submissions"`
-	Cluster         string                 `json:"cluster"`
-	Upload          judger.UploadLimit     `json:"upload"`
-	Workflow        []WorkflowStepResponse `json:"workflow"`
-	Score           judger.ScoreConfig     `json:"score"`
-	Description     string                 `json:"description"`
+	ID               string                 `json:"id"`
+	Name             string                 `json:"name"`
+	Level            string                 `yaml:"level" json:"level"`
+	StartTime        time.Time              `json:"starttime"`
+	EndTime          time.Time              `json:"endtime"`
+	SubmitStartTime  *time.Time             `json:"submit_start_time,omitempty"`
+	SubmitEndTime    *time.Time             `json:"submit_end_time,omitempty"`
+	EffectiveEndTime *time.Time             `json:"effective_end_time,omitempty"`
+	MaxSubmissions   int                    `json:"max_submissions"`
+	Cluster          string                 `json:"cluster"`
+	Upload           judger.UploadLimit     `json:"upload"`
+	Workflow         []WorkflowStepResponse `json:"workflow"`
+	Score            judger.ScoreConfig     `json:"score"`
+	Description      string                 `json:"description"`
 }
 
 func (h *Handler) getProblem(c *gin.Context) {
 	problemID := c.Param("id")
+	userID := c.GetString("userID")
 	h.appState.RLock()
 	problem, ok := h.appState.Problems[problemID]
 	if ok {
@@ -83,6 +87,41 @@ func (h *Handler) getProblem(c *gin.Context) {
 		Score:  	    problem.Score,
 		Description:     problem.Description,
 	}
+
+	// Compute effective end time based on tag overrides
+	var effectiveEnd *time.Time
+	if problem.SubmitEndTime != nil {
+		effectiveEnd = problem.SubmitEndTime
+	} else {
+		endTime := problem.EndTime
+		effectiveEnd = &endTime
+	}
+
+	if len(problem.DeadlineOverrides) > 0 {
+		user, _ := database.GetUserByID(h.db, userID)
+		userTags := strings.Split(user.Tags, ",")
+		for _, override := range problem.DeadlineOverrides {
+			matched := false
+			for _, userTag := range userTags {
+				for _, overrideTag := range override.Tags {
+					if strings.TrimSpace(userTag) != "" && strings.TrimSpace(userTag) == strings.TrimSpace(overrideTag) {
+						matched = true
+						break
+					}
+				}
+				if matched {
+					break
+				}
+			}
+			if matched {
+				overrideTime, err := time.Parse(time.RFC3339, override.EndTime)
+				if err == nil && overrideTime.After(*effectiveEnd) {
+					effectiveEnd = &overrideTime
+				}
+			}
+		}
+	}
+	response.EffectiveEndTime = effectiveEnd
 
 	util.Success(c, response, "Problem found")
 }
