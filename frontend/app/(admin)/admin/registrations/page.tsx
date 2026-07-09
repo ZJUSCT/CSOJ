@@ -14,6 +14,7 @@ import { useToast } from '@/hooks/use-toast';
 import { ClipboardCheck, Check, X } from 'lucide-react';
 import { getTagColorClasses, cn } from '@/lib/utils';
 import { format } from 'date-fns';
+import { formatDateTime } from '@/lib/date-utils';
 
 const fetcher = (url: string) => api.get(url).then(res => res.data.data);
 
@@ -123,7 +124,7 @@ function RegistrationsTable({ contestId, statusFilter }: { contestId: string, st
                                 </TableCell>
                                 <TableCell><StatusBadge status={reg.status} /></TableCell>
                                 <TableCell className="text-sm text-muted-foreground">
-                                    {format(new Date(reg.created_at), 'MMM d, yyyy HH:mm')}
+                                    {formatDateTime(reg.created_at)}
                                 </TableCell>
                                 <TableCell className="text-right space-x-2">
                                     {reg.status === 'pending' ? (

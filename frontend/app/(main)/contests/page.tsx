@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import Link from 'next/link';
 import { Skeleton } from '@/components/ui/skeleton';
 import { format } from 'date-fns';
+import { formatDateTime, formatDateRange, formatShort } from '@/lib/date-utils';
 import { zhCN, enUS, Locale } from "date-fns/locale";
 import { useLocale, useTranslations } from "next-intl";
 import { Calendar, Clock, BookOpen, Trophy, CheckCircle, Edit3, Loader2, Swords, CheckCheck, Hourglass, XCircle } from 'lucide-react';
@@ -32,6 +33,7 @@ const fetcher = (url: string) => api.get(url).then(res => res.data.data);
 
 function ContestTimeline({ contest }: { contest: Contest }) {
     const t = useTranslations('contests');
+    const locale = useLocale();
     // Using a state for 'now' to make the component re-render and animate
     const [now, setNow] = useState(new Date().getTime());
 
@@ -118,20 +120,20 @@ function ContestTimeline({ contest }: { contest: Contest }) {
                 <div
                     className="absolute top-0 h-full w-0.5 bg-gray-500 opacity-75"
                     style={{ left: `${startPos}%` }}
-                    title={`${t('starts')}: ${format(new Date(startTime), 'MMM d, HH:mm')}`}
+                    title={`${t('starts')}: ${formatDateTime(startTime, locale)}`}
                 />
 
                 {/* End time vertical marker */}
                 <div
                     className="absolute top-0 h-full w-0.5 bg-gray-500 opacity-75"
                     style={{ left: `${endPos}%` }}
-                    title={`${t('ends')}: ${format(new Date(endTime), 'MMM d, HH:mm')}`}
+                    title={`${t('ends')}: ${formatDateTime(endTime, locale)}`}
                 />
             </div>
 
             <div className="flex justify-between mt-2 text-xs text-muted-foreground">
-                <span>{format(new Date(startTime), 'yyyy/MM/dd HH:mm')}</span>
-                <span>{format(new Date(endTime), 'yyyy/MM/dd HH:mm')}</span>
+                <span>{formatShort(startTime, locale)}</span>
+                <span>{formatShort(endTime, locale)}</span>
             </div>
         </div>
     );
@@ -186,7 +188,7 @@ function ContestCard({ contest }: { contest: Contest }) {
     let statusText = t('status.upcoming');
     if (hasStarted && !hasEnded) {
         if (submitNotOpened) {
-            statusText = t('status.submissionOpensAt', { time: format(submitStartTime, 'MMM d, HH:mm') });
+            statusText = t('status.submissionOpensAt', { time: formatDateTime(submitStartTime, locale) });
         } else if (submitClosed) {
             statusText = t('status.submissionClosed');
         } else {
@@ -269,7 +271,7 @@ function ContestCard({ contest }: { contest: Contest }) {
                 </CardHeader>
                 <CardContent className="space-y-4 text-sm text-muted-foreground">
                     <div className="space-y-2">
-                        <div className="flex items-center gap-2"><Calendar className="h-4 w-4" /><span>{format(startTime, 'MMM d HH:mm', { locale: locales[locale] || enUS })} - {format(endTime, 'MMM d HH:mm', { locale: locales[locale] || enUS })}</span></div>
+                        <div className="flex items-center gap-2"><Calendar className="h-4 w-4" /><span>{formatDateRange(startTime, endTime, locale)}</span></div>
                     </div>
                     <ContestTimeline contest={contest} />
                 </CardContent>
@@ -624,6 +626,7 @@ function ContestLeaderboard({ contestId }: { contestId: string }) {
 
 function ContestDetailView({ contestId, view }: { contestId: string, view: string }) {
     const t = useTranslations('contests');
+    const locale = useLocale();
     const { data: contest, isLoading: isContestLoading } = useSWR<Contest>(`/contests/${contestId}`, fetcher);
     const { data: registrationData, isLoading: isRegistrationLoading } = useSWR<{ status: string }>(`/contests/${contestId}/registration`, fetcher);
     const { mutate } = useSWRConfig();
@@ -659,7 +662,7 @@ function ContestDetailView({ contestId, view }: { contestId: string, view: strin
         } else if (now > new Date(contest.endtime)) {
             submissionStatusText = null; // contest ended — finished state covers it
         } else if (now < submitStartTime) {
-            submissionStatusText = t('status.submissionOpensAt', { time: format(submitStartTime, 'MMM d, HH:mm') });
+            submissionStatusText = t('status.submissionOpensAt', { time: formatDateTime(submitStartTime, locale) });
         } else if (now > submitEndTime) {
             submissionStatusText = t('status.submissionClosed');
         }

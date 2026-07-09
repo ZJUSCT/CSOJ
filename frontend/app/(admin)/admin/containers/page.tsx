@@ -11,6 +11,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import SubmissionStatusBadge from '@/components/shared/submission-status-badge';
 import { format } from 'date-fns';
+import { formatDateTime, formatShort } from '@/lib/date-utils';
 import Link from 'next/link';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
@@ -32,8 +33,8 @@ function ContainerDetails({ containerId }: { containerId: string }) {
                 <div><strong>Status:</strong> <SubmissionStatusBadge status={container.status} /></div>
                 <div><strong>Image:</strong> <span className="font-mono">{container.image}</span></div>
                 <div><strong>Exit Code:</strong> {container.exit_code}</div>
-                <div><strong>Started At:</strong> {container.started_at ? format(new Date(container.started_at), 'MMM d HH:mm') : 'N/A'}</div>
-                <div><strong>Finished At:</strong> {container.finished_at ? format(new Date(container.finished_at), 'MMM d HH:mm') : 'N/A'}</div>
+                <div><strong>Started At:</strong> {container.started_at ? formatDateTime(container.started_at) : 'N/A'}</div>
+                <div><strong>Finished At:</strong> {container.finished_at ? formatDateTime(container.finished_at) : 'N/A'}</div>
             </div>
             <div>
                 <strong>Log File Path:</strong>
@@ -119,7 +120,7 @@ function ContainerList() {
                                         </TableCell>
 										<TableCell>{c.image}</TableCell>
 										<TableCell><SubmissionStatusBadge status={c.status} /></TableCell>
-										<TableCell>{format(new Date(c.CreatedAt), 'MMM d HH:mm')}</TableCell>
+										<TableCell>{formatShort(c.CreatedAt)}</TableCell>
 										<TableCell>
 											<Dialog>
 												<DialogTrigger asChild>

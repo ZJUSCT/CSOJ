@@ -15,6 +15,7 @@ import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { getInitials } from "@/lib/utils";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { format } from "date-fns";
+import { formatDateTime } from "@/lib/date-utils";
 import Link from "next/link";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -200,7 +201,7 @@ function UserContestHistory({ userId }: { userId: string }) {
                         <TableBody>
                             {history.map((h, i) => (
                                 <TableRow key={i}>
-                                    <TableCell>{format(new Date(h.time), 'MMM d HH:mm')}</TableCell>
+                                    <TableCell>{formatDateTime(h.time)}</TableCell>
                                     <TableCell>{h.problem_id ? <Link href={`/admin/problems?id=${h.problem_id}`} className="text-primary hover:underline">{h.problem_id}</Link> : <span className="text-muted-foreground">Registration</span>}</TableCell>
                                     <TableCell>{h.score}</TableCell>
                                 </TableRow>
@@ -246,7 +247,7 @@ function UserDetails({ userId }: { userId: string }) {
                         {user?.banned_until && new Date(user.banned_until) > new Date() && (
                              <div className="mt-2 border-l-4 border-destructive pl-4">
                                  <p className="text-sm font-semibold">Ban Reason: <span className="font-normal">{user.ban_reason || "No reason provided."}</span></p>
-                                 <p className="text-sm font-semibold">Banned Until: <span className="font-normal">{format(new Date(user.banned_until), 'MMM d HH:mm')}</span></p>
+                                 <p className="text-sm font-semibold">Banned Until: <span className="font-normal">{formatDateTime(user.banned_until)}</span></p>
                              </div>
                          )}
                         {user?.tags && (
