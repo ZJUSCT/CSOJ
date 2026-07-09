@@ -114,7 +114,7 @@ export function RegisterForm() {
     <Card>
       <CardHeader>
         <CardTitle>{t('title')}</CardTitle>
-          {t('description')}
+
       </CardHeader>
       <CardContent>
         <Form {...form}>

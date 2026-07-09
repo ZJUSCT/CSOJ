@@ -335,7 +335,7 @@ function SubmissionDetails({ submissionId }: { submissionId: string }) {
                                     <pre className="p-4 bg-muted rounded-md text-xs overflow-auto">
                                         {JSON.stringify(remainingInfo, null, 2)}
                                     </pre>
-                                    <p className="text-xs text-muted-foreground">{t('details.judgeInfo.description')}</p>
+
                                 </div>
                              </>
                         )}

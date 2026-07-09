@@ -80,7 +80,7 @@ export function TokenInfoCard() {
             <CardHeader>
                 <CardTitle>{t('token.title')}</CardTitle>
                 <CardDescription>
-                    {t('token.description')}
+
                 </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">

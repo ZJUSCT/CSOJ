@@ -391,9 +391,7 @@ function ContestProblems({ contestId }: { contestId: string }) {
                         <List className="w-5 h-5" />
                         <CardTitle className="font-bold">{t('problems.title')}</CardTitle>
                     </div>
-                        {contest.problem_ids.length > 0
-                            ? t('problems.instruction')
-                            : t('problems.none')}
+
                 </CardHeader>
                 <CardContent className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                     {contest.problem_ids.map((problemId, i) => (

@@ -188,7 +188,7 @@ function ProblemDetails() {
                                         </div>
                                     </DialogTitle>
                                     <DialogDescription className="space-y-2 text-sm text-muted-foreground">
-                                        <p>{t('meta.performanceDialog.description')}</p>
+
                                     </DialogDescription>
                                 </DialogHeader>
                                 </DialogContent>

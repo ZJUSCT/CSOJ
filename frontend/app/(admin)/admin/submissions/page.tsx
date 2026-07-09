@@ -238,7 +238,7 @@ function SubmissionDetails({ submissionId }: { submissionId: string }) {
                                     <pre className="p-4 bg-muted rounded-md text-xs overflow-auto">
                                         {JSON.stringify(submission.info, null, 2)}
                                     </pre>
-                                    <p className="text-xs text-muted-foreground">This is the raw JSON output from the final step of the judging process.</p>
+
                                 </div>
                              </>
 						)}
