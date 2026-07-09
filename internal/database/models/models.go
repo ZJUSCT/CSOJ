@@ -215,22 +215,23 @@ type ContestRegistration struct {
 
 // Problem is a backend-managed problem definition.
 type Problem struct {
-	ID             string    `gorm:"primaryKey" json:"id"`
-	ContestID      string    `gorm:"index" json:"contest_id"`
-	Name           string    `json:"name"`
-	Level          string    `json:"level"`
-	StartTime      time.Time `json:"starttime"`
-	EndTime        time.Time `json:"endtime"`
-	SubmitStartTime *time.Time `json:"submit_start_time,omitempty"`
-	SubmitEndTime   *time.Time `json:"submit_end_time,omitempty"`
-	MaxSubmissions int       `json:"max_submissions"`
-	Cluster        string    `gorm:"index" json:"cluster"`
-	Upload         RawJSON   `gorm:"type:text" json:"upload"`
-	Workflow       RawJSON   `gorm:"type:text" json:"workflow"`
-	Score          RawJSON   `gorm:"type:text" json:"score"`
-	Description    string    `gorm:"type:text" json:"description"`
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
+	ID                string    `gorm:"primaryKey" json:"id"`
+	ContestID         string    `gorm:"index" json:"contest_id"`
+	Name              string    `json:"name"`
+	Level             string    `json:"level"`
+	StartTime         time.Time `json:"starttime"`
+	EndTime           time.Time `json:"endtime"`
+	SubmitStartTime   *time.Time `json:"submit_start_time,omitempty"`
+	SubmitEndTime     *time.Time `json:"submit_end_time,omitempty"`
+	MaxSubmissions    int       `json:"max_submissions"`
+	Cluster           string    `gorm:"index" json:"cluster"`
+	Upload            RawJSON   `gorm:"type:text" json:"upload"`
+	Workflow          RawJSON   `gorm:"type:text" json:"workflow"`
+	Score             RawJSON   `gorm:"type:text" json:"score"`
+	DeadlineOverrides RawJSON   `gorm:"type:text" json:"deadline_overrides"`
+	Description       string    `gorm:"type:text" json:"description"`
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
 }
 
 // Announcement is a contest-scoped announcement.

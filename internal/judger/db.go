@@ -114,6 +114,11 @@ func problemFromModel(p models.Problem) (*Problem, error) {
 	if prob.Score.Mode == "" {
 		prob.Score.Mode = "score"
 	}
+	if len(p.DeadlineOverrides) > 0 {
+		if err := json.Unmarshal(p.DeadlineOverrides, &prob.DeadlineOverrides); err != nil {
+			return nil, fmt.Errorf("parse deadline_overrides: %w", err)
+		}
+	}
 	return prob, nil
 }
 
@@ -131,21 +136,26 @@ func ProblemToModel(p *Problem, contestID string) (models.Problem, error) {
 	if err != nil {
 		return models.Problem{}, fmt.Errorf("marshal score: %w", err)
 	}
+	deadlineOverrides, err := json.Marshal(p.DeadlineOverrides)
+	if err != nil {
+		return models.Problem{}, fmt.Errorf("marshal deadline_overrides: %w", err)
+	}
 	return models.Problem{
-		ID:              p.ID,
-		ContestID:       contestID,
-		Name:            p.Name,
-		Level:           p.Level,
-		StartTime:       p.StartTime,
-		EndTime:         p.EndTime,
-		SubmitStartTime: p.SubmitStartTime,
-		SubmitEndTime:   p.SubmitEndTime,
-		MaxSubmissions:  p.MaxSubmissions,
-		Cluster:         p.Cluster,
-		Upload:          models.RawJSON(upload),
-		Workflow:        models.RawJSON(workflow),
-		Score:           models.RawJSON(score),
-		Description:     p.Description,
+		ID:                p.ID,
+		ContestID:         contestID,
+		Name:              p.Name,
+		Level:             p.Level,
+		StartTime:         p.StartTime,
+		EndTime:           p.EndTime,
+		SubmitStartTime:   p.SubmitStartTime,
+		SubmitEndTime:     p.SubmitEndTime,
+		MaxSubmissions:    p.MaxSubmissions,
+		Cluster:           p.Cluster,
+		Upload:            models.RawJSON(upload),
+		Workflow:          models.RawJSON(workflow),
+		Score:             models.RawJSON(score),
+		DeadlineOverrides: models.RawJSON(deadlineOverrides),
+		Description:       p.Description,
 	}, nil
 }
 

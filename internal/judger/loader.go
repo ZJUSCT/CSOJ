@@ -78,6 +78,14 @@ type MPIConfig struct {
 	LauncherCmd    []string `json:"launcher_cmd"`
 }
 
+// DeadlineOverride defines a tag-based extension of a problem's submission
+// deadline. Users whose tags match any entry in Tags get EndTime (RFC 3339)
+// as an alternative submission deadline; the latest matching override wins.
+type DeadlineOverride struct {
+	Tags    []string `json:"tags"`
+	EndTime string   `json:"end_time"`
+}
+
 // StepResources holds the per-step CPU/memory requests and limits as K8s
 // resource strings (e.g. "2", "500m", "1Gi"). Empty fields fall back to
 // podspec defaults inside BuildPodSpec.
@@ -118,17 +126,18 @@ type ScoreConfig struct {
 }
 
 type Problem struct {
-	ID             string         `json:"id"`
-	Name           string         `json:"name"`
-	Level          string         `json:"level"`
-	StartTime      time.Time      `json:"starttime"`
-	EndTime        time.Time      `json:"endtime"`
-	SubmitStartTime *time.Time    `json:"submit_start_time,omitempty"`
-	SubmitEndTime   *time.Time    `json:"submit_end_time,omitempty"`
-	MaxSubmissions int            `json:"max_submissions"`
-	Cluster        string         `json:"cluster"`
-	Upload         UploadLimit    `json:"upload"`
-	Workflow       []WorkflowStep `json:"workflow"`
-	Score          ScoreConfig    `json:"score"`
-	Description    string         `json:"description"`
+	ID                string             `json:"id"`
+	Name              string             `json:"name"`
+	Level             string             `json:"level"`
+	StartTime         time.Time          `json:"starttime"`
+	EndTime           time.Time          `json:"endtime"`
+	SubmitStartTime   *time.Time         `json:"submit_start_time,omitempty"`
+	SubmitEndTime     *time.Time         `json:"submit_end_time,omitempty"`
+	MaxSubmissions    int                `json:"max_submissions"`
+	Cluster           string             `json:"cluster"`
+	Upload            UploadLimit        `json:"upload"`
+	Workflow          []WorkflowStep     `json:"workflow"`
+	Score             ScoreConfig        `json:"score"`
+	DeadlineOverrides []DeadlineOverride `json:"deadline_overrides,omitempty"`
+	Description       string             `json:"description"`
 }
