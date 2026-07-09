@@ -6,8 +6,8 @@
 ## Goals
 
 1. **`Problem.DeadlineOverrides`** — a list of `{tags: string[], end_time: string}` rules stored as JSON on the Problem.
-2. **`submitToProblem` checks tag-based overrides** — after the default submission window check, scans the user's tags against each override rule. If matched, uses the override's end_time instead of the default. Multiple matches → take the latest end_time (most favorable to the user).
-3. **`GET /problems/:id` returns `effective_end_time`** — computed per-request based on the authenticated user's tags, so the frontend can display the user's actual deadline.
+2. **`submitToProblem` checks tag-based overrides** — if the user's tags match any override rule, the override's end_time **replaces** the default deadline (even if earlier). Multiple matches → take the latest end_time (most favorable to the user). The effective deadline is checked unconditionally, so an earlier override that has already passed still rejects a late submission.
+3. **`GET /problems/:id` returns `effective_end_time`** — computed per-request based on the authenticated user's tags, so the frontend can display the user's actual deadline. The route uses `OptionalAuthMiddleware`: a valid Bearer token identifies the user; anonymous or invalid tokens fall back to the default window (no override applied).
 4. **Frontend problem form** — a "Deadline Overrides" panel with add/remove rows (tags input + datetime-local).
 
 ## Non-goals
@@ -15,7 +15,7 @@
 - Override `start_time` (only end/deadline).
 - Contest-level overrides (only problem-level).
 - Per-user custom deadlines (only tag-based).
-- Changing the default `EndTime`/`SubmitEndTime` behavior (overrides extend, not replace, the default window — a user still can't submit before `SubmitStartTime`).
+- Preserving the default deadline as a floor — overrides **replace** the default when matched, so an admin can also shorten a user's window via a tag (the default is kept only when no rule matches).
 
 ---
 

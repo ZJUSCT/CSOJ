@@ -150,45 +150,15 @@ func (h *Handler) submitToProblem(c *gin.Context) {
 		util.Error(c, http.StatusForbidden, fmt.Errorf("problem submission has not opened yet"))
 		return
 	}
-	if now.After(*probSubmitEnd) {
-		// Check tag-based deadline overrides
-		if len(problem.DeadlineOverrides) > 0 {
-			user, _ := database.GetUserByID(h.db, userID)
-			userTags := strings.Split(user.Tags, ",")
-
-			effectiveEnd := *probSubmitEnd
-
-			for _, override := range problem.DeadlineOverrides {
-				matched := false
-				for _, userTag := range userTags {
-					for _, overrideTag := range override.Tags {
-						if strings.TrimSpace(userTag) != "" && strings.TrimSpace(userTag) == strings.TrimSpace(overrideTag) {
-							matched = true
-							break
-						}
-					}
-					if matched {
-						break
-					}
-				}
-				if matched {
-					overrideTime, err := time.Parse(time.RFC3339, override.EndTime)
-					if err == nil && overrideTime.After(effectiveEnd) {
-						effectiveEnd = overrideTime
-					}
-				}
-			}
-
-			if now.After(effectiveEnd) {
-				h.appState.RUnlock()
-				util.Error(c, http.StatusForbidden, fmt.Errorf("problem submission has ended"))
-				return
-			}
-		} else {
-			h.appState.RUnlock()
-			util.Error(c, http.StatusForbidden, fmt.Errorf("problem submission has ended"))
-			return
-		}
+	// Effective submission deadline: a matching tag override REPLACES the
+	// default deadline (even if earlier); the latest matching override wins.
+	// No match → the default *probSubmitEnd stands. Checked unconditionally so
+	// an earlier override that has already passed still rejects the submission.
+	effectiveEnd, _ := latestMatchingOverride(problem, user.Tags, *probSubmitEnd)
+	if now.After(effectiveEnd) {
+		h.appState.RUnlock()
+		util.Error(c, http.StatusForbidden, fmt.Errorf("problem submission has ended"))
+		return
 	}
 	h.appState.RUnlock()
 
