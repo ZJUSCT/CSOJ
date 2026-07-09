@@ -97,6 +97,11 @@ export interface ScoreConfig {
   mode: string;
 }
 
+export interface DeadlineOverride {
+  tags: string[];
+  end_time: string;
+}
+
 export interface Problem {
     id: string;
     name: string;
@@ -120,6 +125,8 @@ export interface Problem {
       mode: string;
     }
     workflow: WorkflowStep[];
+    deadline_overrides?: DeadlineOverride[];
+    effective_end_time?: string | null;
     description: string;
 }
 

@@ -37,6 +37,11 @@ interface MPIConfig {
     launcher_cmd: string[];
 }
 
+interface DeadlineOverrideEntry {
+    tags: string;
+    end_time: string;
+}
+
 interface WorkflowStepEntry {
     name: string;
     image: string;
@@ -218,6 +223,9 @@ export function ProblemFormDialog({
     const [open, setOpen] = useState(false);
     const [selectedContest, setSelectedContest] = useState<string | undefined>(contestId);
     const [workflowSteps, setWorkflowSteps] = useState<WorkflowStepEntry[]>([emptyStep()]);
+    const [deadlineOverrides, setDeadlineOverrides] = useState<DeadlineOverrideEntry[]>(
+        problem?.deadline_overrides?.map(o => ({ tags: o.tags.join(', '), end_time: o.end_time ? format(new Date(o.end_time), "yyyy-MM-dd'T'HH:mm") : '' })) || []
+    );
     const { toast } = useToast();
     const isEditing = !!problem;
 
@@ -276,6 +284,7 @@ export function ProblemFormDialog({
                 },
             });
             setWorkflowSteps(problem?.workflow ? workflowStepsToEntries(problem.workflow) : [emptyStep()]);
+            setDeadlineOverrides(problem?.deadline_overrides?.map(o => ({ tags: o.tags.join(', '), end_time: o.end_time ? format(new Date(o.end_time), "yyyy-MM-dd'T'HH:mm") : '' })) || []);
         }
     }, [open, problem, form]);
 
@@ -293,6 +302,10 @@ export function ProblemFormDialog({
             submit_start_time: values.submit_start_time ? new Date(values.submit_start_time).toISOString() : null,
             submit_end_time: values.submit_end_time ? new Date(values.submit_end_time).toISOString() : null,
             workflow: entriesToWorkflowSteps(workflowSteps),
+            deadline_overrides: deadlineOverrides.filter(o => o.tags.trim() !== '' && o.end_time !== '').map(o => ({
+                tags: o.tags.split(',').map(t => t.trim()).filter(Boolean),
+                end_time: new Date(o.end_time).toISOString(),
+            })),
             upload: {
                 ...values.upload,
                 upload_files: values.upload.upload_files.split(',').map(s => s.trim()).filter(Boolean),
@@ -387,6 +400,8 @@ export function ProblemFormDialog({
 
                         {/* ===== Structured Workflow Editor ===== */}
                         <WorkflowEditor steps={workflowSteps} setSteps={setWorkflowSteps} />
+
+                        <DeadlineOverridesEditor overrides={deadlineOverrides} setOverrides={setDeadlineOverrides} />
 
                         <DialogFooter>
                             <Button type="submit" disabled={form.formState.isSubmitting}>{form.formState.isSubmitting ? "Saving..." : "Save"}</Button>
@@ -841,6 +856,36 @@ function MPIEditor({ mpi, onChange }: { mpi: MPIConfig | null, onChange: (m: MPI
                     </div>
                 </div>
             )}
+        </div>
+    );
+}
+
+// ---------- Deadline Overrides Editor ----------
+
+function DeadlineOverridesEditor({ overrides, setOverrides }: { overrides: DeadlineOverrideEntry[], setOverrides: (o: DeadlineOverrideEntry[]) => void }) {
+    const addOverride = () => setOverrides([...overrides, { tags: '', end_time: '' }]);
+    const removeOverride = (i: number) => setOverrides(overrides.filter((_, idx) => idx !== i));
+    const updateOverride = (i: number, field: 'tags' | 'end_time', value: string) => {
+        const next = [...overrides];
+        next[i] = { ...next[i], [field]: value };
+        setOverrides(next);
+    };
+
+    return (
+        <div className="border p-4 rounded-md space-y-3">
+            <div className="flex items-center justify-between">
+                <h3 className="font-semibold">Deadline Overrides (optional)</h3>
+                <Button type="button" variant="outline" size="sm" onClick={addOverride}><PlusCircle className="h-3 w-3 mr-1" /> Add Override</Button>
+            </div>
+            <p className="text-xs text-muted-foreground">Users with matching tags get a later submission deadline. Multiple matches take the latest.</p>
+            {overrides.map((override, i) => (
+                <div key={i} className="grid grid-cols-[1fr_1fr_32px] gap-2 items-center">
+                    <Input className="text-xs" value={override.tags} onChange={e => updateOverride(i, 'tags', e.target.value)} placeholder="VIP, Staff" />
+                    <Input className="text-xs" type="datetime-local" value={override.end_time} onChange={e => updateOverride(i, 'end_time', e.target.value)} />
+                    <Button type="button" variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => removeOverride(i)}><Trash2 className="h-3 w-3" /></Button>
+                </div>
+            ))}
+            {overrides.length === 0 && <p className="text-xs text-muted-foreground">No overrides. Default submission window applies to all users.</p>}
         </div>
     );
 }
