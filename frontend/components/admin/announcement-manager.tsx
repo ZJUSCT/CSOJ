@@ -3,7 +3,7 @@
 import useSWR from 'swr';
 import api from '@/lib/api';
 import { Announcement } from '@/lib/types';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { format } from 'date-fns';
@@ -23,7 +23,6 @@ export function AnnouncementManager({ contestId }: { contestId: string }) {
             <CardHeader className="flex flex-row items-center justify-between">
                 <div>
                     <CardTitle>Announcements</CardTitle>
-                    <CardDescription>Manage contest announcements. These are visible to users after the contest starts.</CardDescription>
                 </div>
                 <AnnouncementFormDialog contestId={contestId} onSuccess={mutate} trigger={<Button><PlusCircle /> New Announcement</Button>} />
             </CardHeader>

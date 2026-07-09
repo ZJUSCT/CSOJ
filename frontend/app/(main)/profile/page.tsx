@@ -3,7 +3,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -97,7 +97,6 @@ export default function ProfilePage() {
             <Card>
                 <CardHeader>
                     <CardTitle>{t('avatar.title')}</CardTitle>
-                    <CardDescription>{t('avatar.description')}</CardDescription>
                 </CardHeader>
                 <CardContent className="flex flex-col items-center gap-4">
                     <Avatar className="h-32 w-32">
@@ -114,7 +113,6 @@ export default function ProfilePage() {
             <Card className="lg:col-span-2 lg:row-span-2 flex flex-col">
                 <CardHeader>
                     <CardTitle>{t('form.title')}</CardTitle>
-                    <CardDescription>{t('form.description')}</CardDescription>
                 </CardHeader>
                 <CardContent className="flex flex-1 flex-col justify-between">
                     <Form {...form}>

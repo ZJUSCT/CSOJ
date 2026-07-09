@@ -5,7 +5,7 @@ import { Suspense, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import api from '@/lib/api';
 import { Container, PaginatedResponse } from '@/lib/types';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -72,7 +72,6 @@ function ContainerList() {
 		<Card>
 			<CardHeader>
 				<CardTitle>Containers</CardTitle>
-				<CardDescription>View all judge containers across the system.</CardDescription>
 			</CardHeader>
 			<CardContent>
 				<div className="flex flex-col md:flex-row gap-2 justify-between mb-4">

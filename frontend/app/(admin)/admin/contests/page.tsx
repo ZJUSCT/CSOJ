@@ -4,7 +4,7 @@ import { Suspense, useEffect, useMemo, useState } from 'react';
 import useSWR, { useSWRConfig } from 'swr';
 import { Contest, LeaderboardEntry, Problem, TrendEntry } from '@/lib/types';
 import api from '@/lib/api';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -45,7 +45,6 @@ function ContestList() {
             <CardHeader className="flex flex-row items-center justify-between">
                 <div>
                     <CardTitle>Contests</CardTitle>
-                    <CardDescription>All contests loaded in the system.</CardDescription>
                 </div>
                 <ContestFormDialog onSuccess={onSuccess} trigger={<Button><PlusCircle className="mr-2 h-4 w-4" /> Create Contest</Button>} />
             </CardHeader>
@@ -58,7 +57,6 @@ function ContestList() {
                                     <div className="flex items-start justify-between">
                                         <div>
                                             <CardTitle className="text-xl">{contest.name}</CardTitle>
-                                            <CardDescription>ID: {contest.id}</CardDescription>
                                         </div>
                                         <DropdownMenu>
                                             <DropdownMenuTrigger asChild><Button variant="ghost" size="icon"><MoreVertical /></Button></DropdownMenuTrigger>
@@ -97,7 +95,6 @@ function ContestTrendView({ contest }: { contest: Contest }) {
         <Card>
             <CardHeader>
                 <CardTitle>Score Trend</CardTitle>
-                <CardDescription>Drag the slider to adjust the number of top users shown in the chart.</CardDescription>
             </CardHeader>
             <CardContent>
                 <div className="flex items-center space-x-4 mb-4 p-2 bg-muted rounded-md">
@@ -368,7 +365,6 @@ function ContestProblemsView({ contest, allProblems, contests, onSuccess }: { co
             <CardHeader className="flex flex-row items-center justify-between">
                 <div>
                     <CardTitle>Problems in Contest</CardTitle>
-                    <CardDescription>Drag and drop the cards to change the problem order.</CardDescription>
                 </div>
                 <div className="flex items-center gap-2">
                      {isOrderChanged && (

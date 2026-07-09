@@ -2,7 +2,7 @@
 import useSWR from 'swr';
 import api from '@/lib/api';
 import { Problem, Submission } from '@/lib/types';
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Skeleton } from '@/components/ui/skeleton';
 import Link from 'next/link';
@@ -40,7 +40,6 @@ function MySubmissionsList() {
       <Card>
         <CardHeader>
           <CardTitle>{t('list.title')}</CardTitle>
-          <CardDescription>{t('list.description')}</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="space-y-2">
@@ -237,7 +236,6 @@ function SubmissionDetails({ submissionId }: { submissionId: string }) {
                 <Card>
                     <CardHeader>
                         <CardTitle>{t('details.log.title')}</CardTitle>
-                        <CardDescription>{t('details.log.description')}</CardDescription>
                     </CardHeader>
                     <CardContent>
                         <SubmissionLogViewer submission={submission} problem={problem} onStatusUpdate={mutate} />

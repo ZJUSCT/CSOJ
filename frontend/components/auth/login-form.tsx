@@ -6,7 +6,6 @@ import Link from "next/link";
 import {
   Card,
   CardContent,
-  CardDescription,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
@@ -80,9 +79,7 @@ export function LoginForm() {
       <Card>
         <CardHeader>
           <CardTitle>{t('title')}</CardTitle>
-          <CardDescription>
             {t('loadingDescription')}
-          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <Skeleton className="h-10 w-full" />
@@ -102,11 +99,9 @@ export function LoginForm() {
     <Card>
       <CardHeader>
         <CardTitle>{t('title')}</CardTitle>
-        <CardDescription>
           {authStatus?.local_auth_enabled
             ? t('descriptionLocal')
             : t('descriptionExternal')}
-        </CardDescription>
       </CardHeader>
       <CardContent>
         {authStatus?.local_auth_enabled && (

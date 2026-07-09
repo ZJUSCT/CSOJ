@@ -8,7 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { MoreHorizontal, History } from "lucide-react"
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { CreateUserDialog, DeleteUserMenuItem, EditUserDialog, RegisterContestDialog, ResetPasswordDialog } from "@/components/admin/user-actions";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
@@ -62,7 +62,6 @@ function UserList() {
                 <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                     <div>
                         <CardTitle>Users</CardTitle>
-                        <CardDescription>Manage all user accounts.</CardDescription>
                     </div>
                     <div className="flex gap-2 w-full md:w-auto">
                         <Input
@@ -172,7 +171,6 @@ function UserContestHistory({ userId }: { userId: string }) {
         <Card>
             <CardHeader>
                 <CardTitle>Contest Score History</CardTitle>
-                <CardDescription>View a user's score progression over time for a specific contest.</CardDescription>
             </CardHeader>
             <CardContent>
                 <div className="mb-4">
@@ -235,7 +233,6 @@ function UserDetails({ userId }: { userId: string }) {
                         <div className="flex items-center justify-between">
                              <div>
                                 <CardTitle className="text-2xl">{user?.nickname}</CardTitle>
-                                <CardDescription>@{user?.username} ({user?.id})</CardDescription>
                              </div>
                              <div className="flex items-center gap-2">
                                 {user?.banned_until && new Date(user.banned_until) > new Date() && (

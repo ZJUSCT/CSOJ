@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import useSWR from 'swr';
 import api from '@/lib/api';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -88,7 +88,6 @@ function GeneralTab({ settings, onSaved }: { settings: Record<string, string>; o
         <Card>
             <CardHeader>
                 <CardTitle>Logger <Badge variant="secondary">restart required</Badge></CardTitle>
-                <CardDescription>Log level and output file path</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
                 <div>
@@ -143,7 +142,6 @@ function SecurityTab({ settings, onSaved }: { settings: Record<string, string>; 
             <Card>
                 <CardHeader>
                     <CardTitle>Local Authentication <Badge variant="default">live</Badge></CardTitle>
-                    <CardDescription>Enable/disable username/password registration and login</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
                     <div className="flex items-center space-x-2">
@@ -156,7 +154,6 @@ function SecurityTab({ settings, onSaved }: { settings: Record<string, string>; 
             <Card>
                 <CardHeader>
                     <CardTitle>JWT Expiry <Badge variant="default">live</Badge></CardTitle>
-                    <CardDescription>JWT token expiration in hours</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
                     <div>
@@ -188,7 +185,6 @@ function GitLabTab({ settings, onSaved }: { settings: Record<string, string>; on
         <Card>
             <CardHeader>
                 <CardTitle>GitLab OIDC <Badge variant="default">live</Badge></CardTitle>
-                <CardDescription>Configure GitLab OAuth2/OIDC authentication</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
                 <div>
@@ -236,7 +232,6 @@ function CORSTab({ settings, onSaved }: { settings: Record<string, string>; onSa
         <Card>
             <CardHeader>
                 <CardTitle>CORS <Badge variant="default">live</Badge></CardTitle>
-                <CardDescription>Allowed origins for cross-origin requests (one per line)</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
                 <div>

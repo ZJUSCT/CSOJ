@@ -4,7 +4,7 @@ import { Suspense, useEffect, useMemo, useState } from 'react';
 import useSWR, { useSWRConfig } from 'swr';
 import { Contest, Problem, LeaderboardEntry, TrendEntry } from '@/lib/types';
 import api from '@/lib/api';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -263,11 +263,9 @@ function ContestCard({ contest }: { contest: Contest }) {
                             {contest.name}
                         </Link>
                     </CardTitle>
-                    <CardDescription>
                         <Link href={`/contests?id=${contest.id}`} passHref>
                             <span className={`text-base font-bold ${statusText === t('status.ongoing') ? 'text-green-600' : statusText === t('status.finished') ? 'text-red-600' : 'text-blue-600'}`}>{statusText}</span>
                         </Link>
-                    </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4 text-sm text-muted-foreground">
                     <div className="space-y-2">
@@ -392,11 +390,9 @@ function ContestProblems({ contestId }: { contestId: string }) {
                         <List className="w-5 h-5" />
                         <CardTitle className="font-bold">{t('problems.title')}</CardTitle>
                     </div>
-                    <CardDescription>
                         {contest.problem_ids.length > 0
                             ? t('problems.instruction')
                             : t('problems.none')}
-                    </CardDescription>
                 </CardHeader>
                 <CardContent className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                     {contest.problem_ids.map((problemId, i) => (
@@ -420,7 +416,6 @@ function ContestTrend({ contest }: { contest: Contest }) {
             <Card>
                 <CardHeader>
                     <CardTitle>{t('trend.title')}</CardTitle>
-                    <CardDescription>{t('trend.description')}</CardDescription>
                 </CardHeader>
                 <CardContent className="h-96 w-full flex items-center justify-center">
                     <p className="text-muted-foreground">{t('trend.none')}</p>
@@ -433,7 +428,6 @@ function ContestTrend({ contest }: { contest: Contest }) {
         <Card>
             <CardHeader>
                 <CardTitle>{t('trend.title')}</CardTitle>
-                <CardDescription>{t('trend.description')}</CardDescription>
             </CardHeader>
             <CardContent className="h-[500px] w-full">
                 <EchartsTrendChart

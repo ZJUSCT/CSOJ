@@ -2,7 +2,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Problem, Submission } from '@/lib/types';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../ui/tabs';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { TerminalLogViewer } from '@/components/shared/terminal-log-viewer';
 
 export function AdminSubmissionLogViewer({ submission, problem, onStatusUpdate }: { submission: Submission, problem?: Problem, onStatusUpdate: () => void }) {
@@ -39,7 +39,6 @@ export function AdminSubmissionLogViewer({ submission, problem, onStatusUpdate }
             <Card className="flex flex-col h-full">
                 <CardHeader>
                     <CardTitle>Live Log</CardTitle>
-                    <CardDescription>Real-time output from the judge containers.</CardDescription>
                 </CardHeader>
                 <CardContent className="flex-1">
                     <div className="font-mono text-xs bg-muted rounded-md h-[60vh] overflow-y-auto p-4 text-muted-foreground flex items-center justify-center">
@@ -52,7 +51,6 @@ export function AdminSubmissionLogViewer({ submission, problem, onStatusUpdate }
 
     return (
         <Card className="flex flex-col h-full">
-            <CardHeader><CardTitle>Live Log</CardTitle><CardDescription>Real-time output from the judge containers.</CardDescription></CardHeader>
             <CardContent className="flex flex-col flex-1">
                 <Tabs value={selectedContainerId ?? ""} onValueChange={setSelectedContainerId} className="w-full flex flex-col flex-1">
                     <TabsList className="grid h-auto w-full gap-1" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))' }}>

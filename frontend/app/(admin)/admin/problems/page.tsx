@@ -3,7 +3,7 @@ import { useSearchParams } from 'next/navigation';
 import useSWR, { useSWRConfig } from 'swr';
 import api from '@/lib/api';
 import { Problem, Submission, Contest } from '@/lib/types';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Skeleton } from '@/components/ui/skeleton';
 import Link from 'next/link';
@@ -59,7 +59,6 @@ function ProblemList() {
                                         <Link href={`/admin/problems?id=${p.id}`} className="hover:underline">
                                             <CardTitle className="text-base truncate">{p.name}</CardTitle>
                                         </Link>
-                                        <CardDescription className="font-mono text-xs">{p.id}</CardDescription>
                                     </div>
                                     <Badge variant="secondary" className="ml-2 shrink-0">{p.level || 'N/A'}</Badge>
                                 </div>
@@ -153,7 +152,6 @@ function ProblemDetails({ problemId }: { problemId: string }) {
             <Card>
                 <CardHeader>
                     <CardTitle>Problem Configuration</CardTitle>
-                    <CardDescription>ID: <span className="font-mono">{problem.id}</span></CardDescription>
                 </CardHeader>
                 <CardContent>
                     <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-x-8 gap-y-4 text-sm">
@@ -184,7 +182,6 @@ function ProblemDetails({ problemId }: { problemId: string }) {
                                         {step.network && <Badge variant="default"><Network className="mr-1 h-3 w-3" /> Network</Badge>}
                                     </div>
                                 </CardTitle>
-                                <CardDescription className="flex items-center gap-2 pt-1"><Bot /> Image: <span className="font-mono">{step.image}</span></CardDescription>
                             </CardHeader>
                             <CardContent className="space-y-4">
                                 <div>

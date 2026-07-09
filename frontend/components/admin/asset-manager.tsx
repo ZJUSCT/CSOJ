@@ -9,7 +9,7 @@ import { formatBytes } from '@/lib/utils';
 import { format } from 'date-fns';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button, buttonVariants } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Folder, File, Trash2, Upload, Download } from 'lucide-react';
 import { Input } from '../ui/input';
@@ -112,7 +112,6 @@ export function AssetManager({ assetType, assetId }: AssetManagerProps) {
         <Card>
             <CardHeader>
                 <CardTitle>Asset Management</CardTitle>
-                <CardDescription>Manage files in the `index.assets` directory.</CardDescription>
             </CardHeader>
             <CardContent>
                 <div className="mb-4 flex flex-col sm:flex-row gap-2 border p-4 rounded-lg">

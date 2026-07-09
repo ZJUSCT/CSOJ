@@ -6,7 +6,6 @@ import Link from "next/link";
 import {
   Card,
   CardContent,
-  CardDescription,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
@@ -80,9 +79,7 @@ export function RegisterForm() {
        <Card>
         <CardHeader>
           <CardTitle>{t('title')}</CardTitle>
-          <CardDescription>
             {t('loadingDescription')}
-          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
              <Skeleton className="h-10 w-full" />
@@ -99,9 +96,7 @@ export function RegisterForm() {
         <Card>
             <CardHeader>
                 <CardTitle>{t('disabled.title')}</CardTitle>
-                <CardDescription>
                     {t('disabled.description')}
-                </CardDescription>
             </CardHeader>
             <CardContent>
                 <p className="text-sm text-muted-foreground">
@@ -119,9 +114,7 @@ export function RegisterForm() {
     <Card>
       <CardHeader>
         <CardTitle>{t('title')}</CardTitle>
-        <CardDescription>
           {t('description')}
-        </CardDescription>
       </CardHeader>
       <CardContent>
         <Form {...form}>

@@ -4,7 +4,7 @@ import { useSearchParams } from 'next/navigation';
 import useSWR from 'swr';
 import api from '@/lib/api';
 import { Submission, Problem, PaginatedResponse } from '@/lib/types';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -98,7 +98,6 @@ function SubmissionsList() {
 				<div className="flex items-center justify-between">
 					<div>
 						<CardTitle>All Submissions</CardTitle>
-						<CardDescription>Browse and filter all submissions in the system.</CardDescription>
 					</div>
 					{selectedIds.size > 0 && (
 						<Button variant="outline" size="sm" onClick={handleBatchDownload}>

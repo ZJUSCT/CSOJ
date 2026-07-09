@@ -4,7 +4,7 @@ import { useState } from 'react';
 import useSWR, { useSWRConfig } from 'swr';
 import { Contest, ContestRegistration } from '@/lib/types';
 import api from '@/lib/api';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -78,9 +78,7 @@ function RegistrationsTable({ contestId, statusFilter }: { contestId: string, st
         <Card>
             <CardHeader>
                 <CardTitle className="flex items-center gap-2"><ClipboardCheck /> Registrations</CardTitle>
-                <CardDescription>
                     Review and approve or reject user registrations. Showing {regs.length} {statusFilter !== 'all' ? statusFilter : ''} registration(s).
-                </CardDescription>
             </CardHeader>
             <CardContent>
                 <Table>
@@ -178,7 +176,6 @@ function RegistrationsPageContent() {
             <Card>
                 <CardHeader>
                     <CardTitle>Filters</CardTitle>
-                    <CardDescription>Select a contest and an optional status filter.</CardDescription>
                 </CardHeader>
                 <CardContent className="grid gap-4 md:grid-cols-2">
                     <div className="space-y-2">

@@ -7,7 +7,7 @@ import { Problem, Submission } from '@/lib/types';
 import MarkdownViewer from '@/components/shared/markdown-viewer';
 import SubmissionStatusBadge from '@/components/shared/submission-status-badge';
 import SubmissionUploadForm from '@/components/submissions/submission-upload-form';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Skeleton } from '@/components/ui/skeleton';
 import { format } from 'date-fns';
@@ -105,7 +105,6 @@ function ProblemDetails() {
         <Card>
             <CardHeader>
             <CardTitle>{t('noProblem.title')}</CardTitle>
-            <CardDescription>{t('noProblem.description')}</CardDescription>
             </CardHeader>
         </Card>
         );

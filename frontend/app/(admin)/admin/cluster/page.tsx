@@ -4,7 +4,7 @@ import { useState } from 'react';
 import useSWR from 'swr';
 import api from '@/lib/api';
 import { ClusterRow, ClusterNodePool, ClusterStatusResponse } from '@/lib/types';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -52,7 +52,6 @@ function ClusterRowsSection() {
                 <div className="flex items-center justify-between">
                     <div>
                         <CardTitle className="flex items-center gap-2"><Server /> K8s Clusters</CardTitle>
-                        <CardDescription>Manage cluster connections (kubeconfig stored in DB)</CardDescription>
                     </div>
                     <div className="flex gap-2">
                         <Button variant="outline" size="sm" onClick={handleReload}><RefreshCw /> Reload</Button>
@@ -238,9 +237,7 @@ function PoolStatusSection() {
                                 {cluster.QueueMode === 'kueue' ? 'Kueue' : 'Channel'}
                             </Badge>
                         </CardTitle>
-                        <CardDescription>
                             Namespace: {cluster.Namespace} | Queue: {cluster.QueueLength} | Concurrency: {cluster.Concurrency}
-                        </CardDescription>
                     </CardHeader>
                     <CardContent>
                         <PoolTable clusterName={clusterName} pools={cluster.Pools} />
