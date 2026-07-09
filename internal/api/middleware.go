@@ -112,6 +112,43 @@ func AuthMiddleware(secret string, db *gorm.DB) gin.HandlerFunc {
 		c.Next()
 	}
 }
+
+// OptionalAuthMiddleware validates the Bearer token when present and sets
+// "userID"/"role" in the context, but never rejects the request — callers
+// with no or invalid token proceed as anonymous. Used on public routes that
+// personalize their response (e.g. the tag-based effective deadline) for
+// logged-in users.
+func OptionalAuthMiddleware(secret string, db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		authHeader := c.GetHeader("Authorization")
+		if authHeader == "" {
+			c.Next()
+			return
+		}
+		parts := strings.Split(authHeader, " ")
+		if len(parts) != 2 || parts[0] != "Bearer" {
+			c.Next()
+			return
+		}
+		claims, err := auth.ValidateJWT(parts[1], secret)
+		if err != nil {
+			c.Next()
+			return
+		}
+		user, err := database.GetUserByID(db, claims.Subject)
+		if err != nil {
+			c.Next()
+			return
+		}
+		if user.BannedUntil != nil && time.Now().Before(*user.BannedUntil) {
+			c.Next()
+			return
+		}
+		c.Set("userID", claims.Subject)
+		c.Set("role", string(user.Role))
+		c.Next()
+	}
+}
 func AssetsAuthMiddleware(secret string, db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		token := c.Query("token")

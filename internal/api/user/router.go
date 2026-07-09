@@ -52,7 +52,7 @@ func RegisterRoutes(
 		v1.GET("/contests/:id/leaderboard", h.getContestLeaderboard)
 		v1.GET("/contests/:id/trend", h.getContestTrend)
 		v1.GET("/contests/:id/announcements", h.getContestAnnouncements)
-		v1.GET("/problems/:id", h.getProblem)
+		v1.GET("/problems/:id", api.OptionalAuthMiddleware(cfg.Auth.JWT.Secret, db), h.getProblem)
 		v1.GET("/users/:id", h.getPublicUserProfile)
 
 		// Publicly accessible assets
