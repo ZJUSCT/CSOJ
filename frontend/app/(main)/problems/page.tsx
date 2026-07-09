@@ -118,9 +118,13 @@ function ProblemDetails() {
     // Submission window (optional — falls back to visibility times when null)
     const now = new Date();
     const submitStartTime = problem.submit_start_time ? new Date(problem.submit_start_time) : new Date(problem.starttime);
-    const submitEndTime = problem.submit_end_time ? new Date(problem.submit_end_time) : new Date(problem.endtime);
+    const effectiveEndTime = problem.effective_end_time
+        ? new Date(problem.effective_end_time)
+        : problem.submit_end_time
+            ? new Date(problem.submit_end_time)
+            : new Date(problem.endtime);
     const submitNotOpened = now < submitStartTime;
-    const submitClosed = now > submitEndTime;
+    const submitClosed = now > effectiveEndTime;
     const submissionDisabled = submitNotOpened || submitClosed;
 
     return (
