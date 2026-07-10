@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/ZJUSCT/CSOJ/internal/database"
+	"github.com/ZJUSCT/CSOJ/internal/database/models"
 	"github.com/ZJUSCT/CSOJ/internal/devpods"
 	"github.com/ZJUSCT/CSOJ/internal/util"
 	"github.com/gin-gonic/gin"
@@ -53,9 +54,7 @@ func (h *Handler) listDevPods(c *gin.Context) {
 		return
 	}
 
-	// DevPods may live in any registered cluster; list across each cluster
-	// the user's templates reference. Simpler: list across ALL clusters,
-	// filter by owner label. Few clusters expected.
+	// DevPods may live in any registered cluster; list across all clusters and filter by owner label.
 	resp := devpodListResponse{Items: []devpodInstance{}}
 	resp.Gateway.Host = gw.Host
 	resp.Gateway.Port = gw.Port
@@ -160,14 +159,15 @@ func (h *Handler) createDevPod(c *gin.Context) {
 }
 
 // requireOwnedDevPod fetches the DevPod and verifies the owner label
-// matches the caller's username. Returns the CR + cli, or false (already
-// responded) on error.
-func (h *Handler) requireOwnedDevPod(c *gin.Context, name string) (*unstructured.Unstructured, *devpods.Client, bool) {
+// matches the caller's username. Returns the CR, the client, the loaded
+// user, and true on success; on error it has already responded and returns
+// false.
+func (h *Handler) requireOwnedDevPod(c *gin.Context, name string) (*unstructured.Unstructured, *devpods.Client, *models.User, bool) {
 	userID := c.GetString("userID")
 	user, err := database.GetUserByID(h.db, userID)
 	if err != nil {
 		util.Error(c, http.StatusNotFound, err)
-		return nil, nil, false
+		return nil, nil, nil, false
 	}
 	// search every cluster for the named DevPod
 	for _, cl := range h.scheduler.GetClusterNames() {
@@ -183,22 +183,25 @@ func (h *Handler) requireOwnedDevPod(c *gin.Context, name string) (*unstructured
 		owner := u.GetLabels()["devpod.io/owner"]
 		if owner != user.Username {
 			util.Error(c, http.StatusForbidden, "not your devpod")
-			return nil, nil, false
+			return nil, nil, nil, false
 		}
-		return u, cli, true
+		return u, cli, user, true
 	}
 	util.Error(c, http.StatusNotFound, "devpod not found")
-	return nil, nil, false
+	return nil, nil, nil, false
 }
 
 func (h *Handler) getDevPod(c *gin.Context) {
 	name := c.Param("name")
-	u, cli, ok := h.requireOwnedDevPod(c, name)
+	u, _, user, ok := h.requireOwnedDevPod(c, name)
 	if !ok {
 		return
 	}
-	gw, _ := devpods.GetGateway(h.settings)
-	user, _ := database.GetUserByID(h.db, c.GetString("userID"))
+	gw, err := devpods.GetGateway(h.settings)
+	if err != nil {
+		util.Error(c, http.StatusInternalServerError, fmt.Errorf("read gateway setting: %w", err))
+		return
+	}
 	inst := devpodInstance{
 		Name:      u.GetName(),
 		Template:  u.GetLabels()["csoj.io/template"],
@@ -209,12 +212,11 @@ func (h *Handler) getDevPod(c *gin.Context) {
 	if inst.Phase == "Running" && inst.Endpoint != "" {
 		inst.SSHCommand = gw.SSHCommand(user.Username, name)
 	}
-	_ = cli
 	util.Success(c, inst, "DevPod found")
 }
 
 func (h *Handler) startDevPod(c *gin.Context) {
-	_, cli, ok := h.requireOwnedDevPod(c, c.Param("name"))
+	_, cli, _, ok := h.requireOwnedDevPod(c, c.Param("name"))
 	if !ok {
 		return
 	}
@@ -226,7 +228,7 @@ func (h *Handler) startDevPod(c *gin.Context) {
 }
 
 func (h *Handler) stopDevPod(c *gin.Context) {
-	_, cli, ok := h.requireOwnedDevPod(c, c.Param("name"))
+	_, cli, _, ok := h.requireOwnedDevPod(c, c.Param("name"))
 	if !ok {
 		return
 	}
@@ -238,7 +240,7 @@ func (h *Handler) stopDevPod(c *gin.Context) {
 }
 
 func (h *Handler) deleteDevPod(c *gin.Context) {
-	_, cli, ok := h.requireOwnedDevPod(c, c.Param("name"))
+	_, cli, _, ok := h.requireOwnedDevPod(c, c.Param("name"))
 	if !ok {
 		return
 	}
