@@ -2,6 +2,7 @@
   "home": {
     "power_by": "Powered by <github1>ZJUSCT/CSOJ</github1>",
     "contests": "Contests",
+    "devpods": "DevPods",
     "submissions": "Submissions",
     "profile": "Profile",
     "theme": {
@@ -382,5 +383,45 @@
     "title": "Account Banned",
     "reasonLabel": "Ban Reason:",
     "untilLabel": "Ban Ends At:"
+  },
+  "devpods": {
+    "title": "DevPods",
+    "create": "Create",
+    "createNew": "Create DevPod",
+    "myDevPods": "My DevPods",
+    "name": "Name",
+    "template": "Template",
+    "status": "Status",
+    "sshCommand": "SSH Command",
+    "createdAt": "Created",
+    "start": "Start",
+    "stop": "Stop",
+    "delete": "Delete",
+    "noInstances": "No DevPods yet. Create one from a template above.",
+    "preparing": "Preparing…",
+    "limitReached": "Limit reached",
+    "used": "used",
+    "cores": "cores",
+    "deleteConfirm": "Delete this DevPod? Its home volume is kept by devpods.",
+    "createFailed": "Failed to create DevPod",
+    "created": "DevPod created"
+  },
+  "adminDevPodTemplates": {
+    "title": "DevPod Templates",
+    "new": "New Template",
+    "edit": "Edit",
+    "id": "ID",
+    "name": "Name",
+    "cluster": "Cluster",
+    "image": "Image",
+    "shell": "Shell",
+    "cores": "Cores",
+    "memory": "Memory (bytes)",
+    "nodeSelector": "Node Selector",
+    "tolerations": "Tolerations (JSON)",
+    "perUser": "Per-user limit",
+    "global": "Global limit",
+    "persistence": "Persistence size",
+    "deleteConfirm": "Delete this template? Existing DevPods are unaffected."
   }
 }

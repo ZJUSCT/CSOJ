@@ -2,6 +2,7 @@
   "home": {
     "power_by": "基于 <github1>ZJUSCT/CSOJ</github1> 构建",
     "contests": "比赛列表",
+    "devpods": "DevPods",
     "submissions": "提交记录",
     "profile": "个人中心",
     "theme": {
@@ -382,5 +383,45 @@
     "title": "账户已被封禁",
     "reasonLabel": "封禁原因:",
     "untilLabel": "解封时间:"
+  },
+  "devpods": {
+    "title": "DevPods",
+    "create": "创建",
+    "createNew": "创建 DevPod",
+    "myDevPods": "我的 DevPod",
+    "name": "名称",
+    "template": "模板",
+    "status": "状态",
+    "sshCommand": "SSH 命令",
+    "createdAt": "创建时间",
+    "start": "启动",
+    "stop": "停止",
+    "delete": "删除",
+    "noInstances": "还没有 DevPod。从上方模板创建一个吧。",
+    "preparing": "准备中…",
+    "limitReached": "已达上限",
+    "used": "已用",
+    "cores": "核",
+    "deleteConfirm": "删除这个 DevPod？devpods 会保留它的 home 卷。",
+    "createFailed": "创建 DevPod 失败",
+    "created": "DevPod 已创建"
+  },
+  "adminDevPodTemplates": {
+    "title": "DevPod 模板",
+    "new": "新建模板",
+    "edit": "编辑",
+    "id": "ID",
+    "name": "名称",
+    "cluster": "集群",
+    "image": "镜像",
+    "shell": "Shell",
+    "cores": "核数",
+    "memory": "内存（字节）",
+    "nodeSelector": "Node Selector",
+    "tolerations": "Tolerations (JSON)",
+    "perUser": "每用户上限",
+    "global": "全局上限",
+    "persistence": "持久化大小",
+    "deleteConfirm": "删除这个模板？已有的 DevPod 不受影响。"
   }
 }
