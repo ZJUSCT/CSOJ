@@ -279,3 +279,34 @@ export interface ClusterStatusResponse {
   resource_status: Record<string, ClusterStateSnapshot>;
   queue_lengths: Record<string, number>;
 }
+
+export interface DevPodTemplate {
+  id: string;
+  name: string;
+  cluster_name: string;
+  image: string;
+  shell: string;
+  cores: number;
+  memory: number;
+  node_selector: Record<string, string>;
+  tolerations: any[];
+  default_per_user: number;
+  default_global: number;
+  persistence_size: string;
+}
+
+export interface DevPodInstance {
+  name: string;
+  template: string;
+  phase: string;
+  endpoint: string;
+  ssh_command: string;
+  created_at: string;
+}
+
+export interface DevPodGateway { host: string; port: number; }
+
+export interface DevPodListResponse {
+  items: DevPodInstance[];
+  gateway: DevPodGateway;
+}

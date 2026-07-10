@@ -22,6 +22,7 @@ export function MainNav({ className, ...props }: React.HTMLAttributes<HTMLElemen
 
   const allRoutes = [
     { href: "/contests", label: t("contests") },
+    { href: "/devpods", label: t("devpods") },
     { href: "/submissions", label: t("submissions") },
     { href: "/profile", label: t("profile") },
     ...(isAdmin ? [{ href: "/admin/contests", label: "Admin" }] : []),
