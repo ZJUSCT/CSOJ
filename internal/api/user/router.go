@@ -89,6 +89,17 @@ func RegisterRoutes(
 				submissions.GET("/:id/containers/:conID/log", h.getContainerLog)
 			}
 
+			// DevPods
+			devpodsGroup := authed.Group("/devpods")
+			{
+				devpodsGroup.GET("", h.listDevPods)
+				devpodsGroup.POST("", h.createDevPod)
+				devpodsGroup.GET("/:name", h.getDevPod)
+				devpodsGroup.POST("/:name/start", h.startDevPod)
+				devpodsGroup.POST("/:name/stop", h.stopDevPod)
+				devpodsGroup.DELETE("/:name", h.deleteDevPod)
+			}
+
 			// Authenticated assets
 			assets := authed.Group("/assets")
 			{

@@ -297,6 +297,17 @@ func (s *Scheduler) ReleaseSlot(clusterName string) {
 	}
 }
 
+// GetClusterNames returns the names of all loaded clusters.
+func (s *Scheduler) GetClusterNames() []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]string, 0, len(s.clusters))
+	for name := range s.clusters {
+		out = append(out, name)
+	}
+	return out
+}
+
 // GetClusterStates returns a snapshot of every cluster's pools + queue length.
 func (s *Scheduler) GetClusterStates() map[string]ClusterStateSnapshot {
 	out := make(map[string]ClusterStateSnapshot)
