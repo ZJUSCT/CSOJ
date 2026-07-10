@@ -93,6 +93,7 @@ func RegisterRoutes(
 			devpodsGroup := authed.Group("/devpods")
 			{
 				devpodsGroup.GET("", h.listDevPods)
+				devpodsGroup.GET("/templates", h.listDevPodTemplates)
 				devpodsGroup.POST("", h.createDevPod)
 				devpodsGroup.GET("/:name", h.getDevPod)
 				devpodsGroup.POST("/:name/start", h.startDevPod)

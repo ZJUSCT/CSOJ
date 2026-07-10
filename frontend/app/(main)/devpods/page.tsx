@@ -1,7 +1,7 @@
 "use client";
 import useSWR from "swr";
 import api from "@/lib/api";
-import { DevPodListResponse, DevPodTemplate, DevPodInstance } from "@/lib/types";
+import { DevPodListResponse, DevPodTemplate } from "@/lib/types";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableHead, TableHeader, TableRow, TableCell } from "@/components/ui/table";
 import { useTranslations } from "next-intl";
@@ -16,7 +16,7 @@ export default function DevPodsPage() {
   const t = useTranslations("devpods");
   const { toast } = useToast();
   const { data: list, mutate } = useSWR<DevPodListResponse>("/devpods", fetcher, { refreshInterval: 5000 });
-  const { data: templates } = useSWR<DevPodTemplate[]>("/admin/devpod-templates", fetcher);
+  const { data: templates } = useSWR<DevPodTemplate[]>("/devpods/templates", fetcher);
   const [busy, setBusy] = useState<string | null>(null);
 
   const items = list?.items ?? [];
@@ -36,12 +36,13 @@ export default function DevPodsPage() {
   };
 
   const act = async (name: string, op: "start"|"stop"|"delete") => {
-    if (op === "delete") {
-      await api.delete(`/devpods/${name}`);
-    } else {
-      await api.post(`/devpods/${name}/${op}`);
+    if (op === "delete" && !confirm(t("deleteConfirm"))) return;
+    try {
+      await api[op === "delete" ? "delete" : "post"](`/devpods/${name}/${op}`);
+      mutate();
+    } catch (e: any) {
+      toast({ variant: "destructive", title: e.response?.data?.message || "error" });
     }
-    mutate();
   };
 
   return (

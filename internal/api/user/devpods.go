@@ -41,6 +41,15 @@ func randHex(n int) string {
 	return hex.EncodeToString(b)
 }
 
+func (h *Handler) listDevPodTemplates(c *gin.Context) {
+	rows, err := database.ListDevPodTemplates(h.db)
+	if err != nil {
+		util.Error(c, http.StatusInternalServerError, err)
+		return
+	}
+	util.Success(c, rows, "Templates retrieved")
+}
+
 func (h *Handler) listDevPods(c *gin.Context) {
 	userID := c.GetString("userID")
 	user, err := database.GetUserByID(h.db, userID)
