@@ -43,6 +43,7 @@ func Init(dsn string) (*gorm.DB, error) {
 		&models.Setting{},
 		&models.Cluster{},
 		&models.ContestRegistration{},
+		&models.DevPodTemplate{},
 	)
 	if err != nil {
 		return nil, err

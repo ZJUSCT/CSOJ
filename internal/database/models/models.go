@@ -304,3 +304,23 @@ type Cluster struct {
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
 }
+
+// DevPodTemplate is an admin-defined fixed recipe for a user DevPod.
+// The ID is kept short ([a-z0-9-]{1,6}) so the derived DevPod name
+// <username>-<id>-<rand4> fits devpods' 22-char name budget.
+type DevPodTemplate struct {
+	ID              string    `gorm:"primaryKey" json:"id"`
+	Name            string    `json:"name"`
+	ClusterName     string    `json:"cluster_name"`
+	Image           string    `json:"image"`
+	Shell           string    `json:"shell"`
+	Cores           int       `json:"cores"`
+	Memory          int64     `json:"memory"` // bytes
+	NodeSelector    JSONMap   `gorm:"type:text" json:"node_selector"`
+	Tolerations     RawJSON   `gorm:"type:text" json:"tolerations"`
+	DefaultPerUser  int       `gorm:"default:1" json:"default_per_user"`
+	DefaultGlobal   int       `gorm:"default:5" json:"default_global"`
+	PersistenceSize string    `json:"persistence_size"`
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+}
