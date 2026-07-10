@@ -152,7 +152,10 @@ func (c *Client) EnsureUser(ctx context.Context, username string) error {
 func (c *Client) CreateDevPod(ctx context.Context, u *unstructured.Unstructured) error {
 	unstructured.SetNestedField(u.Object, c.ns, "metadata", "namespace")
 	_, err := c.dyn.Resource(gvrDevPod).Namespace(c.ns).Create(ctx, u, metav1.CreateOptions{})
-	return err
+	if err != nil {
+		return fmt.Errorf("create devpod %q: %w", u.GetName(), err)
+	}
+	return nil
 }
 
 // GetDevPod returns one DevPod by name.

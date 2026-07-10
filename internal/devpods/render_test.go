@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"github.com/ZJUSCT/CSOJ/internal/database/models"
-	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
@@ -128,8 +127,6 @@ func TestRenderDevPod_NoShareProcessNamespace(t *testing.T) {
 	if _, ok, _ := unstructured.NestedBool(u.Object, "spec", "pod", "spec", "shareProcessNamespace"); ok {
 		t.Errorf("shareProcessNamespace must not be set by CSOJ")
 	}
-	// corev1 import sanity (keeps the import used)
-	_ = corev1.PodPending
 }
 
 func TestValidateDevPodOwner(t *testing.T) {
@@ -164,5 +161,32 @@ func TestNameBudget(t *testing.T) {
 		if !c.ok && err == nil {
 			t.Errorf("%q+%q: expected budget error", c.username, c.tplID)
 		}
+	}
+}
+
+func TestRenderDevPod_OmitsOptionalFieldsWhenEmpty(t *testing.T) {
+	bare := &models.DevPodTemplate{
+		ID: "bare", Name: "B", ClusterName: "c1", Image: "ubuntu:24.04",
+		Cores: 2, Memory: 2 << 30,
+		NodeSelector: models.JSONMap{}, Tolerations: nil,
+		DefaultPerUser: 1, DefaultGlobal: 5,
+		// Shell empty, PersistenceSize empty
+	}
+	u, err := RenderDevPod("bob", "bob-bare-a1b2", bare)
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	if _, ok, _ := unstructured.NestedMap(u.Object, "spec", "persistence"); ok {
+		t.Errorf("persistence must be absent when PersistenceSize empty")
+	}
+	if _, ok, _ := unstructured.NestedString(u.Object, "spec", "shell"); ok {
+		t.Errorf("shell must be absent when empty")
+	}
+	if _, ok, _ := unstructured.NestedSlice(u.Object, "spec", "pod", "spec", "tolerations"); ok {
+		t.Errorf("tolerations must be absent when nil")
+	}
+	ns, _, _ := unstructured.NestedMap(u.Object, "spec", "pod", "spec", "nodeSelector")
+	if len(ns) != 0 {
+		t.Errorf("nodeSelector must be empty map, got %v", ns)
 	}
 }
