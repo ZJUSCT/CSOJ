@@ -1,6 +1,7 @@
 package database_test
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/ZJUSCT/CSOJ/internal/database"
@@ -15,6 +16,7 @@ func TestDevPodTemplate_CRUD(t *testing.T) {
 	tpl := &models.DevPodTemplate{
 		ID: "gpu-8c", Name: "8c GPU", ClusterName: "c1", Image: "ubuntu:24.04",
 		Cores: 8, Memory: 16 << 30, NodeSelector: models.JSONMap{"numa-node": "0"},
+		Tolerations:    models.RawJSON(`[{"key":"dedicated","operator":"Equal","value":"gpu","effect":"NoSchedule"}]`),
 		DefaultPerUser: 1, DefaultGlobal: 5,
 	}
 	if err := database.CreateDevPodTemplate(db, tpl); err != nil {
@@ -30,11 +32,24 @@ func TestDevPodTemplate_CRUD(t *testing.T) {
 	if got.NodeSelector["numa-node"] != "0" {
 		t.Errorf("numa selector not round-tripped: %v", got.NodeSelector)
 	}
+	if got.DefaultGlobal != 5 {
+		t.Errorf("default_global = %d, want 5", got.DefaultGlobal)
+	}
+	var tolerations []map[string]string
+	if err := json.Unmarshal(got.Tolerations, &tolerations); err != nil {
+		t.Fatalf("unmarshal tolerations: %v", err)
+	}
+	if len(tolerations) != 1 || tolerations[0]["key"] != "dedicated" || tolerations[0]["effect"] != "NoSchedule" {
+		t.Errorf("tolerations not round-tripped: %v", tolerations)
+	}
 	got.DefaultPerUser = 3
 	if err := database.UpdateDevPodTemplate(db, got); err != nil {
 		t.Fatalf("update: %v", err)
 	}
-	got2, _ := database.GetDevPodTemplate(db, "gpu-8c")
+	got2, err := database.GetDevPodTemplate(db, "gpu-8c")
+	if err != nil {
+		t.Fatalf("get after update: %v", err)
+	}
 	if got2.DefaultPerUser != 3 {
 		t.Errorf("update did not persist")
 	}

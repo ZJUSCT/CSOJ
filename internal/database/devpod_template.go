@@ -9,7 +9,7 @@ import (
 
 var templateIDRE = regexp.MustCompile(`^[a-z0-9-]{1,6}$`)
 
-// ValidateDevPodTemplateID returns nil if id is a valid template ID.
+// ValidateDevPodTemplateID returns true if id is a valid DevPod template ID.
 func ValidateDevPodTemplateID(id string) bool {
 	return templateIDRE.MatchString(id)
 }
