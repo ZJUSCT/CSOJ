@@ -333,6 +333,20 @@ type ClusterStateSnapshot struct {
 	QueueMode   string
 }
 
+// DynamicClientForCluster returns the cached dynamic.Interface + namespace
+// for a cluster name. Returns an error if the cluster is not loaded
+// (kubeconfig parse failure at startup, or the row was removed). Used by
+// the DevPods integration to talk to the devpods CRDs in that cluster.
+func (s *Scheduler) DynamicClientForCluster(name string) (dynamic.Interface, string, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	c, ok := s.clusters[name]
+	if !ok {
+		return nil, "", fmt.Errorf("cluster %q not loaded", name)
+	}
+	return c.dyn, c.Namespace, nil
+}
+
 func (s *Scheduler) GetQueueLengths() map[string]int {
 	out := make(map[string]int)
 	s.mu.RLock()
