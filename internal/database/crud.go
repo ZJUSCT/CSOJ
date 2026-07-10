@@ -815,6 +815,14 @@ func GetAllClusters(db *gorm.DB) ([]models.Cluster, error) {
 	return rows, err
 }
 
+func GetCluster(db *gorm.DB, name string) (*models.Cluster, error) {
+	var c models.Cluster
+	if err := db.Where("name = ?", name).First(&c).Error; err != nil {
+		return nil, err
+	}
+	return &c, nil
+}
+
 func UpsertCluster(db *gorm.DB, c *models.Cluster) error {
 	return db.Save(c).Error
 }

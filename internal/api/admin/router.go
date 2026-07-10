@@ -119,6 +119,15 @@ func RegisterRoutes(
 			clusters.DELETE("/:cluster/pools/:pool", h.deletePool)
 		}
 
+		// DevPod Template Management
+		devpodTemplates := adminV1.Group("/devpod-templates")
+		{
+			devpodTemplates.GET("", h.listDevPodTemplates)
+			devpodTemplates.POST("", h.createDevPodTemplate)
+			devpodTemplates.PUT("/:id", h.updateDevPodTemplate)
+			devpodTemplates.DELETE("/:id", h.deleteDevPodTemplate)
+		}
+
 		// Settings Management
 		settings := adminV1.Group("/settings")
 		{
