@@ -19,6 +19,8 @@ func TestBuildPodSpec_Basic(t *testing.T) {
 		CPULimit:      "2",
 		MemoryRequest: "512Mi",
 		MemoryLimit:   "512Mi",
+		GPUCount:      1,
+		GPUResource:   "nvidia.com/gpu",
 		NodeSel:       map[string]string{"pool": "cpu"},
 		Env:           []corev1.EnvVar{{Name: "CSOJ_SUBMIT_DIR", Value: "/mnt/work"}},
 		SubID:         "sub1",
@@ -45,6 +47,13 @@ func TestBuildPodSpec_Basic(t *testing.T) {
 	}
 	if pod.Spec.Containers[0].Resources.Limits[corev1.ResourceMemory] != resource.MustParse("512Mi") {
 		t.Errorf("memory limit not 512Mi")
+	}
+	gpuName := corev1.ResourceName("nvidia.com/gpu")
+	if got := pod.Spec.Containers[0].Resources.Requests[gpuName]; got.Cmp(resource.MustParse("1")) != 0 {
+		t.Errorf("gpu request: %s", got.String())
+	}
+	if got := pod.Spec.Containers[0].Resources.Limits[gpuName]; got.Cmp(resource.MustParse("1")) != 0 {
+		t.Errorf("gpu limit: %s", got.String())
 	}
 	// nodeSelector.
 	if pod.Spec.NodeSelector["pool"] != "cpu" {
@@ -121,19 +130,22 @@ func TestBuildPodSpec_Defaults(t *testing.T) {
 	if lim.Cmp(resource.MustParse("1")) != 0 {
 		t.Errorf("default cpu limit: %s", lim.String())
 	}
+	if _, ok := pod.Spec.Containers[0].Resources.Limits[corev1.ResourceName("nvidia.com/gpu")]; ok {
+		t.Errorf("GPU must be omitted by default")
+	}
 }
 
 func TestBuildPodSpec_Scheduling(t *testing.T) {
 	pod := BuildPodSpec(PodSpecInput{
-		Name:             "test",
-		Namespace:        "ns",
-		Image:            "img",
-		Script:           "echo",
-		SubID:            "s1",
-		Step:             0,
-		TimeoutSec:       30,
-		NodeAffinity:     []NodeAffinityTerm{{Key: "cpu-manager", Operator: "In", Values: []string{"static"}}},
-		Tolerations:      []Toleration{{Key: "dedicated", Operator: "Equal", Value: "cpu-pinning", Effect: "NoSchedule"}},
+		Name:              "test",
+		Namespace:         "ns",
+		Image:             "img",
+		Script:            "echo",
+		SubID:             "s1",
+		Step:              0,
+		TimeoutSec:        30,
+		NodeAffinity:      []NodeAffinityTerm{{Key: "cpu-manager", Operator: "In", Values: []string{"static"}}},
+		Tolerations:       []Toleration{{Key: "dedicated", Operator: "Equal", Value: "cpu-pinning", Effect: "NoSchedule"}},
 		PriorityClassName: "latency-critical",
 		RuntimeClassName:  "runc",
 	})
@@ -202,6 +214,8 @@ func TestBuildMPIJobSpec_LauncherWorker(t *testing.T) {
 		CPULimit:       "2",
 		MemoryRequest:  "1Gi",
 		MemoryLimit:    "1Gi",
+		GPUCount:       2,
+		GPUResource:    "nvidia.com/gpu",
 		NodeSel:        map[string]string{"pool": "gpu"},
 		SubID:          "sub1",
 		Step:           1,
@@ -222,6 +236,9 @@ func TestBuildMPIJobSpec_LauncherWorker(t *testing.T) {
 	if lim.Cmp(resource.MustParse("2")) != 0 {
 		t.Errorf("launcher cpu limit: %s", lim.String())
 	}
+	if gpu := launcher.Resources.Limits[corev1.ResourceName("nvidia.com/gpu")]; gpu.Cmp(resource.MustParse("2")) != 0 {
+		t.Errorf("launcher gpu limit: %s", gpu.String())
+	}
 	// Worker: sleep infinity.
 	worker := getReplicaContainer(obj, "Worker")
 	if worker == nil {
@@ -229,6 +246,9 @@ func TestBuildMPIJobSpec_LauncherWorker(t *testing.T) {
 	}
 	if len(worker.Command) != 2 || worker.Command[0] != "sleep" || worker.Command[1] != "infinity" {
 		t.Errorf("worker command: %v", worker.Command)
+	}
+	if gpu := worker.Resources.Limits[corev1.ResourceName("nvidia.com/gpu")]; gpu.Cmp(resource.MustParse("2")) != 0 {
+		t.Errorf("worker gpu limit: %s", gpu.String())
 	}
 	// Labels.
 	if obj.GetLabels()["csoj-step"] != "1" {

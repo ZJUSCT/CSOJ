@@ -160,6 +160,10 @@ func (h *Handler) createProblemInContest(c *gin.Context) {
 		util.Error(c, http.StatusBadRequest, err)
 		return
 	}
+	if err := judger.NormalizeProblemGPUResources(&newProblem); err != nil {
+		util.Error(c, http.StatusBadRequest, err)
+		return
+	}
 
 	h.appState.RLock()
 	contest, ok := h.appState.Contests[contestID]

@@ -14,21 +14,21 @@ type Announcement struct {
 }
 
 type Contest struct {
-	ID                  string             `json:"id"`
-	Name                string             `json:"name"`
-	StartTime           time.Time          `json:"starttime"`
-	EndTime             time.Time          `json:"endtime"`
-	SubmitStartTime     *time.Time         `json:"submit_start_time,omitempty"`
-	SubmitEndTime       *time.Time         `json:"submit_end_time,omitempty"`
-	ProblemIDs          []string           `json:"problem_ids"`
-	Description         string             `json:"description"`
-	Announcements       []*Announcement    `json:"announcements"`
-	RegistrationConfig  *RegistrationConfig `json:"registration_config,omitempty"`
+	ID                 string              `json:"id"`
+	Name               string              `json:"name"`
+	StartTime          time.Time           `json:"starttime"`
+	EndTime            time.Time           `json:"endtime"`
+	SubmitStartTime    *time.Time          `json:"submit_start_time,omitempty"`
+	SubmitEndTime      *time.Time          `json:"submit_end_time,omitempty"`
+	ProblemIDs         []string            `json:"problem_ids"`
+	Description        string              `json:"description"`
+	Announcements      []*Announcement     `json:"announcements"`
+	RegistrationConfig *RegistrationConfig `json:"registration_config,omitempty"`
 }
 
 // RegistrationConfig controls how users register for a contest.
 type RegistrationConfig struct {
-	Mode        string   `json:"mode"`                    // "auto" | "tag_auto" | "tag_review" | "review"
+	Mode        string   `json:"mode"` // "auto" | "tag_auto" | "tag_review" | "review"
 	AllowedTags []string `json:"allowed_tags,omitempty"`
 }
 
@@ -56,15 +56,15 @@ type Mount struct {
 }
 
 type WorkflowStep struct {
-	Name      string     `yaml:"name" json:"name"`
-	Image     string     `yaml:"image" json:"image"`
-	Root      bool       `yaml:"root" json:"root"`
-	Timeout   int        `yaml:"timeout" json:"timeout"`
-	Show      bool       `yaml:"show" json:"show"`
-	Steps     [][]string `yaml:"steps" json:"steps"`
-	Mounts    []Mount    `yaml:"mounts" json:"mounts"`
-	Network   bool       `yaml:"network" json:"network"`
-	MPI       *MPIConfig `yaml:"mpi,omitempty" json:"mpi,omitempty"`
+	Name       string          `yaml:"name" json:"name"`
+	Image      string          `yaml:"image" json:"image"`
+	Root       bool            `yaml:"root" json:"root"`
+	Timeout    int             `yaml:"timeout" json:"timeout"`
+	Show       bool            `yaml:"show" json:"show"`
+	Steps      [][]string      `yaml:"steps" json:"steps"`
+	Mounts     []Mount         `yaml:"mounts" json:"mounts"`
+	Network    bool            `yaml:"network" json:"network"`
+	MPI        *MPIConfig      `yaml:"mpi,omitempty" json:"mpi,omitempty"`
 	Resources  *StepResources  `yaml:"resources,omitempty" json:"resources,omitempty"`
 	Scheduling *StepScheduling `yaml:"scheduling,omitempty" json:"scheduling,omitempty"`
 }
@@ -86,14 +86,16 @@ type DeadlineOverride struct {
 	EndTime string   `json:"end_time"`
 }
 
-// StepResources holds the per-step CPU/memory requests and limits as K8s
-// resource strings (e.g. "2", "500m", "1Gi"). Empty fields fall back to
-// podspec defaults inside BuildPodSpec.
+// StepResources holds per-step Kubernetes resource requests and limits.
+// GPUCount is the number of devices requested per Pod/container; GPUResource
+// defaults to nvidia.com/gpu and may target another device-plugin resource.
 type StepResources struct {
 	CPURequest    string `json:"cpu_request,omitempty"`
 	CPULimit      string `json:"cpu_limit,omitempty"`
 	MemoryRequest string `json:"memory_request,omitempty"`
 	MemoryLimit   string `json:"memory_limit,omitempty"`
+	GPUCount      int    `json:"gpu_count,omitempty"`
+	GPUResource   string `json:"gpu_resource,omitempty"`
 }
 
 // StepScheduling carries the K8s scheduling constraints applied to a step's

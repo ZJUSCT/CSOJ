@@ -133,14 +133,14 @@ type Submission struct {
 	UserID    string `gorm:"index" json:"user_id"`
 	User      User   `json:"user"`
 
-	Status         Status  `gorm:"index" json:"status"`
-	CurrentStep    int     `json:"current_step"` // index of the current workflow step
-	Cluster        string  `json:"cluster"`
-	Node           string  `json:"node"`
-	Score          int     `json:"score"`
-	Performance    float64 `json:"performance"`
-	Info           JSONMap `gorm:"type:text" json:"info"`
-	IsValid        bool    `json:"is_valid"`
+	Status      Status  `gorm:"index" json:"status"`
+	CurrentStep int     `json:"current_step"` // index of the current workflow step
+	Cluster     string  `json:"cluster"`
+	Node        string  `json:"node"`
+	Score       int     `json:"score"`
+	Performance float64 `json:"performance"`
+	Info        JSONMap `gorm:"type:text" json:"info"`
+	IsValid     bool    `json:"is_valid"`
 
 	Containers []Container `gorm:"foreignKey:SubmissionID;constraint:OnDelete:CASCADE" json:"containers"`
 }
@@ -187,18 +187,18 @@ type UserProblemBestScore struct {
 
 // Contest is a backend-managed contest definition.
 type Contest struct {
-	ID                  string         `gorm:"primaryKey" json:"id"`
-	Name                string         `json:"name"`
-	StartTime           time.Time      `gorm:"index" json:"starttime"`
-	EndTime             time.Time      `json:"endtime"`
-	SubmitStartTime     *time.Time     `json:"submit_start_time,omitempty"`
-	SubmitEndTime       *time.Time     `json:"submit_end_time,omitempty"`
-	Description         string         `gorm:"type:text" json:"description"`
-	ProblemIDs          StringArray    `gorm:"type:text" json:"problem_ids"`
-	RegistrationConfig  RawJSON        `gorm:"type:text" json:"registration_config"`
-	CreatedAt           time.Time
-	UpdatedAt           time.Time
-	DeletedAt           gorm.DeletedAt `gorm:"index"`
+	ID                 string      `gorm:"primaryKey" json:"id"`
+	Name               string      `json:"name"`
+	StartTime          time.Time   `gorm:"index" json:"starttime"`
+	EndTime            time.Time   `json:"endtime"`
+	SubmitStartTime    *time.Time  `json:"submit_start_time,omitempty"`
+	SubmitEndTime      *time.Time  `json:"submit_end_time,omitempty"`
+	Description        string      `gorm:"type:text" json:"description"`
+	ProblemIDs         StringArray `gorm:"type:text" json:"problem_ids"`
+	RegistrationConfig RawJSON     `gorm:"type:text" json:"registration_config"`
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
+	DeletedAt          gorm.DeletedAt `gorm:"index"`
 }
 
 // ContestRegistration tracks a user's registration for a contest.
@@ -215,21 +215,21 @@ type ContestRegistration struct {
 
 // Problem is a backend-managed problem definition.
 type Problem struct {
-	ID                string    `gorm:"primaryKey" json:"id"`
-	ContestID         string    `gorm:"index" json:"contest_id"`
-	Name              string    `json:"name"`
-	Level             string    `json:"level"`
-	StartTime         time.Time `json:"starttime"`
-	EndTime           time.Time `json:"endtime"`
+	ID                string     `gorm:"primaryKey" json:"id"`
+	ContestID         string     `gorm:"index" json:"contest_id"`
+	Name              string     `json:"name"`
+	Level             string     `json:"level"`
+	StartTime         time.Time  `json:"starttime"`
+	EndTime           time.Time  `json:"endtime"`
 	SubmitStartTime   *time.Time `json:"submit_start_time,omitempty"`
 	SubmitEndTime     *time.Time `json:"submit_end_time,omitempty"`
-	MaxSubmissions    int       `json:"max_submissions"`
-	Cluster           string    `gorm:"index" json:"cluster"`
-	Upload            RawJSON   `gorm:"type:text" json:"upload"`
-	Workflow          RawJSON   `gorm:"type:text" json:"workflow"`
-	Score             RawJSON   `gorm:"type:text" json:"score"`
-	DeadlineOverrides RawJSON   `gorm:"type:text" json:"deadline_overrides"`
-	Description       string    `gorm:"type:text" json:"description"`
+	MaxSubmissions    int        `json:"max_submissions"`
+	Cluster           string     `gorm:"index" json:"cluster"`
+	Upload            RawJSON    `gorm:"type:text" json:"upload"`
+	Workflow          RawJSON    `gorm:"type:text" json:"workflow"`
+	Score             RawJSON    `gorm:"type:text" json:"score"`
+	DeadlineOverrides RawJSON    `gorm:"type:text" json:"deadline_overrides"`
+	Description       string     `gorm:"type:text" json:"description"`
 	CreatedAt         time.Time
 	UpdatedAt         time.Time
 }
@@ -259,12 +259,12 @@ type Asset struct {
 // ClusterNodePool holds the runtime-mutable caps + nodeSelector for a pool.
 // The K8s connection is cluster-level (config.yaml kubeconfig).
 type ClusterNodePool struct {
-	ClusterName  string    `gorm:"primaryKey" json:"cluster_name"`
-	PoolName     string    `gorm:"primaryKey" json:"pool_name"`
-	NodeSelector JSONMap   `gorm:"type:text" json:"node_selector"`
-	CPU          int       `json:"cpu"`
-	Memory       int64     `json:"memory"`
-	IsPaused     bool      `gorm:"default:false" json:"is_paused"`
+	ClusterName  string  `gorm:"primaryKey" json:"cluster_name"`
+	PoolName     string  `gorm:"primaryKey" json:"pool_name"`
+	NodeSelector JSONMap `gorm:"type:text" json:"node_selector"`
+	CPU          int     `json:"cpu"`
+	Memory       int64   `json:"memory"`
+	IsPaused     bool    `gorm:"default:false" json:"is_paused"`
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
 }
@@ -294,33 +294,35 @@ type Setting struct {
 // Cluster is a backend-managed K8s cluster (kubeconfig stored as text).
 // Node-pool caps live in ClusterNodePool (cluster_name is the parent key).
 type Cluster struct {
-	Name         string    `gorm:"primaryKey" json:"name"`
-	Kubeconfig   string    `gorm:"type:text" json:"kubeconfig"`
-	Context      string    `json:"context"`
-	Namespace    string    `json:"namespace"`
-	Concurrency  int       `json:"concurrency"`
-	HeartbeatTTL int       `json:"heartbeat_ttl"`
-	QueueMode    string    `gorm:"default:channel" json:"queue_mode"`
+	Name         string `gorm:"primaryKey" json:"name"`
+	Kubeconfig   string `gorm:"type:text" json:"kubeconfig"`
+	Context      string `json:"context"`
+	Namespace    string `json:"namespace"`
+	Concurrency  int    `json:"concurrency"`
+	HeartbeatTTL int    `json:"heartbeat_ttl"`
+	QueueMode    string `gorm:"default:channel" json:"queue_mode"`
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
 }
 
 // DevPodTemplate is an admin-defined fixed recipe for a user DevPod.
 // The ID is kept short ([a-z0-9-]{1,6}) so the derived DevPod name
-// <username>-<id>-<rand4> fits devpods' 22-char name budget.
+// <h+username>-<id><rand4> fits devpods' 22-char name budget.
 type DevPodTemplate struct {
-	ID              string    `gorm:"primaryKey" json:"id"`
-	Name            string    `json:"name"`
-	ClusterName     string    `json:"cluster_name"`
-	Image           string    `json:"image"`
-	Shell           string    `json:"shell"`
-	Cores           int       `json:"cores"`
-	Memory          int64     `json:"memory"` // bytes
-	NodeSelector    JSONMap   `gorm:"type:text" json:"node_selector"`
-	Tolerations     RawJSON   `gorm:"type:text" json:"tolerations"`
-	DefaultPerUser  int       `gorm:"default:1" json:"default_per_user"`
-	DefaultGlobal   int       `gorm:"default:5" json:"default_global"`
-	PersistenceSize string    `json:"persistence_size"`
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
+	ID             string      `gorm:"primaryKey" json:"id"`
+	Name           string      `json:"name"`
+	ClusterName    string      `json:"cluster_name"`
+	Image          string      `json:"image"`
+	Shell          string      `json:"shell"`
+	Cores          int         `json:"cores"`
+	Memory         int64       `json:"memory"` // bytes
+	GPUCount       int         `gorm:"default:0" json:"gpu_count"`
+	GPUResource    string      `json:"gpu_resource"`
+	NodeSelector   JSONMap     `gorm:"type:text" json:"node_selector"`
+	Tolerations    RawJSON     `gorm:"type:text" json:"tolerations"`
+	AllowedTags    StringArray `gorm:"type:text" json:"allowed_tags"`
+	DefaultPerUser int         `gorm:"default:1" json:"default_per_user"`
+	DefaultGlobal  int         `gorm:"default:5" json:"default_global"` // template-wide running limit
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
 }

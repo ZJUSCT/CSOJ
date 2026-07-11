@@ -119,6 +119,15 @@ func RegisterRoutes(
 			clusters.DELETE("/:cluster/pools/:pool", h.deletePool)
 		}
 
+		// DevPod Management
+		devpods := adminV1.Group("/devpods")
+		{
+			devpods.GET("", h.listAllDevPods)
+			devpods.POST("/:cluster/:name/start", h.startAdminDevPod)
+			devpods.POST("/:cluster/:name/stop", h.stopAdminDevPod)
+			devpods.DELETE("/:cluster/:name", h.deleteAdminDevPod)
+		}
+
 		// DevPod Template Management
 		devpodTemplates := adminV1.Group("/devpod-templates")
 		{

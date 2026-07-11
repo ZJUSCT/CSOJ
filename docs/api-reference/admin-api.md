@@ -266,7 +266,7 @@ The first user to register (local or GitLab) is automatically granted the
 
 ### Runtime Settings
 
-Runtime settings (logger, CORS, local-auth, GitLab OIDC, JWT expiry) are stored as JSON-encoded rows in the `settings` DB table. The `logger` setting is **restart-required** to change (the logger is built once at boot); all others are **live-reload** (read on the next request).
+Runtime settings (logger, CORS, local-auth, GitLab OIDC, JWT expiry, the DevPod SSH gateway, and the global per-user DevPod limit) are stored as JSON-encoded rows in the `settings` DB table. The `logger` setting is **restart-required** to change (the logger is built once at boot); all others are **live-reload** (read on the next request).
 
 #### `GET /api/v1/admin/settings`
 
@@ -281,7 +281,9 @@ Runtime settings (logger, CORS, local-auth, GitLab OIDC, JWT expiry) are stored 
           "cors": "{\"allowed_origins\":[\"https://oj.example.com\"]}",
           "auth.local": "{\"enabled\":true}",
           "auth.gitlab": "{\"url\":\"https://gitlab.com\",\"client_id\":\"...\",\"client_secret\":\"...\",\"redirect_uri\":\"...\",\"frontend_callback_url\":\"...\"}",
-          "auth.jwt.expire_hours": "72"
+          "auth.jwt.expire_hours": "72",
+          "devpods.gateway": "{\"host\":\"clusters.zju.edu.cn\",\"port\":443,\"hostname_suffix\":\"hpc101\"}",
+          "devpods.max_per_user": "3"
         },
         "boot": {
           "listen": ":8080",
@@ -304,15 +306,17 @@ Runtime settings (logger, CORS, local-auth, GitLab OIDC, JWT expiry) are stored 
 #### `PUT /api/v1/admin/settings/:key`
 
   - **Description**: Writes a settings value (JSON-encodes the supplied `value`). Most keys are live-reload; `logger` is restart-required (the response flags it).
-  - **Path Parameter**: `:key` — the settings key. Known keys: `logger`, `cors`, `auth.local`, `auth.gitlab`, `auth.jwt.expire_hours`.
+  - **Path Parameter**: `:key` — the settings key. Known keys: `logger`, `cors`, `auth.local`, `auth.gitlab`, `auth.jwt.expire_hours`, `devpods.gateway`, `devpods.max_per_user`.
   - **Request Body** (`application/json`):
     ```json
     { "value": {"allowed_origins": ["https://oj.example.com"]} }
     ```
-      - `value`: (any) The JSON-encodable value to store. For `cors` it is `{"allowed_origins": [...]}`; for `auth.local` it is `{"enabled": true|false}`; for `auth.gitlab` it is `{"url":"...","client_id":"...","client_secret":"...","redirect_uri":"...","frontend_callback_url":"..."}`; for `auth.jwt.expire_hours` it is an integer; for `logger` it is `{"level":"debug|production","file":"..."}`.
+      - `value`: (any) The JSON-encodable value to store. For `cors` it is `{"allowed_origins": [...]}`; for `auth.local` it is `{"enabled": true|false}`; for `auth.gitlab` it is `{"url":"...","client_id":"...","client_secret":"...","redirect_uri":"...","frontend_callback_url":"..."}`; for `auth.jwt.expire_hours` it is an integer; for `devpods.gateway` it is `{"host":"clusters.zju.edu.cn","port":443,"hostname_suffix":"hpc101"}`; for `devpods.max_per_user` it is a non-negative integer (`0` means unlimited); for `logger` it is `{"level":"debug|production","file":"..."}`.
   - **Success Response**: `{"restart_required": false}` (or `true` when `:key` is `logger`).
   - **Notes**:
-      - `cors`, `auth.local`, `auth.gitlab`, `auth.jwt.expire_hours` are live-reload — the next request reads the new value.
+      - `cors`, `auth.local`, `auth.gitlab`, `auth.jwt.expire_hours`, `devpods.gateway`, `devpods.max_per_user` are live-reload — the next request reads the new value.
+      - `devpods.gateway.host` must be a non-empty public DNS name or IP address and `port` must be between 1 and 65535. Optional `hostname_suffix` is appended as a third `+`-separated SSH login component for an outer proxy and must be a lowercase DNS label.
+      - `devpods.max_per_user` is one global running limit shared by all users. For each user it counts only owned DevPods with `spec.running=true`, across all templates and configured DevPod clusters; stopped DevPods release their slot. Existing template-level limits still apply.
       - `logger` requires a restart to take effect (the response still confirms the write).
       - A missing `auth.local` row defaults to enabled (so a fresh install can register the first superadmin). Once any value is written, that value is authoritative.
       - A missing or incomplete `auth.gitlab` row makes the GitLab endpoints return `503 gitlab not configured` (the server does not crash at boot).
@@ -470,6 +474,23 @@ Cluster rows are stored in the `clusters` DB table. Each row carries the full ku
   - **Description**: Sets the cluster's max in-flight submissions. Concurrency is implemented as a fixed-capacity semaphore; **resizing requires a restart**. This endpoint validates and stores the requested value (use it together with a restart to resize).
   - **Request Body** (`application/json`): `{"concurrency": 8}`
   - **Success Response**: `{"cluster": "gpu-cluster", "concurrency": 8}` with message `"Concurrency updated (restart to resize)"`.
+
+#### `GET /api/v1/admin/devpods`
+
+  - **Description**: Returns a live, cross-cluster view of every `DevPod` CR in the dedicated `devpods` namespace. The response includes `name`, `owner`, `template`, `cluster_name`, `namespace`, desired `running` state, actual `phase`, `endpoint`, controller `message`, and `created_at`.
+  - **Success Response**: `{"items": [...], "warnings": [...]}`. A cluster query failure is reported in `warnings`; successfully queried clusters are still returned.
+
+#### `POST /api/v1/admin/devpods/:cluster/:name/start`
+
+  - **Description**: Starts the named DevPod in the explicitly selected cluster by setting `spec.running` to `true`. The request is rejected with `409` when the template's `default_global` running quota is already full. Stopped DevPods do not consume this quota.
+
+#### `POST /api/v1/admin/devpods/:cluster/:name/stop`
+
+  - **Description**: Stops the named DevPod in the explicitly selected cluster by setting `spec.running` to `false`.
+
+#### `DELETE /api/v1/admin/devpods/:cluster/:name`
+
+  - **Description**: Permanently deletes the named DevPod CR from the explicitly selected cluster. The DevPods controller determines persistence-volume retention behavior.
 
 #### `GET /api/v1/admin/containers`
 

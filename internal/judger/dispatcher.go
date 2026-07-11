@@ -140,6 +140,8 @@ func (d *Dispatcher) runPodStep(km *KubeManager, sub *models.Submission, prob *P
 		CPULimit:          stepCPULimit(flow),
 		MemoryRequest:     stepMemoryRequest(flow),
 		MemoryLimit:       stepMemoryLimit(flow),
+		GPUCount:          stepGPUCount(flow),
+		GPUResource:       stepGPUResource(flow),
 		NodeSel:           pool.NodeSelector,
 		NodeAffinity:      stepNodeAffinity(flow),
 		Tolerations:       stepTolerations(flow),
@@ -207,6 +209,8 @@ func (d *Dispatcher) runJobStep(km *KubeManager, sub *models.Submission, prob *P
 			CPULimit:          stepCPULimit(flow),
 			MemoryRequest:     stepMemoryRequest(flow),
 			MemoryLimit:       stepMemoryLimit(flow),
+			GPUCount:          stepGPUCount(flow),
+			GPUResource:       stepGPUResource(flow),
 			NodeSel:           nil, // Kueue handles scheduling
 			NodeAffinity:      stepNodeAffinity(flow),
 			Tolerations:       stepTolerations(flow),
@@ -270,12 +274,14 @@ func (d *Dispatcher) runMPIStep(km *KubeManager, sub *models.Submission, prob *P
 		Name:              name,
 		Namespace:         km.ns,
 		Image:             flow.Image,
-		LauncherScript:     launcherScript,
+		LauncherScript:    launcherScript,
 		WorkerReplicas:    flow.MPI.WorkerReplicas,
 		CPURequest:        stepCPURequest(flow),
 		CPULimit:          stepCPULimit(flow),
 		MemoryRequest:     stepMemoryRequest(flow),
 		MemoryLimit:       stepMemoryLimit(flow),
+		GPUCount:          stepGPUCount(flow),
+		GPUResource:       stepGPUResource(flow),
 		NodeSel:           pool.NodeSelector,
 		NodeAffinity:      stepNodeAffinity(flow),
 		Tolerations:       stepTolerations(flow),
@@ -409,6 +415,20 @@ func stepMemoryLimit(flow WorkflowStep) string {
 		return ""
 	}
 	return flow.Resources.MemoryLimit
+}
+
+func stepGPUCount(flow WorkflowStep) int {
+	if flow.Resources == nil {
+		return 0
+	}
+	return flow.Resources.GPUCount
+}
+
+func stepGPUResource(flow WorkflowStep) string {
+	if flow.Resources == nil {
+		return ""
+	}
+	return flow.Resources.GPUResource
 }
 
 func stepNodeAffinity(flow WorkflowStep) []podspec.NodeAffinityTerm {

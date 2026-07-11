@@ -54,15 +54,22 @@ function SettingsPage() {
                 </CardContent>
             </Card>
             <Tabs defaultValue="general">
-                <TabsList className="grid w-full grid-cols-4">
+                <TabsList className="grid w-full grid-cols-5">
                     <TabsTrigger value="general">General</TabsTrigger>
                     <TabsTrigger value="security">Security</TabsTrigger>
                     <TabsTrigger value="gitlab">GitLab OIDC</TabsTrigger>
+                    <TabsTrigger value="devpods">DevPods</TabsTrigger>
                     <TabsTrigger value="cors">CORS</TabsTrigger>
                 </TabsList>
                 <TabsContent value="general"><GeneralTab settings={data.settings} onSaved={() => mutate()} /></TabsContent>
                 <TabsContent value="security"><SecurityTab settings={data.settings} onSaved={() => mutate()} /></TabsContent>
                 <TabsContent value="gitlab"><GitLabTab settings={data.settings} onSaved={() => mutate()} /></TabsContent>
+                <TabsContent value="devpods">
+                    <div className="space-y-4">
+                        <DevPodGatewayTab settings={data.settings} onSaved={() => mutate()} />
+                        <DevPodQuotaCard settings={data.settings} onSaved={() => mutate()} />
+                    </div>
+                </TabsContent>
                 <TabsContent value="cors"><CORSTab settings={data.settings} onSaved={() => mutate()} /></TabsContent>
             </Tabs>
         </div>
@@ -105,6 +112,129 @@ function GeneralTab({ settings, onSaved }: { settings: Record<string, string>; o
                 <div>
                     <Label>Log File (optional, empty = stdout only)</Label>
                     <Input value={file} onChange={e => setFile(e.target.value)} placeholder="csoj.log" />
+                </div>
+                <Button onClick={handleSave}><Save className="h-4 w-4 mr-2" /> Save</Button>
+            </CardContent>
+        </Card>
+    );
+}
+
+function DevPodGatewayTab({ settings, onSaved }: { settings: Record<string, string>; onSaved: () => void }) {
+    const { toast } = useToast();
+    const gateway = parseSetting(settings, 'devpods.gateway', { host: '', port: 22, hostname_suffix: '' });
+    const [host, setHost] = useState(gateway.host);
+    const [port, setPort] = useState(gateway.port);
+    const [hostnameSuffix, setHostnameSuffix] = useState(gateway.hostname_suffix ?? '');
+
+    const handleSave = function() {
+        const normalizedHost = host.trim();
+        if (!normalizedHost) {
+            toast({ variant: 'destructive', title: 'Host is required' });
+            return;
+        }
+        if (!Number.isInteger(port) || port < 1 || port > 65535) {
+            toast({ variant: 'destructive', title: 'Port must be between 1 and 65535' });
+            return;
+        }
+        const normalizedSuffix = hostnameSuffix.trim();
+        if (normalizedSuffix && !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(normalizedSuffix)) {
+            toast({ variant: 'destructive', title: 'Hostname suffix must be a lowercase DNS label' });
+            return;
+        }
+        api.put('/admin/settings/devpods.gateway', { value: { host: normalizedHost, port, hostname_suffix: normalizedSuffix } }).then(function() {
+            setHost(normalizedHost);
+            setHostnameSuffix(normalizedSuffix);
+            toast({ title: 'DevPod gateway settings updated' });
+            onSaved();
+        }).catch(function(error) {
+            toast({ variant: 'destructive', title: 'Update failed', description: error.response?.data?.message });
+        });
+    };
+
+    return (
+        <Card>
+            <CardHeader>
+                <CardTitle>DevPod SSH Gateway <Badge variant="default">live</Badge></CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+                <div>
+                    <Label htmlFor="devpod-gateway-host">Host</Label>
+                    <Input
+                        id="devpod-gateway-host"
+                        value={host}
+                        onChange={e => setHost(e.target.value)}
+                        placeholder="devpod.example.com or 172.28.0.0"
+                    />
+                    <p className="mt-1 text-xs text-muted-foreground">Public DNS name or IP address users connect to. Do not include ssh://.</p>
+                </div>
+                <div>
+                    <Label htmlFor="devpod-gateway-port">Port</Label>
+                    <Input
+                        id="devpod-gateway-port"
+                        type="number"
+                        min={1}
+                        max={65535}
+                        value={port}
+                        onChange={e => setPort(Number(e.target.value))}
+                        placeholder="22"
+                    />
+                </div>
+                <div>
+                    <Label htmlFor="devpod-gateway-hostname-suffix">Hostname Suffix (optional)</Label>
+                    <Input
+                        id="devpod-gateway-hostname-suffix"
+                        value={hostnameSuffix}
+                        onChange={e => setHostnameSuffix(e.target.value)}
+                        placeholder="hpc101"
+                    />
+                    <p className="mt-1 text-xs text-muted-foreground">Appended to the SSH login for an outer proxy, for example owner+devpod+hpc101.</p>
+                </div>
+                <div className="rounded-md bg-muted p-3 text-xs">
+                    SSH commands will use <code>ssh user+devpod{hostnameSuffix.trim() ? `+${hostnameSuffix.trim()}` : ''}@{host.trim() || '<host>'} -p {port || '<port>'}</code>.
+                </div>
+                <Button onClick={handleSave}><Save className="h-4 w-4 mr-2" /> Save</Button>
+            </CardContent>
+        </Card>
+    );
+}
+
+function DevPodQuotaCard({ settings, onSaved }: { settings: Record<string, string>; onSaved: () => void }) {
+    const { toast } = useToast();
+    const configuredLimit = parseSetting(settings, 'devpods.max_per_user', 0);
+    const [maxPerUser, setMaxPerUser] = useState(configuredLimit);
+
+    const handleSave = function() {
+        if (!Number.isInteger(maxPerUser) || maxPerUser < 0) {
+            toast({ variant: 'destructive', title: 'Maximum must be a non-negative integer' });
+            return;
+        }
+        api.put('/admin/settings/devpods.max_per_user', { value: maxPerUser }).then(function() {
+            toast({ title: 'Global DevPod running limit updated' });
+            onSaved();
+        }).catch(function(error) {
+            toast({ variant: 'destructive', title: 'Update failed', description: error.response?.data?.message });
+        });
+    };
+
+    return (
+        <Card>
+            <CardHeader>
+                <CardTitle>Global DevPod Running Limit <Badge variant="default">live</Badge></CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+                <div>
+                    <Label htmlFor="devpod-max-per-user">Maximum Running DevPods per User</Label>
+                    <Input
+                        id="devpod-max-per-user"
+                        type="number"
+                        min={0}
+                        step={1}
+                        value={maxPerUser}
+                        onChange={e => setMaxPerUser(Number(e.target.value))}
+                    />
+                    <p className="mt-1 text-xs text-muted-foreground">
+                        Same concurrent running limit for every user, counted across all templates and DevPod clusters. Stopped DevPods do not count. Set to 0 for unlimited.
+                    </p>
                 </div>
                 <Button onClick={handleSave}><Save className="h-4 w-4 mr-2" /> Save</Button>
             </CardContent>

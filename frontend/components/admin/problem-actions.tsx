@@ -42,6 +42,15 @@ interface DeadlineOverrideEntry {
     end_time: string;
 }
 
+interface StepResourceState {
+    cpu_request: string;
+    cpu_limit: string;
+    memory_request: string;
+    memory_limit: string;
+    gpu_count: number;
+    gpu_resource: string;
+}
+
 interface WorkflowStepEntry {
     name: string;
     image: string;
@@ -52,7 +61,7 @@ interface WorkflowStepEntry {
     steps: string[][];   // array of commands; each command is string[]
     mounts: MountEntry[];
     mpi?: MPIConfig | null;
-    resources: { cpu_request: string; cpu_limit: string; memory_request: string; memory_limit: string };
+    resources: StepResourceState;
     scheduling: {
         node_selector: { key: string; value: string }[];
         node_affinity: { key: string; operator: string; values: string }[];
@@ -120,6 +129,8 @@ function workflowStepsToEntries(steps: any[]): WorkflowStepEntry[] {
             cpu_limit: s.resources?.cpu_limit || '',
             memory_request: s.resources?.memory_request || '',
             memory_limit: s.resources?.memory_limit || '',
+            gpu_count: s.resources?.gpu_count ?? 0,
+            gpu_resource: s.resources?.gpu_resource || 'nvidia.com/gpu',
         },
         scheduling: {
             node_selector: Object.entries(s.scheduling?.node_selector || {}).map(([k, v]) => ({ key: k, value: v as string })),
@@ -163,12 +174,14 @@ function entriesToWorkflowSteps(entries: WorkflowStepEntry[]): any[] {
             step.mpi = e.mpi;
         }
         const res = e.resources;
-        if (res.cpu_request || res.cpu_limit || res.memory_request || res.memory_limit) {
+        if (res.cpu_request || res.cpu_limit || res.memory_request || res.memory_limit || res.gpu_count > 0) {
             step.resources = {
                 cpu_request: res.cpu_request || undefined,
                 cpu_limit: res.cpu_limit || undefined,
                 memory_request: res.memory_request || undefined,
                 memory_limit: res.memory_limit || undefined,
+                gpu_count: res.gpu_count > 0 ? res.gpu_count : undefined,
+                gpu_resource: res.gpu_count > 0 ? (res.gpu_resource || 'nvidia.com/gpu') : undefined,
             };
         }
         const sched = e.scheduling;
@@ -201,7 +214,7 @@ function emptyStep(): WorkflowStepEntry {
     return {
         name: '', image: '', root: false, timeout: 30, show: true, network: false,
         steps: [], mounts: [], mpi: null,
-        resources: { cpu_request: '', cpu_limit: '', memory_request: '', memory_limit: '' },
+        resources: { cpu_request: '', cpu_limit: '', memory_request: '', memory_limit: '', gpu_count: 0, gpu_resource: 'nvidia.com/gpu' },
         scheduling: { node_selector: [], node_affinity: [], tolerations: [], priority_class_name: '', runtime_class_name: '' },
     };
 }
@@ -637,8 +650,8 @@ function MountsEditor({ mounts, onChange }: { mounts: MountEntry[], onChange: (m
 // ---------- Resources Editor ----------
 
 function ResourcesEditor({ res, onChange }: {
-    res: { cpu_request: string; cpu_limit: string; memory_request: string; memory_limit: string };
-    onChange: (r: { cpu_request: string; cpu_limit: string; memory_request: string; memory_limit: string }) => void;
+    res: StepResourceState;
+    onChange: (r: StepResourceState) => void;
 }) {
     const update = (patch: Partial<typeof res>) => onChange({ ...res, ...patch });
     return (
@@ -671,8 +684,16 @@ function ResourcesEditor({ res, onChange }: {
                     <Label className="text-xs">Memory Limit</Label>
                     <Input className="text-xs font-mono" value={res.memory_limit} onChange={e => update({ memory_limit: e.target.value })} placeholder="1Gi" />
                 </div>
+                <div>
+                    <Label className="text-xs">GPU Count</Label>
+                    <Input type="number" min={0} step={1} className="text-xs font-mono" value={res.gpu_count} onChange={e => update({ gpu_count: Number(e.target.value) })} />
+                </div>
+                <div>
+                    <Label className="text-xs">GPU Resource</Label>
+                    <Input className="text-xs font-mono" value={res.gpu_resource} onChange={e => update({ gpu_resource: e.target.value })} placeholder="nvidia.com/gpu" />
+                </div>
             </div>
-            <p className="text-xs text-muted-foreground pl-4">Set request == limit for Guaranteed QoS + CPU pinning.</p>
+            <p className="text-xs text-muted-foreground pl-4">GPU is requested as an extended resource with request == limit. For MPI steps, the count applies to each launcher and worker Pod.</p>
         </div>
     );
 }

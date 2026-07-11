@@ -1,8 +1,11 @@
 package admin
 
 import (
+	"encoding/json"
 	"net/http"
+	"strings"
 
+	"github.com/ZJUSCT/CSOJ/internal/devpods"
 	"github.com/ZJUSCT/CSOJ/internal/util"
 	"github.com/gin-gonic/gin"
 )
@@ -33,6 +36,38 @@ func (h *Handler) updateSetting(c *gin.Context) {
 	if err := c.ShouldBindJSON(&body); err != nil {
 		util.Error(c, http.StatusBadRequest, err)
 		return
+	}
+	if key == "devpods.gateway" {
+		raw, err := json.Marshal(body.Value)
+		if err != nil {
+			util.Error(c, http.StatusBadRequest, "invalid devpod gateway setting")
+			return
+		}
+		var gateway devpods.Gateway
+		if err := json.Unmarshal(raw, &gateway); err != nil {
+			util.Error(c, http.StatusBadRequest, "devpod gateway must contain host and numeric port")
+			return
+		}
+		gateway.Host = strings.TrimSpace(gateway.Host)
+		gateway.HostnameSuffix = strings.TrimSpace(gateway.HostnameSuffix)
+		if err := gateway.Validate(); err != nil {
+			util.Error(c, http.StatusBadRequest, err)
+			return
+		}
+		body.Value = gateway
+	}
+	if key == "devpods.max_per_user" {
+		raw, err := json.Marshal(body.Value)
+		if err != nil {
+			util.Error(c, http.StatusBadRequest, "invalid devpod user limit")
+			return
+		}
+		var limit int
+		if err := json.Unmarshal(raw, &limit); err != nil || limit < 0 {
+			util.Error(c, http.StatusBadRequest, "devpod max per user must be a non-negative integer")
+			return
+		}
+		body.Value = limit
 	}
 	if err := h.settings.Set(key, body.Value); err != nil {
 		util.Error(c, http.StatusInternalServerError, err)

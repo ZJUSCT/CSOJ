@@ -47,6 +47,10 @@ func (h *Handler) updateProblem(c *gin.Context) {
 		util.Error(c, http.StatusBadRequest, "problem ID in path does not match problem ID in body")
 		return
 	}
+	if err := judger.NormalizeProblemGPUResources(&updatedProblem); err != nil {
+		util.Error(c, http.StatusBadRequest, err)
+		return
+	}
 
 	h.appState.RLock()
 	existing, ok := h.appState.Problems[problemID]

@@ -1,6 +1,7 @@
 package podspec
 
 import (
+	"github.com/ZJUSCT/CSOJ/internal/kubeutil"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -36,6 +37,8 @@ type PodSpecInput struct {
 	CPULimit          string
 	MemoryRequest     string
 	MemoryLimit       string
+	GPUCount          int
+	GPUResource       string
 	NodeSel           map[string]string
 	NodeAffinity      []NodeAffinityTerm
 	Tolerations       []Toleration
@@ -58,16 +61,7 @@ func BuildPodSpec(in PodSpecInput) *corev1.Pod {
 		ImagePullPolicy: corev1.PullIfNotPresent,
 		Command:         []string{"/bin/sh", "-c", in.Script},
 		Env:             in.Env,
-		Resources: corev1.ResourceRequirements{
-			Requests: corev1.ResourceList{
-				corev1.ResourceCPU:    parseResource(in.CPURequest, "1"),
-				corev1.ResourceMemory: parseResource(in.MemoryRequest, "256Mi"),
-			},
-			Limits: corev1.ResourceList{
-				corev1.ResourceCPU:    parseResource(in.CPULimit, "1"),
-				corev1.ResourceMemory: parseResource(in.MemoryLimit, "256Mi"),
-			},
-		},
+		Resources:       buildResourceRequirements(in.CPURequest, in.CPULimit, in.MemoryRequest, in.MemoryLimit, in.GPUResource, in.GPUCount),
 		VolumeMounts: []corev1.VolumeMount{
 			{Name: "submission", MountPath: "/mnt/work", SubPath: in.SubID},
 		},
@@ -121,6 +115,8 @@ type MPIJobSpecInput struct {
 	CPULimit          string
 	MemoryRequest     string
 	MemoryLimit       string
+	GPUCount          int
+	GPUResource       string
 	NodeSel           map[string]string
 	NodeAffinity      []NodeAffinityTerm
 	Tolerations       []Toleration
@@ -167,16 +163,7 @@ func BuildMPIJobSpec(in MPIJobSpecInput) *unstructured.Unstructured {
 }
 
 func mpiContainerTemplates(in MPIJobSpecInput) (corev1.Container, corev1.Container) {
-	res := corev1.ResourceRequirements{
-		Requests: corev1.ResourceList{
-			corev1.ResourceCPU:    parseResource(in.CPURequest, "1"),
-			corev1.ResourceMemory: parseResource(in.MemoryRequest, "256Mi"),
-		},
-		Limits: corev1.ResourceList{
-			corev1.ResourceCPU:    parseResource(in.CPULimit, "1"),
-			corev1.ResourceMemory: parseResource(in.MemoryLimit, "256Mi"),
-		},
-	}
+	res := buildResourceRequirements(in.CPURequest, in.CPULimit, in.MemoryRequest, in.MemoryLimit, in.GPUResource, in.GPUCount)
 	vm := corev1.VolumeMount{Name: "submission", MountPath: "/mnt/work", SubPath: in.SubID}
 	launcher := corev1.Container{
 		Name: "launcher", Image: in.Image,
@@ -224,6 +211,27 @@ func parseResource(s, fallback string) resource.Quantity {
 		return resource.MustParse(fallback)
 	}
 	return resource.MustParse(s)
+}
+
+func buildResourceRequirements(cpuRequest, cpuLimit, memoryRequest, memoryLimit, gpuResource string, gpuCount int) corev1.ResourceRequirements {
+	requests := corev1.ResourceList{
+		corev1.ResourceCPU:    parseResource(cpuRequest, "1"),
+		corev1.ResourceMemory: parseResource(memoryRequest, "256Mi"),
+	}
+	limits := corev1.ResourceList{
+		corev1.ResourceCPU:    parseResource(cpuLimit, "1"),
+		corev1.ResourceMemory: parseResource(memoryLimit, "256Mi"),
+	}
+	if gpuCount > 0 {
+		name, err := kubeutil.NormalizeGPUResourceName(gpuResource)
+		if err != nil {
+			name = kubeutil.DefaultGPUResource
+		}
+		quantity := *resource.NewQuantity(int64(gpuCount), resource.DecimalSI)
+		requests[corev1.ResourceName(name)] = quantity
+		limits[corev1.ResourceName(name)] = quantity
+	}
+	return corev1.ResourceRequirements{Requests: requests, Limits: limits}
 }
 
 // buildNodeAffinity translates the podspec NodeAffinityTerm list into a

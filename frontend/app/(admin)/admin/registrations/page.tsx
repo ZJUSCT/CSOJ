@@ -4,7 +4,7 @@ import { useState } from 'react';
 import useSWR, { useSWRConfig } from 'swr';
 import { Contest, ContestRegistration } from '@/lib/types';
 import api from '@/lib/api';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -79,7 +79,9 @@ function RegistrationsTable({ contestId, statusFilter }: { contestId: string, st
         <Card>
             <CardHeader>
                 <CardTitle className="flex items-center gap-2"><ClipboardCheck /> Registrations</CardTitle>
+                <CardDescription>
                     Review and approve or reject user registrations. Showing {regs.length} {statusFilter !== 'all' ? statusFilter : ''} registration(s).
+                </CardDescription>
             </CardHeader>
             <CardContent>
                 <Table>
@@ -127,28 +129,28 @@ function RegistrationsTable({ contestId, statusFilter }: { contestId: string, st
                                     {formatDateTime(reg.created_at)}
                                 </TableCell>
                                 <TableCell className="text-right space-x-2">
-                                    {reg.status === 'pending' ? (
-                                        <>
-                                            <Button
-                                                size="sm"
-                                                variant="default"
-                                                className="bg-green-600 hover:bg-green-700"
-                                                disabled={actingId === reg.id}
-                                                onClick={() => handleReview(reg, 'approve')}
-                                            >
-                                                <Check className="mr-1 h-3 w-3" /> Approve
-                                            </Button>
-                                            <Button
-                                                size="sm"
-                                                variant="destructive"
-                                                disabled={actingId === reg.id}
-                                                onClick={() => handleReview(reg, 'reject')}
-                                            >
-                                                <X className="mr-1 h-3 w-3" /> Reject
-                                            </Button>
-                                        </>
-                                    ) : (
-                                        <span className="text-xs text-muted-foreground">No actions</span>
+                                    {reg.status !== 'approved' && (
+                                        <Button
+                                            size="sm"
+                                            variant="default"
+                                            className="bg-green-600 hover:bg-green-700"
+                                            disabled={actingId === reg.id}
+                                            onClick={() => handleReview(reg, 'approve')}
+                                        >
+                                            <Check className="mr-1 h-3 w-3" />
+                                            {reg.status === 'rejected' ? 'Change to Approved' : 'Approve'}
+                                        </Button>
+                                    )}
+                                    {reg.status !== 'rejected' && (
+                                        <Button
+                                            size="sm"
+                                            variant="destructive"
+                                            disabled={actingId === reg.id}
+                                            onClick={() => handleReview(reg, 'reject')}
+                                        >
+                                            <X className="mr-1 h-3 w-3" />
+                                            {reg.status === 'approved' ? 'Change to Rejected' : 'Reject'}
+                                        </Button>
                                     )}
                                 </TableCell>
                             </TableRow>

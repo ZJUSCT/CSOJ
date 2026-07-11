@@ -16,6 +16,9 @@ func TestDevPodTemplate_CRUD(t *testing.T) {
 	tpl := &models.DevPodTemplate{
 		ID: "gpu-8c", Name: "8c GPU", ClusterName: "c1", Image: "ubuntu:24.04",
 		Cores: 8, Memory: 16 << 30, NodeSelector: models.JSONMap{"numa-node": "0"},
+		GPUCount:       2,
+		GPUResource:    "nvidia.com/gpu",
+		AllowedTags:    models.StringArray{"gpu", "hpc"},
 		Tolerations:    models.RawJSON(`[{"key":"dedicated","operator":"Equal","value":"gpu","effect":"NoSchedule"}]`),
 		DefaultPerUser: 1, DefaultGlobal: 5,
 	}
@@ -28,6 +31,12 @@ func TestDevPodTemplate_CRUD(t *testing.T) {
 	}
 	if got.Cores != 8 {
 		t.Errorf("cores = %d, want 8", got.Cores)
+	}
+	if got.GPUCount != 2 || got.GPUResource != "nvidia.com/gpu" {
+		t.Errorf("GPU config not round-tripped: count=%d resource=%q", got.GPUCount, got.GPUResource)
+	}
+	if len(got.AllowedTags) != 2 || got.AllowedTags[0] != "gpu" || got.AllowedTags[1] != "hpc" {
+		t.Errorf("allowed_tags not round-tripped: %v", got.AllowedTags)
 	}
 	if got.NodeSelector["numa-node"] != "0" {
 		t.Errorf("numa selector not round-tripped: %v", got.NodeSelector)

@@ -5,10 +5,10 @@ import { jwtDecode, JwtPayload } from "jwt-decode";
 import { useAuth } from "@/hooks/use-auth";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { CopyButton } from "@/components/ui/shadcn-io/copy-button";
 import { useToast } from "@/hooks/use-toast";
-import { Copy, Timer } from "lucide-react";
+import { Timer } from "lucide-react";
 import { format, formatDistanceToNowStrict } from "date-fns";
 import { zhCN, enUS, Locale } from "date-fns/locale";
 import { useLocale } from "next-intl";
@@ -59,16 +59,6 @@ export function TokenInfoCard() {
         }
     }, [decodedToken]);
 
-    const handleCopy = () => {
-        if (token) {
-            navigator.clipboard.writeText(token);
-            toast({
-                title: t('token.copySuccessTitle'),
-                description: t('token.copySuccessDescription'),
-            });
-        }
-    };
-
     if (!token || !decodedToken) {
         return null;
     }
@@ -87,11 +77,17 @@ export function TokenInfoCard() {
                 <div className="space-y-2">
                     <Label htmlFor="jwt-token">{t('token.label')}</Label>
                     <div className="flex items-center gap-2">
-                        <Input id="jwt-token" readOnly value={token} className="truncate font-mono text-xs" />
-                        <Button variant="outline" size="icon" onClick={handleCopy}>
-                            <Copy className="h-4 w-4" />
-                            <span className="sr-only">{t('token.copySr')}</span>
-                        </Button>
+                        <Input id="jwt-token" readOnly value={token} className="min-w-0 flex-1 truncate font-mono text-xs" />
+                        <CopyButton
+                            content={token}
+                            variant="outline"
+                            className="h-9 w-9"
+                            aria-label={t('token.copySr')}
+                            onCopy={() => toast({
+                                title: t('token.copySuccessTitle'),
+                                description: t('token.copySuccessDescription'),
+                            })}
+                        />
                     </div>
                 </div>
 

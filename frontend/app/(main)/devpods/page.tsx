@@ -7,8 +7,8 @@ import { Table, TableBody, TableHead, TableHeader, TableRow, TableCell } from "@
 import { useTranslations } from "next-intl";
 import { useToast } from "@/hooks/use-toast";
 import { DevPodCard } from "@/components/devpods/devpod-card";
-import { DevPodRow } from "@/components/devpods/devpod-row";
-import { useState } from "react";
+import { DevPodRow, DevPodAction } from "@/components/devpods/devpod-row";
+import { useEffect, useState } from "react";
 
 const fetcher = (url: string) => api.get(url).then(r => r.data.data);
 
@@ -18,9 +18,35 @@ export default function DevPodsPage() {
   const { data: list, mutate } = useSWR<DevPodListResponse>("/devpods", fetcher, { refreshInterval: 5000 });
   const { data: templates } = useSWR<DevPodTemplate[]>("/devpods/templates", fetcher);
   const [busy, setBusy] = useState<string | null>(null);
+  const [pendingActions, setPendingActions] = useState<Record<string, DevPodAction>>({});
 
   const items = list?.items ?? [];
+  const maxPerUser = list?.max_per_user ?? 0;
+  const runningCount = items.filter(item => item.running).length;
+  const globalAtLimit = maxPerUser > 0 && runningCount >= maxPerUser;
   const usedByTpl = (id: string) => items.filter(i => i.template === id).length;
+  const templateNames = new Map((templates ?? []).map(template => [template.id, template.name]));
+
+  useEffect(() => {
+    if (!list) return;
+    setPendingActions(previous => {
+      const next = { ...previous };
+      let changed = false;
+      for (const [name, action] of Object.entries(previous)) {
+        const item = list.items.find(inst => inst.name === name);
+        const completed = action === "delete"
+          ? !item
+          : action === "start"
+            ? item?.phase === "Running" || item?.phase === "Failed"
+            : item?.phase === "Stopped" || item?.phase === "Failed";
+        if (completed) {
+          delete next[name];
+          changed = true;
+        }
+      }
+      return changed ? next : previous;
+    });
+  }, [list]);
 
   const create = async (tplId: string) => {
     setBusy(tplId);
@@ -35,12 +61,19 @@ export default function DevPodsPage() {
     }
   };
 
-  const act = async (name: string, op: "start"|"stop"|"delete") => {
+  const act = async (name: string, op: DevPodAction) => {
     if (op === "delete" && !confirm(t("deleteConfirm"))) return;
+    setPendingActions(previous => ({ ...previous, [name]: op }));
     try {
-      await api[op === "delete" ? "delete" : "post"](`/devpods/${name}/${op}`);
-      mutate();
+      const url = op === "delete" ? `/devpods/${name}` : `/devpods/${name}/${op}`;
+      await api[op === "delete" ? "delete" : "post"](url);
+      await mutate();
     } catch (e: any) {
+      setPendingActions(previous => {
+        const next = { ...previous };
+        delete next[name];
+        return next;
+      });
       toast({ variant: "destructive", title: e.response?.data?.message || "error" });
     }
   };
@@ -51,7 +84,7 @@ export default function DevPodsPage() {
         <h2 className="text-2xl font-bold mb-4">{t("title")}</h2>
         <div className="grid gap-4 md:grid-cols-3">
           {(templates ?? []).map(tpl => (
-            <DevPodCard key={tpl.id} tpl={tpl} used={usedByTpl(tpl.id)} disabled={busy === tpl.id} onCreate={() => create(tpl.id)} />
+            <DevPodCard key={tpl.id} tpl={tpl} used={usedByTpl(tpl.id)} disabled={busy === tpl.id} globalAtLimit={globalAtLimit} onCreate={() => create(tpl.id)} />
           ))}
           {templates && templates.length === 0 && (
             <Card><CardContent className="p-4 text-sm text-muted-foreground">No templates configured.</CardContent></Card>
@@ -59,7 +92,12 @@ export default function DevPodsPage() {
         </div>
       </div>
       <Card>
-        <CardHeader><CardTitle>{t("myDevPods")}</CardTitle></CardHeader>
+        <CardHeader>
+          <CardTitle className="flex items-center justify-between gap-4">
+            <span>{t("myDevPods")}</span>
+            {maxPerUser > 0 && <span className="text-sm font-normal text-muted-foreground">{t("globalUsage", { used: runningCount, max: maxPerUser })}</span>}
+          </CardTitle>
+        </CardHeader>
         <CardContent>
           {items.length === 0 ? (
             <p className="text-sm text-muted-foreground">{t("noInstances")}</p>
@@ -75,7 +113,7 @@ export default function DevPodsPage() {
               </TableRow></TableHeader>
               <TableBody>
                 {items.map(inst => (
-                  <DevPodRow key={inst.name} inst={inst}
+                  <DevPodRow key={inst.name} inst={inst} templateName={templateNames.get(inst.template)} pendingAction={pendingActions[inst.name]} startDisabled={globalAtLimit}
                     onStart={() => act(inst.name, "start")}
                     onStop={() => act(inst.name, "stop")}
                     onDelete={() => act(inst.name, "delete")} />

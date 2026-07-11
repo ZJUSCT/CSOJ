@@ -8,10 +8,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/ZJUSCT/CSOJ/internal/database/models"
+	"github.com/ZJUSCT/CSOJ/internal/kubeutil"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -21,19 +23,28 @@ import (
 
 var (
 	gvrDevPod = schema.GroupVersionResource{Group: "devpod.io", Version: "v1alpha1", Resource: "devpods"}
-	gvrUser   = schema.GroupVersionResource{Group: "devpod.io", Version: "v1alpha1", Resource: "users"}
 
 	// devpods requires ^[a-z0-9-]{1,32}$ and no '+' (the SSH separator).
 	ownerRE = regexp.MustCompile(`^[a-z0-9-]{1,32}$`)
 )
 
 const (
+	// Namespace is watched by the devpods controller and is intentionally
+	// independent from a CSOJ judger cluster's namespace.
+	Namespace     = "devpods"
 	labelOwner    = "devpod.io/owner"
 	labelTemplate = "csoj.io/template"
 	// devpods CEL: len(metadata.name) <= 22
 	maxDevPodNameLen = 22
 	randSuffixLen    = 4
 )
+
+// OwnerName returns the name of the pre-provisioned devpods User associated
+// with a CSOJ username/student ID. CSOJ only creates DevPod resources; User
+// resources are managed externally.
+func OwnerName(username string) string {
+	return "h" + username
+}
 
 // ValidOwner reports whether a username is acceptable as a devpod owner.
 func ValidOwner(username string) bool {
@@ -43,28 +54,27 @@ func ValidOwner(username string) bool {
 	return ownerRE.MatchString(username)
 }
 
-// CheckNameBudget returns an error if <username>-<tplID>-<rand4> would
+// CheckNameBudget returns an error if <owner>-<tplID><rand4> would
 // exceed the 22-char DevPod name budget.
-func CheckNameBudget(username, tplID string) error {
-	need := len(username) + 1 + len(tplID) + 1 + randSuffixLen
+func CheckNameBudget(owner, tplID string) error {
+	need := len(owner) + 1 + len(tplID) + randSuffixLen
 	if need > maxDevPodNameLen {
-		return fmt.Errorf("username %q + template %q too long for devpod naming (%d > %d)", username, tplID, need, maxDevPodNameLen)
+		return fmt.Errorf("owner %q + template %q too long for devpod naming (%d > %d)", owner, tplID, need, maxDevPodNameLen)
 	}
 	return nil
 }
 
-// Client talks to devpods CRDs in one cluster/namespace.
+// Client talks to DevPod CRs in the dedicated devpods namespace of a cluster.
 type Client struct {
 	dyn dynamic.Interface
-	ns  string
 }
 
-func NewClient(dyn dynamic.Interface, namespace string) *Client {
-	return &Client{dyn: dyn, ns: namespace}
+func NewClient(dyn dynamic.Interface) *Client {
+	return &Client{dyn: dyn}
 }
 
 // RenderDevPod builds an unstructured DevPod CR. podName must already be
-// the final resource name (<username>-<tplID>-<rand4>).
+// the final resource name (<owner>-<tplID><rand4>).
 func RenderDevPod(owner, podName string, tpl *models.DevPodTemplate) (*unstructured.Unstructured, error) {
 	if err := CheckNameBudget(owner, tpl.ID); err != nil {
 		return nil, err
@@ -72,6 +82,16 @@ func RenderDevPod(owner, podName string, tpl *models.DevPodTemplate) (*unstructu
 	resources := map[string]interface{}{
 		"cpu":    fmt.Sprintf("%d", tpl.Cores),
 		"memory": fmt.Sprintf("%d", tpl.Memory),
+	}
+	if tpl.GPUCount < 0 {
+		return nil, fmt.Errorf("gpu_count must be non-negative")
+	}
+	if tpl.GPUCount > 0 {
+		gpuResource, err := kubeutil.NormalizeGPUResourceName(tpl.GPUResource)
+		if err != nil {
+			return nil, err
+		}
+		resources[gpuResource] = strconv.Itoa(tpl.GPUCount)
 	}
 	container := map[string]interface{}{
 		"name":      "dev",
@@ -97,12 +117,6 @@ func RenderDevPod(owner, podName string, tpl *models.DevPodTemplate) (*unstructu
 	if tpl.Shell != "" {
 		spec["shell"] = tpl.Shell
 	}
-	if tpl.PersistenceSize != "" {
-		spec["persistence"] = map[string]interface{}{
-			"size":      tpl.PersistenceSize,
-			"mountPath": "/home/" + owner,
-		}
-	}
 	u := &unstructured.Unstructured{Object: map[string]interface{}{
 		"apiVersion": "devpod.io/v1alpha1",
 		"kind":       "DevPod",
@@ -119,39 +133,19 @@ func RenderDevPod(owner, podName string, tpl *models.DevPodTemplate) (*unstructu
 	return u, nil
 }
 
-// GenerateDevPodName builds <username>-<tplID>-<rand4> using a
+// GenerateDevPodName builds <owner>-<tplID><rand4> using a
 // caller-supplied random source (so it is deterministic in tests).
-func GenerateDevPodName(username, tplID string, rand4 string) (string, error) {
-	if err := CheckNameBudget(username, tplID); err != nil {
+func GenerateDevPodName(owner, tplID string, rand4 string) (string, error) {
+	if err := CheckNameBudget(owner, tplID); err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("%s-%s-%s", username, tplID, rand4), nil
+	return fmt.Sprintf("%s-%s%s", owner, tplID, rand4), nil
 }
 
-// EnsureUser idempotently creates an empty-pubkeys devpods User CR.
-// devpods authenticates via LDAP; the empty User CR exists only so the
-// owner name resolves. A pre-existing User is left untouched.
-func (c *Client) EnsureUser(ctx context.Context, username string) error {
-	usr := &unstructured.Unstructured{Object: map[string]interface{}{
-		"apiVersion": "devpod.io/v1alpha1",
-		"kind":       "User",
-		"metadata":   map[string]interface{}{"name": username},
-		"spec":       map[string]interface{}{"pubkeys": []interface{}{}},
-	}}
-	_, err := c.dyn.Resource(gvrUser).Create(ctx, usr, metav1.CreateOptions{})
-	if err == nil {
-		return nil
-	}
-	if apierrors.IsAlreadyExists(err) {
-		return nil
-	}
-	return fmt.Errorf("ensure user %q: %w", username, err)
-}
-
-// CreateDevPod creates the DevPod CR (namespace taken from the Client).
+// CreateDevPod creates the DevPod CR in Namespace.
 func (c *Client) CreateDevPod(ctx context.Context, u *unstructured.Unstructured) error {
-	unstructured.SetNestedField(u.Object, c.ns, "metadata", "namespace")
-	_, err := c.dyn.Resource(gvrDevPod).Namespace(c.ns).Create(ctx, u, metav1.CreateOptions{})
+	unstructured.SetNestedField(u.Object, Namespace, "metadata", "namespace")
+	_, err := c.dyn.Resource(gvrDevPod).Namespace(Namespace).Create(ctx, u, metav1.CreateOptions{})
 	if err != nil {
 		return fmt.Errorf("create devpod %q: %w", u.GetName(), err)
 	}
@@ -160,7 +154,7 @@ func (c *Client) CreateDevPod(ctx context.Context, u *unstructured.Unstructured)
 
 // GetDevPod returns one DevPod by name.
 func (c *Client) GetDevPod(ctx context.Context, name string) (*unstructured.Unstructured, error) {
-	return c.dyn.Resource(gvrDevPod).Namespace(c.ns).Get(ctx, name, metav1.GetOptions{})
+	return c.dyn.Resource(gvrDevPod).Namespace(Namespace).Get(ctx, name, metav1.GetOptions{})
 }
 
 // ListDevPods lists DevPods filtered by owner and/or template label.
@@ -173,7 +167,7 @@ func (c *Client) ListDevPods(ctx context.Context, owner, templateID string) ([]*
 	if templateID != "" {
 		labels = append(labels, fmt.Sprintf("%s=%s", labelTemplate, templateID))
 	}
-	list, err := c.dyn.Resource(gvrDevPod).Namespace(c.ns).List(ctx, metav1.ListOptions{
+	list, err := c.dyn.Resource(gvrDevPod).Namespace(Namespace).List(ctx, metav1.ListOptions{
 		LabelSelector: strings.Join(labels, ","),
 	})
 	if err != nil {
@@ -189,13 +183,13 @@ func (c *Client) ListDevPods(ctx context.Context, owner, templateID string) ([]*
 // PatchRunning flips spec.running. Uses a JSON merge patch.
 func (c *Client) PatchRunning(ctx context.Context, name string, running bool) error {
 	patch := fmt.Sprintf(`{"spec":{"running":%t}}`, running)
-	_, err := c.dyn.Resource(gvrDevPod).Namespace(c.ns).Patch(ctx, name, "application/merge-patch+json", []byte(patch), metav1.PatchOptions{})
+	_, err := c.dyn.Resource(gvrDevPod).Namespace(Namespace).Patch(ctx, name, "application/merge-patch+json", []byte(patch), metav1.PatchOptions{})
 	return err
 }
 
 // DeleteDevPod deletes a DevPod CR.
 func (c *Client) DeleteDevPod(ctx context.Context, name string) error {
-	err := c.dyn.Resource(gvrDevPod).Namespace(c.ns).Delete(ctx, name, metav1.DeleteOptions{})
+	err := c.dyn.Resource(gvrDevPod).Namespace(Namespace).Delete(ctx, name, metav1.DeleteOptions{})
 	if apierrors.IsNotFound(err) {
 		return nil
 	}
@@ -212,6 +206,18 @@ func Phase(u *unstructured.Unstructured) string {
 func Endpoint(u *unstructured.Unstructured) string {
 	s, _, _ := unstructured.NestedString(u.Object, "status", "endpoint")
 	return s
+}
+
+// Running extracts the desired running state from spec.running.
+func Running(u *unstructured.Unstructured) bool {
+	running, _, _ := unstructured.NestedBool(u.Object, "spec", "running")
+	return running
+}
+
+// Message extracts status.message (empty when the controller has no message).
+func Message(u *unstructured.Unstructured) string {
+	message, _, _ := unstructured.NestedString(u.Object, "status", "message")
+	return message
 }
 
 // CreatedAt extracts metadata.creationTimestamp as a Go time.

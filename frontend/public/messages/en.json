@@ -188,7 +188,6 @@
     "login": {
       "title": "Login to CSOJ",
       "loadingDescription": "Checking available login methods...",
-      "descriptionLocal": "Enter your credentials or use an alternative login method.",
       "descriptionExternal": "Please use an available login method.",
       "form": {
         "username": "Username",
@@ -395,13 +394,23 @@
     "sshCommand": "SSH Command",
     "createdAt": "Created",
     "start": "Start",
+    "starting": "Starting…",
     "stop": "Stop",
+    "stopping": "Stopping…",
+    "stopped": "Stopped",
     "delete": "Delete",
+    "deleting": "Deleting…",
     "noInstances": "No DevPods yet. Create one from a template above.",
     "preparing": "Preparing…",
     "limitReached": "Limit reached",
     "used": "used",
+    "globalUsage": "Global running quota: {used}/{max}",
+    "cpu": "CPU",
     "cores": "cores",
+    "memory": "Memory",
+    "gpu": "GPU",
+    "nodeSelector": "Scheduling labels",
+    "usage": "Template quota",
     "deleteConfirm": "Delete this DevPod? Its home volume is kept by devpods.",
     "createFailed": "Failed to create DevPod",
     "created": "DevPod created"
@@ -420,7 +429,7 @@
     "nodeSelector": "Node Selector",
     "tolerations": "Tolerations (JSON)",
     "perUser": "Per-user limit",
-    "global": "Global limit",
+    "global": "Global running limit",
     "persistence": "Persistence size",
     "deleteConfirm": "Delete this template? Existing DevPods are unaffected."
   }

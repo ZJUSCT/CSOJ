@@ -218,6 +218,11 @@ All write endpoints trigger an in-memory `reload` so the running server picks up
           - `source`: (string, required) The path on the host machine (the judger node).
           - `target`: (string, required) The path inside the container.
           - `readonly`: (boolean, optional) Whether to mount the volume as read-only. Defaults to `true`.
+      - `resources`: (object, optional) Kubernetes resources for this step. CPU and memory accept Kubernetes quantity strings. GPU is an extended resource and is written with the same value in requests and limits.
+          - `cpu_request` / `cpu_limit`: CPU quantities such as `500m` or `2`.
+          - `memory_request` / `memory_limit`: Memory quantities such as `256Mi` or `2Gi`.
+          - `gpu_count`: Non-negative integer GPU count per Pod/container. `0` or omitted disables GPU allocation.
+          - `gpu_resource`: Extended resource advertised by the device plugin. Defaults to `nvidia.com/gpu`; examples include `amd.com/gpu` and NVIDIA MIG resource names.
       - `mpi`: (object, optional) Marks this step as a multi-node MPI job. See [`mpi`](#mpi) below.
 
 -----
@@ -226,7 +231,7 @@ All write endpoints trigger an in-memory `reload` so the running server picks up
 
   - **Type**: `object`
   - **Required**: No
-  - **Description**: When present and `enabled` is `true`, the step runs as an `MPIJob` (mpi-operator CRD) instead of a single Pod. The launcher pod runs `mpirun -np <worker_replicas*slots_per_worker> <launcher_cmd...>`. Worker pods run `sleep infinity` and provide MPI ranks; the launcher writes `result.json`. **Requires the mpi-operator CRD installed in the cluster** (probe happens at startup; MPI steps on a cluster without the CRD will fail).
+  - **Description**: When present and `enabled` is `true`, the step runs as an `MPIJob` (mpi-operator CRD) instead of a single Pod. The launcher pod runs `mpirun -np <worker_replicas*slots_per_worker> <launcher_cmd...>`. Worker pods run `sleep infinity` and provide MPI ranks; the launcher writes `result.json`. When GPU resources are configured, `gpu_count` applies to each launcher and worker Pod. **Requires the mpi-operator CRD installed in the cluster** (probe happens at startup; MPI steps on a cluster without the CRD will fail).
       - `enabled`: (boolean) Whether to run this step as an MPIJob.
       - `worker_replicas`: (integer) The number of worker pods.
       - `slots_per_worker`: (integer) The number of MPI ranks per worker.

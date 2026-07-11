@@ -69,6 +69,8 @@ export interface StepResources {
   cpu_limit?: string;
   memory_request?: string;
   memory_limit?: string;
+  gpu_count?: number;
+  gpu_resource?: string;
 }
 
 export interface StepScheduling {
@@ -288,17 +290,20 @@ export interface DevPodTemplate {
   shell: string;
   cores: number;
   memory: number;
+  gpu_count: number;
+  gpu_resource: string;
   node_selector: Record<string, string>;
   tolerations: any[];
+  allowed_tags: string[];
   default_per_user: number;
   default_global: number;
-  persistence_size: string;
 }
 
 export interface DevPodInstance {
   name: string;
   template: string;
   phase: string;
+  running: boolean;
   endpoint: string;
   ssh_command: string;
   created_at: string;
@@ -306,7 +311,26 @@ export interface DevPodInstance {
 
 export interface DevPodGateway { host: string; port: number; }
 
+export interface AdminDevPodInstance {
+  name: string;
+  owner: string;
+  template: string;
+  cluster_name: string;
+  namespace: string;
+  phase: string;
+  running: boolean;
+  endpoint: string;
+  message: string;
+  created_at: string;
+}
+
+export interface AdminDevPodListResponse {
+  items: AdminDevPodInstance[];
+  warnings: string[];
+}
+
 export interface DevPodListResponse {
   items: DevPodInstance[];
   gateway: DevPodGateway;
+  max_per_user: number;
 }

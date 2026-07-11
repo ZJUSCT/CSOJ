@@ -21,7 +21,6 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
 import api from "@/lib/api";
-import { useRouter } from "next/navigation";
 import { useToast } from "@/hooks/use-toast";
 import { Separator } from "../ui/separator";
 import { SiGitlab } from "react-icons/si";
@@ -35,7 +34,6 @@ const fetcher = (url: string) => api.get(url).then(res => res.data.data);
 export function LoginForm() {
   const t = useTranslations('auth.login');
   const { login } = useAuth();
-  const router = useRouter();
   const { toast } = useToast();
   const gitlabLoginUrl = `/api/v1/auth/gitlab/login`;
   
@@ -61,7 +59,6 @@ export function LoginForm() {
       if (response.data.code === 0 && response.data.data.token) {
         login(response.data.data.token);
         toast({ title: t('toast.successTitle') });
-        router.push("/contests");
       } else {
         throw new Error(response.data.message || t('toast.failDefault'));
       }
@@ -99,9 +96,7 @@ export function LoginForm() {
     <Card>
       <CardHeader>
         <CardTitle>{t('title')}</CardTitle>
-          {authStatus?.local_auth_enabled
-            ? t('descriptionLocal')
-            : t('descriptionExternal')}
+        {!authStatus?.local_auth_enabled && t('descriptionExternal')}
       </CardHeader>
       <CardContent>
         {authStatus?.local_auth_enabled && (

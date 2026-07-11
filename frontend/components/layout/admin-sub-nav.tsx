@@ -12,6 +12,7 @@ import {
     Settings,
     ClipboardCheck,
     Boxes,
+    Monitor,
 } from "lucide-react"
 import { cn } from "@/lib/utils";
 
@@ -23,6 +24,7 @@ const routes = [
     { href: "/admin/contests", label: "Contests", icon: Trophy },
     { href: "/admin/registrations", label: "Registrations", icon: ClipboardCheck },
     { href: "/admin/problems", label: "Problems", icon: BookCopy },
+    { href: "/admin/devpods", label: "DevPods", icon: Monitor },
     { href: "/admin/devpod-templates", label: "DevPod Templates", icon: Boxes },
     { href: "/admin/settings", label: "Settings", icon: Settings },
 ];

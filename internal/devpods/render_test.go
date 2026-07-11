@@ -7,18 +7,16 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
-func tpl(id string, persist bool) *models.DevPodTemplate {
-	t := &models.DevPodTemplate{
+func tpl(id string) *models.DevPodTemplate {
+	return &models.DevPodTemplate{
 		ID: id, Name: "T", ClusterName: "c1", Image: "ubuntu:24.04",
 		Shell: "bash", Cores: 8, Memory: 16 << 30,
+		GPUCount:       1,
+		GPUResource:    "nvidia.com/gpu",
 		NodeSelector:   models.JSONMap{"numa-node": "0"},
 		Tolerations:    models.RawJSON(`[{"key":"dedicated","operator":"Equal","value":"gpu","effect":"NoSchedule"}]`),
 		DefaultPerUser: 1, DefaultGlobal: 5,
 	}
-	if persist {
-		t.PersistenceSize = "20Gi"
-	}
-	return t
 }
 
 // mustNested walks u.Object along path, where each element is either a
@@ -54,7 +52,7 @@ func mustNested(t *testing.T, u *unstructured.Unstructured, path ...interface{})
 }
 
 func TestRenderDevPod_Labels(t *testing.T) {
-	u, err := RenderDevPod("alice", "alice-gpu-8c-a1b2", tpl("gpu-8c", false))
+	u, err := RenderDevPod("alice", "alice-gpu-8c-a1b2", tpl("gpu-8c"))
 	if err != nil {
 		t.Fatalf("render: %v", err)
 	}
@@ -70,19 +68,19 @@ func TestRenderDevPod_Labels(t *testing.T) {
 }
 
 func TestRenderDevPod_ResourcesGuaranteed(t *testing.T) {
-	u, _ := RenderDevPod("alice", "alice-gpu-8c-a1b2", tpl("gpu-8c", false))
+	u, _ := RenderDevPod("alice", "alice-gpu-8c-a1b2", tpl("gpu-8c"))
 	req := mustNested(t, u, "spec", "pod", "spec", "containers", 0, "resources", "requests").(map[string]interface{})
-	if req["cpu"] != "8" || req["memory"] != "17179869184" {
+	if req["cpu"] != "8" || req["memory"] != "17179869184" || req["nvidia.com/gpu"] != "1" {
 		t.Errorf("requests = %+v", req)
 	}
 	lim := mustNested(t, u, "spec", "pod", "spec", "containers", 0, "resources", "limits").(map[string]interface{})
-	if lim["cpu"] != "8" || lim["memory"] != "17179869184" {
+	if lim["cpu"] != "8" || lim["memory"] != "17179869184" || lim["nvidia.com/gpu"] != "1" {
 		t.Errorf("limits = %+v (must equal requests for Guaranteed QoS)", lim)
 	}
 }
 
 func TestRenderDevPod_NodeSelectorAndTolerations(t *testing.T) {
-	u, _ := RenderDevPod("alice", "alice-gpu-8c-a1b2", tpl("gpu-8c", false))
+	u, _ := RenderDevPod("alice", "alice-gpu-8c-a1b2", tpl("gpu-8c"))
 	ns := mustNested(t, u, "spec", "pod", "spec", "nodeSelector").(map[string]interface{})
 	if ns["numa-node"] != "0" {
 		t.Errorf("nodeSelector = %+v", ns)
@@ -93,22 +91,18 @@ func TestRenderDevPod_NodeSelectorAndTolerations(t *testing.T) {
 	}
 }
 
-func TestRenderDevPod_Persistence(t *testing.T) {
-	u, _ := RenderDevPod("alice", "alice-gpu-8c-a1b2", tpl("gpu-8c", true))
-	ps, ok, _ := unstructured.NestedMap(u.Object, "spec", "persistence")
-	if !ok {
-		t.Fatalf("persistence not set")
-	}
-	if ps["size"] != "20Gi" {
-		t.Errorf("persistence size = %v", ps["size"])
-	}
-	if ps["mountPath"] != "/home/alice" {
-		t.Errorf("mountPath = %v", ps["mountPath"])
+func TestRenderDevPod_NoGPUWhenCountIsZero(t *testing.T) {
+	template := tpl("cpu")
+	template.GPUCount = 0
+	u, _ := RenderDevPod("alice", "alice-cpu-a1b2", template)
+	limits := mustNested(t, u, "spec", "pod", "spec", "containers", 0, "resources", "limits").(map[string]interface{})
+	if _, ok := limits["nvidia.com/gpu"]; ok {
+		t.Fatalf("GPU resource must be omitted when gpu_count is zero: %+v", limits)
 	}
 }
 
 func TestRenderDevPod_OwnerAndShell(t *testing.T) {
-	u, _ := RenderDevPod("alice", "alice-gpu-8c-a1b2", tpl("gpu-8c", false))
+	u, _ := RenderDevPod("alice", "alice-gpu-8c-a1b2", tpl("gpu-8c"))
 	if o, _, _ := unstructured.NestedString(u.Object, "spec", "owner"); o != "alice" {
 		t.Errorf("owner = %q", o)
 	}
@@ -122,7 +116,7 @@ func TestRenderDevPod_OwnerAndShell(t *testing.T) {
 }
 
 func TestRenderDevPod_NoShareProcessNamespace(t *testing.T) {
-	u, _ := RenderDevPod("alice", "alice-gpu-8c-a1b2", tpl("gpu-8c", false))
+	u, _ := RenderDevPod("alice", "alice-gpu-8c-a1b2", tpl("gpu-8c"))
 	// CSOJ does NOT set shareProcessNamespace; devpods' own render decides.
 	if _, ok, _ := unstructured.NestedBool(u.Object, "spec", "pod", "spec", "shareProcessNamespace"); ok {
 		t.Errorf("shareProcessNamespace must not be set by CSOJ")
@@ -144,14 +138,21 @@ func TestValidateDevPodOwner(t *testing.T) {
 	}
 }
 
+func TestOwnerName(t *testing.T) {
+	if got, want := OwnerName("3240104995"), "h3240104995"; got != want {
+		t.Fatalf("OwnerName() = %q, want %q", got, want)
+	}
+}
+
 func TestNameBudget(t *testing.T) {
 	cases := []struct {
 		username, tplID string
 		ok              bool
 	}{
-		{"alice", "gpu-8c", true},            // 5+1+6+1+4 = 17
-		{"toolongusername", "gpu-8c", false}, // 16+1+6+1+4 = 28 > 22
-		{"ali", "gpu-8c-toolong", false},
+		{"alice", "gpu-8c", true},            // 5+1+6+4 = 16
+		{"h3240104995", "m7-deb", true},      // 11+1+6+4 = 22
+		{"toolongusername", "gpu-8c", false}, // 16+1+6+4 = 27 > 22
+		{"ali", "gpu-8c-toolongx", false},
 	}
 	for _, c := range cases {
 		err := CheckNameBudget(c.username, c.tplID)
@@ -164,20 +165,33 @@ func TestNameBudget(t *testing.T) {
 	}
 }
 
+func TestGenerateDevPodName_FitsMaximumBudget(t *testing.T) {
+	got, err := GenerateDevPodName("h3240104995", "m7-deb", "a1b2")
+	if err != nil {
+		t.Fatalf("GenerateDevPodName() error = %v", err)
+	}
+	if want := "h3240104995-m7-deba1b2"; got != want {
+		t.Fatalf("GenerateDevPodName() = %q, want %q", got, want)
+	}
+	if len(got) != maxDevPodNameLen {
+		t.Fatalf("generated name length = %d, want %d", len(got), maxDevPodNameLen)
+	}
+}
+
 func TestRenderDevPod_OmitsOptionalFieldsWhenEmpty(t *testing.T) {
 	bare := &models.DevPodTemplate{
 		ID: "bare", Name: "B", ClusterName: "c1", Image: "ubuntu:24.04",
 		Cores: 2, Memory: 2 << 30,
 		NodeSelector: models.JSONMap{}, Tolerations: nil,
 		DefaultPerUser: 1, DefaultGlobal: 5,
-		// Shell empty, PersistenceSize empty
+		// Shell empty; CSOJ never configures DevPod persistence.
 	}
 	u, err := RenderDevPod("bob", "bob-bare-a1b2", bare)
 	if err != nil {
 		t.Fatalf("render: %v", err)
 	}
 	if _, ok, _ := unstructured.NestedMap(u.Object, "spec", "persistence"); ok {
-		t.Errorf("persistence must be absent when PersistenceSize empty")
+		t.Errorf("persistence must always be absent from CSOJ-rendered DevPods")
 	}
 	if _, ok, _ := unstructured.NestedString(u.Object, "spec", "shell"); ok {
 		t.Errorf("shell must be absent when empty")
