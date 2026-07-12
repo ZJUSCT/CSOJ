@@ -410,6 +410,18 @@ func (s *Scheduler) DynamicClientForCluster(name string) (dynamic.Interface, str
 	return c.dyn, c.Namespace, nil
 }
 
+// KubernetesClientForCluster returns the typed clientset used for core
+// resources and subresources such as Pod logs.
+func (s *Scheduler) KubernetesClientForCluster(name string) (kubernetes.Interface, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	c, ok := s.clusters[name]
+	if !ok {
+		return nil, fmt.Errorf("cluster %q not loaded", name)
+	}
+	return c.k8s, nil
+}
+
 func (s *Scheduler) GetQueueLengths() map[string]int {
 	out := make(map[string]int)
 	s.mu.RLock()

@@ -13,7 +13,7 @@ func TestGatewaySetting_RoundTrip(t *testing.T) {
 		t.Fatalf("init: %v", err)
 	}
 	s := config.NewSettingsStore(db)
-	gw := Gateway{Host: "devpod.example.com", Port: 2222}
+	gw := Gateway{Host: "devpod.example.com", Port: 2222, AuditNamespace: "gateway-system"}
 	if err := SetGateway(s, gw); err != nil {
 		t.Fatalf("set: %v", err)
 	}
@@ -21,7 +21,7 @@ func TestGatewaySetting_RoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
-	if got.Host != "devpod.example.com" || got.Port != 2222 {
+	if got.Host != "devpod.example.com" || got.Port != 2222 || got.AuditNamespace != "gateway-system" {
 		t.Errorf("round-trip mismatch: %+v", got)
 	}
 }
@@ -60,12 +60,14 @@ func TestGatewayValidate(t *testing.T) {
 		valid   bool
 	}{
 		{name: "valid", gateway: Gateway{Host: "devpod.example.com", Port: 22}, valid: true},
+		{name: "valid audit namespace", gateway: Gateway{Host: "devpod.example.com", Port: 22, AuditNamespace: "devpod-system"}, valid: true},
 		{name: "empty host", gateway: Gateway{Port: 22}},
 		{name: "blank host", gateway: Gateway{Host: "  ", Port: 22}},
 		{name: "zero port", gateway: Gateway{Host: "devpod.example.com"}},
 		{name: "port too large", gateway: Gateway{Host: "devpod.example.com", Port: 65536}},
 		{name: "valid hostname suffix", gateway: Gateway{Host: "clusters.zju.edu.cn", Port: 443, HostnameSuffix: "hpc101"}, valid: true},
 		{name: "invalid hostname suffix", gateway: Gateway{Host: "clusters.zju.edu.cn", Port: 443, HostnameSuffix: "HPC+101"}},
+		{name: "invalid audit namespace", gateway: Gateway{Host: "clusters.zju.edu.cn", Port: 443, AuditNamespace: "DevPod_System"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			err := tc.gateway.Validate()
@@ -76,5 +78,14 @@ func TestGatewayValidate(t *testing.T) {
 				t.Fatal("Validate() unexpectedly succeeded")
 			}
 		})
+	}
+}
+
+func TestGatewayEffectiveAuditNamespace(t *testing.T) {
+	if got := (Gateway{}).EffectiveAuditNamespace(); got != DefaultGatewayAuditNamespace {
+		t.Fatalf("empty audit namespace = %q, want %q", got, DefaultGatewayAuditNamespace)
+	}
+	if got := (Gateway{AuditNamespace: "gateway-system"}).EffectiveAuditNamespace(); got != "gateway-system" {
+		t.Fatalf("custom audit namespace = %q, want gateway-system", got)
 	}
 }

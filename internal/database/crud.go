@@ -208,7 +208,9 @@ func GetLeaderboard(db *gorm.DB, contestID string, selectedTags string) ([]Leade
 	query := db.Table("contest_score_histories").
 		Select("users.id as user_id, users.username, users.nickname, users.avatar_url, users.disable_rank, users.tags, datetime(MIN(contest_score_histories.created_at)) as registration_time").
 		Joins("join users on users.id = contest_score_histories.user_id").
-		Where("contest_score_histories.contest_id = ?", contestID)
+		Joins("left join contest_registrations on contest_registrations.user_id = contest_score_histories.user_id AND contest_registrations.contest_id = contest_score_histories.contest_id").
+		Where("contest_score_histories.contest_id = ?", contestID).
+		Where("contest_registrations.id IS NULL OR contest_registrations.status = ?", "approved")
 
 	// Apply tag filtering if tags are provided
 	if selectedTags != "" {
@@ -834,7 +836,15 @@ func DeleteCluster(db *gorm.DB, name string) error {
 // --- Contest Registrations ---
 
 func CreateRegistration(db *gorm.DB, reg *models.ContestRegistration) error {
-	return db.Create(reg).Error
+	return db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(reg).Error; err != nil {
+			return err
+		}
+		if reg.Status == "approved" {
+			return ensureRegistrationScoreHistory(tx, reg.UserID, reg.ContestID)
+		}
+		return nil
+	})
 }
 
 func GetRegistration(db *gorm.DB, userID, contestID string) (*models.ContestRegistration, error) {
@@ -857,26 +867,87 @@ func GetRegistrationsByContest(db *gorm.DB, contestID string, status string) ([]
 }
 
 func UpdateRegistrationStatus(db *gorm.DB, regID, status, reviewerID string) error {
-	now := time.Now()
-	return db.Model(&models.ContestRegistration{}).Where("id = ?", regID).
-		Updates(map[string]interface{}{
+	return db.Transaction(func(tx *gorm.DB) error {
+		var reg models.ContestRegistration
+		if err := tx.Where("id = ?", regID).First(&reg).Error; err != nil {
+			return err
+		}
+		wasApproved := reg.Status == "approved"
+		now := time.Now()
+		if err := tx.Model(&reg).Updates(map[string]interface{}{
 			"status":      status,
 			"reviewer_id": reviewerID,
 			"reviewed_at": now,
-		}).Error
+		}).Error; err != nil {
+			return err
+		}
+		if status == "approved" && !wasApproved {
+			return ensureRegistrationScoreHistory(tx, reg.UserID, reg.ContestID)
+		}
+		return nil
+	})
+}
+
+// ensureRegistrationScoreHistory creates the zero-score Registration point
+// used by leaderboard membership and score-history charts. It is idempotent:
+// users with any existing contest history already have a registration point.
+func ensureRegistrationScoreHistory(tx *gorm.DB, userID, contestID string) error {
+	return ensureRegistrationScoreHistoryAt(tx, userID, contestID, time.Time{})
+}
+
+func ensureRegistrationScoreHistoryAt(tx *gorm.DB, userID, contestID string, createdAt time.Time) error {
+	var count int64
+	if err := tx.Model(&models.ContestScoreHistory{}).
+		Where("user_id = ? AND contest_id = ?", userID, contestID).
+		Count(&count).Error; err != nil {
+		return err
+	}
+	if count > 0 {
+		return nil
+	}
+	history := &models.ContestScoreHistory{
+		UserID:                userID,
+		ContestID:             contestID,
+		TotalScoreAfterChange: 0,
+	}
+	if !createdAt.IsZero() {
+		history.CreatedAt = createdAt
+	}
+	return tx.Create(history).Error
+}
+
+// backfillApprovedRegistrationScoreHistories repairs registrations created by
+// versions that stored ContestRegistration but omitted the zero-score history
+// point. It runs after AutoMigrate and is safe to repeat on every startup.
+func backfillApprovedRegistrationScoreHistories(db *gorm.DB) error {
+	return db.Transaction(func(tx *gorm.DB) error {
+		var registrations []models.ContestRegistration
+		if err := tx.Where("status = ?", "approved").Find(&registrations).Error; err != nil {
+			return err
+		}
+		for _, reg := range registrations {
+			createdAt := reg.CreatedAt
+			if reg.ReviewedAt != nil {
+				createdAt = *reg.ReviewedAt
+			}
+			if err := ensureRegistrationScoreHistoryAt(tx, reg.UserID, reg.ContestID, createdAt); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 func IsUserApprovedForContest(db *gorm.DB, userID, contestID string) (bool, error) {
-	var count int64
-	err := db.Model(&models.ContestRegistration{}).
-		Where("user_id = ? AND contest_id = ? AND status = ?", userID, contestID, "approved").
-		Count(&count).Error
-	if err != nil {
+	var reg models.ContestRegistration
+	err := db.Where("user_id = ? AND contest_id = ?", userID, contestID).First(&reg).Error
+	if err == nil {
+		return reg.Status == "approved", nil
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return false, err
 	}
-	if count > 0 {
-		return true, nil
-	}
-	// Fallback: check ContestScoreHistory for backward compat (pre-feature registrations).
+	// Only registrations created before ContestRegistration existed may fall
+	// back to the legacy score-history marker.
 	return IsUserRegisteredForContest(db, userID, contestID)
 }

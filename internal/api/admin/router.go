@@ -123,6 +123,7 @@ func RegisterRoutes(
 		devpods := adminV1.Group("/devpods")
 		{
 			devpods.GET("", h.listAllDevPods)
+			devpods.GET("/:cluster/:name/events", h.listAdminDevPodEvents)
 			devpods.POST("/:cluster/:name/start", h.startAdminDevPod)
 			devpods.POST("/:cluster/:name/stop", h.stopAdminDevPod)
 			devpods.DELETE("/:cluster/:name", h.deleteAdminDevPod)

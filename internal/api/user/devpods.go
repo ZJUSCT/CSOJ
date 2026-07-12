@@ -236,14 +236,14 @@ func (h *Handler) devPodQuotaClients() ([]*devpods.Client, error) {
 
 // requireOwnedDevPod fetches the DevPod and verifies the owner label
 // matches h + the caller's username. Returns the CR, the client, the loaded
-// user, and true on success; on error it has already responded and returns
-// false.
-func (h *Handler) requireOwnedDevPod(c *gin.Context, name string) (*unstructured.Unstructured, *devpods.Client, *models.User, bool) {
+// user, its cluster name, and true on success; on error it has already
+// responded and returns false.
+func (h *Handler) requireOwnedDevPod(c *gin.Context, name string) (*unstructured.Unstructured, *devpods.Client, *models.User, string, bool) {
 	userID := c.GetString("userID")
 	user, err := database.GetUserByID(h.db, userID)
 	if err != nil {
 		util.Error(c, http.StatusNotFound, err)
-		return nil, nil, nil, false
+		return nil, nil, nil, "", false
 	}
 	ownerName := devpods.OwnerName(user.Username)
 	// search every cluster for the named DevPod
@@ -260,17 +260,17 @@ func (h *Handler) requireOwnedDevPod(c *gin.Context, name string) (*unstructured
 		owner := u.GetLabels()["devpod.io/owner"]
 		if owner != ownerName {
 			util.Error(c, http.StatusForbidden, "not your devpod")
-			return nil, nil, nil, false
+			return nil, nil, nil, "", false
 		}
-		return u, cli, user, true
+		return u, cli, user, cl, true
 	}
 	util.Error(c, http.StatusNotFound, "devpod not found")
-	return nil, nil, nil, false
+	return nil, nil, nil, "", false
 }
 
 func (h *Handler) getDevPod(c *gin.Context) {
 	name := c.Param("name")
-	u, _, user, ok := h.requireOwnedDevPod(c, name)
+	u, _, user, _, ok := h.requireOwnedDevPod(c, name)
 	if !ok {
 		return
 	}
@@ -293,8 +293,38 @@ func (h *Handler) getDevPod(c *gin.Context) {
 	util.Success(c, inst, "DevPod found")
 }
 
+func (h *Handler) listDevPodEvents(c *gin.Context) {
+	name := c.Param("name")
+	u, client, _, clusterName, ok := h.requireOwnedDevPod(c, name)
+	if !ok {
+		return
+	}
+	events, err := client.ListEvents(c.Request.Context(), name)
+	if err != nil {
+		util.Error(c, http.StatusBadGateway, err)
+		return
+	}
+	warnings := make([]string, 0)
+	gateway, err := devpods.GetGateway(h.settings)
+	if err != nil {
+		warnings = append(warnings, fmt.Sprintf("read DevPod gateway audit setting: %v", err))
+	} else {
+		kube, err := h.scheduler.KubernetesClientForCluster(clusterName)
+		if err != nil {
+			warnings = append(warnings, fmt.Sprintf("read DevPod gateway audit client: %v", err))
+		} else {
+			auditEvents, auditWarnings := devpods.ListGatewayAuditEvents(
+				c.Request.Context(), kube, gateway.EffectiveAuditNamespace(), name, u.GetLabels()["devpod.io/owner"],
+			)
+			events = append(events, auditEvents...)
+			warnings = append(warnings, auditWarnings...)
+		}
+	}
+	util.Success(c, gin.H{"items": devpods.SortEvents(events), "warnings": warnings}, "DevPod events retrieved")
+}
+
 func (h *Handler) startDevPod(c *gin.Context) {
-	u, cli, _, ok := h.requireOwnedDevPod(c, c.Param("name"))
+	u, cli, _, _, ok := h.requireOwnedDevPod(c, c.Param("name"))
 	if !ok {
 		return
 	}
@@ -344,7 +374,7 @@ func (h *Handler) startDevPod(c *gin.Context) {
 }
 
 func (h *Handler) stopDevPod(c *gin.Context) {
-	_, cli, _, ok := h.requireOwnedDevPod(c, c.Param("name"))
+	_, cli, _, _, ok := h.requireOwnedDevPod(c, c.Param("name"))
 	if !ok {
 		return
 	}
@@ -356,7 +386,7 @@ func (h *Handler) stopDevPod(c *gin.Context) {
 }
 
 func (h *Handler) deleteDevPod(c *gin.Context) {
-	_, cli, _, ok := h.requireOwnedDevPod(c, c.Param("name"))
+	_, cli, _, _, ok := h.requireOwnedDevPod(c, c.Param("name"))
 	if !ok {
 		return
 	}

@@ -50,6 +50,13 @@ function RegistrationsTable({ contestId, statusFilter }: { contestId: string, st
             globalMutate(`/admin/contests/${contestId}/registrations?status=pending`);
             globalMutate(`/admin/contests/${contestId}/registrations?status=approved`);
             globalMutate(`/admin/contests/${contestId}/registrations?status=rejected`);
+            globalMutate(`/admin/users/${reg.user_id}/history?contest_id=${contestId}`);
+            globalMutate(key => typeof key === 'string' && (
+                key.startsWith(`/admin/contests/${contestId}/leaderboard`) ||
+                key.startsWith(`/admin/contests/${contestId}/trend`) ||
+                key.startsWith(`/contests/${contestId}/leaderboard`) ||
+                key.startsWith(`/contests/${contestId}/trend`)
+            ));
         } catch (err: any) {
             toast({
                 variant: 'destructive',

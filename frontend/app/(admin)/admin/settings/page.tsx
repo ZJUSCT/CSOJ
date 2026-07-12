@@ -121,10 +121,11 @@ function GeneralTab({ settings, onSaved }: { settings: Record<string, string>; o
 
 function DevPodGatewayTab({ settings, onSaved }: { settings: Record<string, string>; onSaved: () => void }) {
     const { toast } = useToast();
-    const gateway = parseSetting(settings, 'devpods.gateway', { host: '', port: 22, hostname_suffix: '' });
+    const gateway = parseSetting(settings, 'devpods.gateway', { host: '', port: 22, hostname_suffix: '', audit_namespace: 'devpod-system' });
     const [host, setHost] = useState(gateway.host);
     const [port, setPort] = useState(gateway.port);
     const [hostnameSuffix, setHostnameSuffix] = useState(gateway.hostname_suffix ?? '');
+    const [auditNamespace, setAuditNamespace] = useState(gateway.audit_namespace || 'devpod-system');
 
     const handleSave = function() {
         const normalizedHost = host.trim();
@@ -141,9 +142,15 @@ function DevPodGatewayTab({ settings, onSaved }: { settings: Record<string, stri
             toast({ variant: 'destructive', title: 'Hostname suffix must be a lowercase DNS label' });
             return;
         }
-        api.put('/admin/settings/devpods.gateway', { value: { host: normalizedHost, port, hostname_suffix: normalizedSuffix } }).then(function() {
+        const normalizedAuditNamespace = auditNamespace.trim();
+        if (!/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(normalizedAuditNamespace)) {
+            toast({ variant: 'destructive', title: 'Audit namespace must be a lowercase DNS label' });
+            return;
+        }
+        api.put('/admin/settings/devpods.gateway', { value: { host: normalizedHost, port, hostname_suffix: normalizedSuffix, audit_namespace: normalizedAuditNamespace } }).then(function() {
             setHost(normalizedHost);
             setHostnameSuffix(normalizedSuffix);
+            setAuditNamespace(normalizedAuditNamespace);
             toast({ title: 'DevPod gateway settings updated' });
             onSaved();
         }).catch(function(error) {
@@ -178,6 +185,16 @@ function DevPodGatewayTab({ settings, onSaved }: { settings: Record<string, stri
                         onChange={e => setPort(Number(e.target.value))}
                         placeholder="22"
                     />
+                </div>
+                <div>
+                    <Label htmlFor="devpod-gateway-audit-namespace">Audit Log Namespace</Label>
+                    <Input
+                        id="devpod-gateway-audit-namespace"
+                        value={auditNamespace}
+                        onChange={e => setAuditNamespace(e.target.value)}
+                        placeholder="devpod-system"
+                    />
+                    <p className="mt-1 text-xs text-muted-foreground">Namespace containing Pods labeled app.kubernetes.io/name=devpod-gateway.</p>
                 </div>
                 <div>
                     <Label htmlFor="devpod-gateway-hostname-suffix">Hostname Suffix (optional)</Label>

@@ -6,6 +6,7 @@ import { CopyButton } from "@/components/ui/shadcn-io/copy-button";
 import { format } from "date-fns";
 import { useTranslations } from "next-intl";
 import { Loader2 } from "lucide-react";
+import { DevPodEventButton } from "@/components/devpods/devpod-event-dialog";
 
 export type DevPodAction = "start" | "stop" | "delete";
 
@@ -65,6 +66,7 @@ export function DevPodRow({ inst, templateName, pendingAction, startDisabled, on
               {pendingAction === "stop" ? t("stopping") : t("stop")}
             </Button>
           )}
+          <DevPodEventButton endpoint={`/devpods/${encodeURIComponent(inst.name)}/events`} name={inst.name} disabled={pendingAction === "delete"} />
           <Button size="sm" variant="ghost" disabled={!!pendingAction} className="w-24 text-destructive" onClick={onDelete}>
             {pendingAction === "delete" && <Loader2 className="mr-1.5 h-3.5 w-3.5 shrink-0 animate-spin" />}
             {pendingAction === "delete" ? t("deleting") : t("delete")}

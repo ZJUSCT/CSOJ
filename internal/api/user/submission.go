@@ -80,16 +80,18 @@ func (h *Handler) submitToProblem(c *gin.Context) {
 		return
 	}
 
-	// Check if user is registered for the contest
-	isRegistered, err := database.IsUserRegisteredForContest(h.db, user.ID, parentContest.ID)
+	// Only approved registrations may submit. The database helper retains
+	// backward compatibility for users registered before ContestRegistration
+	// existed, while modern pending/rejected records are denied explicitly.
+	isApproved, err := database.IsUserApprovedForContest(h.db, user.ID, parentContest.ID)
 	if err != nil {
 		h.appState.RUnlock()
-		util.Error(c, http.StatusInternalServerError, fmt.Errorf("failed to check contest registration: %w", err))
+		util.Error(c, http.StatusInternalServerError, fmt.Errorf("failed to check contest registration approval: %w", err))
 		return
 	}
-	if !isRegistered {
+	if !isApproved {
 		h.appState.RUnlock()
-		util.Error(c, http.StatusForbidden, fmt.Errorf("you must register for the contest before submitting"))
+		util.Error(c, http.StatusForbidden, fmt.Errorf("your contest registration must be approved before submitting"))
 		return
 	}
 

@@ -50,6 +50,7 @@ func (h *Handler) updateSetting(c *gin.Context) {
 		}
 		gateway.Host = strings.TrimSpace(gateway.Host)
 		gateway.HostnameSuffix = strings.TrimSpace(gateway.HostnameSuffix)
+		gateway.AuditNamespace = strings.TrimSpace(gateway.AuditNamespace)
 		if err := gateway.Validate(); err != nil {
 			util.Error(c, http.StatusBadRequest, err)
 			return

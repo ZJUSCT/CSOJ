@@ -96,6 +96,7 @@ func RegisterRoutes(
 				devpodsGroup.GET("/templates", h.listDevPodTemplates)
 				devpodsGroup.POST("", h.createDevPod)
 				devpodsGroup.GET("/:name", h.getDevPod)
+				devpodsGroup.GET("/:name/events", h.listDevPodEvents)
 				devpodsGroup.POST("/:name/start", h.startDevPod)
 				devpodsGroup.POST("/:name/stop", h.stopDevPod)
 				devpodsGroup.DELETE("/:name", h.deleteDevPod)

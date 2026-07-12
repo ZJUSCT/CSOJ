@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { DevPodEventButton } from "@/components/devpods/devpod-event-dialog";
 
 const fetcher = (url: string) => api.get(url).then(response => response.data.data);
 
@@ -169,7 +170,7 @@ export default function AdminDevPodsPage() {
                       <TableCell className="max-w-48 truncate text-xs text-muted-foreground" title={item.message}>{item.message || "-"}</TableCell>
                       <TableCell className="whitespace-nowrap text-xs">{item.created_at ? format(new Date(item.created_at), "yyyy-MM-dd HH:mm:ss") : "-"}</TableCell>
                       <TableCell>
-                        <div className="flex min-w-52 items-center justify-end gap-1">
+                        <div className="flex min-w-[19rem] items-center justify-end gap-1">
                           {showStop ? (
                             <Button size="sm" variant="outline" className="w-24" disabled={isPending} onClick={() => act(item, "stop")}>
                               {pendingAction === "stop" ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Square className="mr-1.5 h-3.5 w-3.5" />}
@@ -181,6 +182,11 @@ export default function AdminDevPodsPage() {
                               {pendingAction === "start" ? "Starting" : "Start"}
                             </Button>
                           )}
+                          <DevPodEventButton
+                            endpoint={`/admin/devpods/${encodeURIComponent(item.cluster_name)}/${encodeURIComponent(item.name)}/events`}
+                            name={item.name}
+                            disabled={pendingAction === "delete"}
+                          />
                           <Button size="sm" variant="ghost" className="w-24 text-destructive hover:text-destructive" disabled={isPending} onClick={() => act(item, "delete")}>
                             {pendingAction === "delete" ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Trash2 className="mr-1.5 h-3.5 w-3.5" />}
                             {pendingAction === "delete" ? "Deleting" : "Delete"}

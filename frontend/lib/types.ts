@@ -311,6 +311,23 @@ export interface DevPodInstance {
 
 export interface DevPodGateway { host: string; port: number; }
 
+export interface DevPodEvent {
+  name: string;
+  type: string;
+  reason: string;
+  message: string;
+  object_kind: string;
+  object_name: string;
+  source: string;
+  count: number;
+  timestamp: string;
+}
+
+export interface DevPodEventListResponse {
+  items: DevPodEvent[];
+  warnings?: string[];
+}
+
 export interface AdminDevPodInstance {
   name: string;
   owner: string;

@@ -13,7 +13,10 @@ type Gateway struct {
 	Host           string `json:"host"`
 	Port           int    `json:"port"`
 	HostnameSuffix string `json:"hostname_suffix,omitempty"`
+	AuditNamespace string `json:"audit_namespace,omitempty"`
 }
+
+const DefaultGatewayAuditNamespace = "devpod-system"
 
 var hostnameSuffixRE = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$`)
 
@@ -28,7 +31,17 @@ func (g Gateway) Validate() error {
 	if g.HostnameSuffix != "" && !hostnameSuffixRE.MatchString(g.HostnameSuffix) {
 		return fmt.Errorf("gateway hostname suffix must be a lowercase DNS label")
 	}
+	if g.AuditNamespace != "" && !hostnameSuffixRE.MatchString(g.AuditNamespace) {
+		return fmt.Errorf("gateway audit namespace must be a lowercase DNS label")
+	}
 	return nil
+}
+
+func (g Gateway) EffectiveAuditNamespace() string {
+	if strings.TrimSpace(g.AuditNamespace) == "" {
+		return DefaultGatewayAuditNamespace
+	}
+	return g.AuditNamespace
 }
 
 const gatewaySettingKey = "devpods.gateway"

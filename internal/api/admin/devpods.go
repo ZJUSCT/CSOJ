@@ -160,6 +160,36 @@ func (h *Handler) startAdminDevPod(c *gin.Context) {
 	util.Success(c, gin.H{"cluster_name": c.Param("cluster"), "name": c.Param("name"), "running": true}, "DevPod starting")
 }
 
+func (h *Handler) listAdminDevPodEvents(c *gin.Context) {
+	u, client, ok := h.requireAdminDevPod(c)
+	if !ok {
+		return
+	}
+	name := c.Param("name")
+	events, err := client.ListEvents(c.Request.Context(), name)
+	if err != nil {
+		util.Error(c, http.StatusBadGateway, err)
+		return
+	}
+	warnings := make([]string, 0)
+	gateway, err := devpods.GetGateway(h.settings)
+	if err != nil {
+		warnings = append(warnings, fmt.Sprintf("read DevPod gateway audit setting: %v", err))
+	} else {
+		kube, err := h.scheduler.KubernetesClientForCluster(c.Param("cluster"))
+		if err != nil {
+			warnings = append(warnings, fmt.Sprintf("read DevPod gateway audit client: %v", err))
+		} else {
+			auditEvents, auditWarnings := devpods.ListGatewayAuditEvents(
+				c.Request.Context(), kube, gateway.EffectiveAuditNamespace(), name, u.GetLabels()["devpod.io/owner"],
+			)
+			events = append(events, auditEvents...)
+			warnings = append(warnings, auditWarnings...)
+		}
+	}
+	util.Success(c, gin.H{"items": devpods.SortEvents(events), "warnings": warnings}, "DevPod events retrieved")
+}
+
 func (h *Handler) stopAdminDevPod(c *gin.Context) {
 	_, client, ok := h.requireAdminDevPod(c)
 	if !ok {
