@@ -242,7 +242,7 @@ export interface AssetFile {
 
 export interface ClusterRow {
   name: string;
-  kubeconfig: string;
+  kubeconfig?: string;
   context: string;
   namespace: string;
   concurrency: number;

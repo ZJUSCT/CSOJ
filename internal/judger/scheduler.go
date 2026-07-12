@@ -60,6 +60,8 @@ type Scheduler struct {
 	appState   *AppState
 	clusters   map[string]*ClusterState
 	mu         sync.RWMutex // guards the clusters map swap in ReloadClusters
+	reloadMu   sync.Mutex
+	running    bool
 	dispatcher *Dispatcher
 }
 
@@ -76,10 +78,13 @@ func NewScheduler(db *gorm.DB, settings *config.SettingsStore, cfg *config.Confi
 		zap.S().Fatalf("failed to load clusters from DB: %v", err)
 	}
 	for _, cc := range dbClusters {
-		cs, err := buildClusterState(db, cc)
+		cs, warning, err := buildClusterState(db, cc)
 		if err != nil {
 			zap.S().Warnf("cluster %s failed to init: %v (skipping)", cc.Name, err)
 			continue
+		}
+		if warning != "" {
+			zap.S().Warn(warning)
 		}
 		clusters[cc.Name] = cs
 	}
@@ -92,28 +97,28 @@ func NewScheduler(db *gorm.DB, settings *config.SettingsStore, cfg *config.Confi
 // buildClusterState parses the kubeconfig text in cc.Kubeconfig, builds the
 // K8s clientset + dynamic client, loads the cluster's node-pool caps from the
 // DB, and returns a ready *ClusterState (without a queue — the caller sets it).
-func buildClusterState(db *gorm.DB, cc models.Cluster) (*ClusterState, error) {
+func buildClusterState(db *gorm.DB, cc models.Cluster) (*ClusterState, string, error) {
 	loaded, err := clientcmd.Load([]byte(cc.Kubeconfig))
 	if err != nil {
-		return nil, fmt.Errorf("parse kubeconfig: %w", err)
+		return nil, "", fmt.Errorf("parse kubeconfig: %w", err)
 	}
 	clientCfg := clientcmd.NewNonInteractiveClientConfig(*loaded, cc.Context, &clientcmd.ConfigOverrides{}, nil)
 	restCfg, err := clientCfg.ClientConfig()
 	if err != nil {
-		return nil, fmt.Errorf("build rest config: %w", err)
+		return nil, "", fmt.Errorf("build rest config: %w", err)
 	}
 	cs, err := kubernetes.NewForConfig(restCfg)
 	if err != nil {
-		return nil, fmt.Errorf("build clientset: %w", err)
+		return nil, "", fmt.Errorf("build clientset: %w", err)
 	}
 	dyn, err := dynamic.NewForConfig(restCfg)
 	if err != nil {
-		return nil, fmt.Errorf("build dynamic client: %w", err)
+		return nil, "", fmt.Errorf("build dynamic client: %w", err)
 	}
 
 	pools, err := loadClusterPools(db, cc.Name)
 	if err != nil {
-		return nil, fmt.Errorf("load pools: %w", err)
+		return nil, "", fmt.Errorf("load pools: %w", err)
 	}
 
 	conc := cc.Concurrency
@@ -132,13 +137,17 @@ func buildClusterState(db *gorm.DB, cc models.Cluster) (*ClusterState, error) {
 	}
 	cluster.mpiEnabled = probeMPIOperator(cs, cc.Namespace)
 	cluster.queueMode = cc.QueueMode
+	if cluster.queueMode == "" {
+		cluster.queueMode = "channel"
+	}
+	warning := ""
 	if cluster.queueMode == "kueue" {
 		if !probeKueue(cs) {
-			zap.S().Warnf("cluster %s: queue_mode=kueue but Kueue CRD not found; falling back to channel", cc.Name)
+			warning = fmt.Sprintf("cluster %s: queue_mode=kueue but the Kueue Workload CRD (v1 or v1beta1) was not found; falling back to channel", cc.Name)
 			cluster.queueMode = "channel"
 		}
 	}
-	return cluster, nil
+	return cluster, warning, nil
 }
 
 // loadClusterPools reads the cluster's node-pool caps from the DB and returns
@@ -168,44 +177,87 @@ func loadClusterPools(db *gorm.DB, clusterName string) (map[string]*PoolState, e
 // or accept that those goroutines block forever on a buffered channel).
 // Returns a per-cluster list of warnings for kubeconfig parse failures.
 func (s *Scheduler) ReloadClusters() ([]string, error) {
+	s.reloadMu.Lock()
+	defer s.reloadMu.Unlock()
+
 	dbClusters, err := database.GetAllClusters(s.db)
 	if err != nil {
 		return nil, err
 	}
+	s.mu.RLock()
+	oldClusters := make(map[string]*ClusterState, len(s.clusters))
+	for name, cluster := range s.clusters {
+		oldClusters[name] = cluster
+	}
+	running := s.running
+	s.mu.RUnlock()
+
 	newMap := make(map[string]*ClusterState, len(dbClusters))
+	newWorkers := make(map[string]*ClusterState)
 	var warnings []string
 	for _, cc := range dbClusters {
-		cs, err := buildClusterState(s.db, cc)
+		cs, warning, err := buildClusterState(s.db, cc)
 		if err != nil {
 			warnings = append(warnings, fmt.Sprintf("cluster %s: %v", cc.Name, err))
+			if old, ok := oldClusters[cc.Name]; ok {
+				newMap[cc.Name] = old
+			}
 			continue
 		}
-		// Preserve the existing queue if this cluster already exists (in-flight work).
-		s.mu.RLock()
-		old, ok := s.clusters[cc.Name]
-		s.mu.RUnlock()
-		if ok {
-			cs.queue = old.queue
-		} else {
-			cs.queue = make(chan QueuedSubmission, 1024)
+		if warning != "" {
+			warnings = append(warnings, warning)
 		}
-		newMap[cc.Name] = cs
+		if old, ok := oldClusters[cc.Name]; ok {
+			applyReloadedCluster(old, cs)
+			newMap[cc.Name] = old
+		} else {
+			newMap[cc.Name] = cs
+			newWorkers[cc.Name] = cs
+		}
 	}
 	s.mu.Lock()
 	s.clusters = newMap
 	s.mu.Unlock()
+	if running {
+		for name, cluster := range newWorkers {
+			go s.clusterWorker(name, cluster)
+		}
+	}
 	return warnings, nil
+}
+
+// applyReloadedCluster updates a live ClusterState in place so its existing
+// queue worker observes new clients, namespace, pools, and queue mode. Queue
+// and semaphore identity are preserved to avoid dropping queued submissions.
+func applyReloadedCluster(dst, src *ClusterState) {
+	dst.Lock()
+	defer dst.Unlock()
+	dst.Namespace = src.Namespace
+	dst.k8s = src.k8s
+	dst.dyn = src.dyn
+	dst.pools = src.pools
+	dst.mpiEnabled = src.mpiEnabled
+	dst.queueMode = src.queueMode
 }
 
 // Dispatcher exposes the dispatcher (used by admin handlers for interrupt).
 func (s *Scheduler) Dispatcher() *Dispatcher { return s.dispatcher }
 
 func (s *Scheduler) Run() {
-	s.mu.RLock()
+	s.mu.Lock()
+	if s.running {
+		s.mu.Unlock()
+		return
+	}
+	s.running = true
+	clusters := make(map[string]*ClusterState, len(s.clusters))
 	for name, cluster := range s.clusters {
+		clusters[name] = cluster
+	}
+	s.mu.Unlock()
+	for name, cluster := range clusters {
 		go s.clusterWorker(name, cluster)
 	}
-	s.mu.RUnlock()
 }
 
 func (s *Scheduler) clusterWorker(name string, cluster *ClusterState) {

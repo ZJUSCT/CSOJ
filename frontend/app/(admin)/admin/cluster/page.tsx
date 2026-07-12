@@ -4,7 +4,7 @@ import { useState } from 'react';
 import useSWR from 'swr';
 import api from '@/lib/api';
 import { ClusterRow, ClusterNodePool, ClusterStatusResponse } from '@/lib/types';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -70,6 +70,7 @@ function ClusterRowsSection() {
                                 <TableHead>Namespace</TableHead>
                                 <TableHead>Concurrency</TableHead>
                                 <TableHead>Heartbeat TTL (s)</TableHead>
+                                <TableHead>Queue Mode</TableHead>
                                 <TableHead className="text-right">Actions</TableHead>
                             </TableRow>
                         </TableHeader>
@@ -80,6 +81,7 @@ function ClusterRowsSection() {
                                     <TableCell>{c.namespace}</TableCell>
                                     <TableCell>{c.concurrency}</TableCell>
                                     <TableCell>{c.heartbeat_ttl}</TableCell>
+                                    <TableCell><Badge variant={c.queue_mode === 'kueue' ? 'default' : 'outline'}>{c.queue_mode}</Badge></TableCell>
                                     <TableCell className="text-right space-x-2">
                                         <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setEditingCluster(c)}>
                                             <Edit className="h-4 w-4" />
@@ -116,8 +118,8 @@ function ClusterRowsSection() {
                     </Table>
                 )}
             </CardContent>
-            {createOpen && <ClusterFormDialog open={createOpen} onOpenChange={setCreateOpen} mode="create" onSuccess={() => mutate()} />}
-            {editingCluster && <ClusterFormDialog open={!!editingCluster} onOpenChange={(v) => !v && setEditingCluster(null)} mode="edit" cluster={editingCluster} onSuccess={() => mutate()} />}
+            {createOpen && <ClusterFormDialog open={createOpen} onOpenChange={setCreateOpen} mode="create" onSuccess={() => { void mutate(); void globalMutate('/admin/clusters/status'); }} />}
+            {editingCluster && <ClusterFormDialog open={!!editingCluster} onOpenChange={(v) => !v && setEditingCluster(null)} mode="edit" cluster={editingCluster} onSuccess={() => { void mutate(); void globalMutate('/admin/clusters/status'); }} />}
         </Card>
     );
 }
@@ -142,12 +144,19 @@ function ClusterFormDialog({ open, onOpenChange, mode, cluster, onSuccess }: {
 
     const handleSave = async () => {
         try {
+            let response;
             if (mode === 'create') {
-                await api.post('/admin/clusters', form);
+                response = await api.post('/admin/clusters', form);
             } else {
-                await api.put(`/admin/clusters/${form.name}`, form);
+                response = await api.put(`/admin/clusters/${form.name}`, form);
             }
-            toast({ title: `Cluster ${mode === 'create' ? 'created' : 'updated'}` });
+            const warnings: string[] = response.data.data?.warnings ?? [];
+            toast({
+                title: warnings.length > 0
+                    ? `Cluster ${mode === 'create' ? 'created' : 'updated'} with warnings`
+                    : `Cluster ${mode === 'create' ? 'created' : 'updated'}`,
+                description: warnings.length > 0 ? warnings.join('; ') : undefined,
+            });
             onOpenChange(false);
             onSuccess();
         } catch (err: any) {
@@ -200,7 +209,7 @@ function ClusterFormDialog({ open, onOpenChange, mode, cluster, onSuccess }: {
                         </div>
                     </div>
                     <div>
-                        <Label>Kubeconfig (full YAML text)</Label>
+                        <Label>Kubeconfig {mode === 'edit' ? '(leave empty to keep existing)' : '(full YAML text)'}</Label>
                         <Textarea
                             className="font-mono text-xs min-h-[200px]"
                             value={form.kubeconfig}
@@ -237,7 +246,9 @@ function PoolStatusSection() {
                                 {cluster.QueueMode === 'kueue' ? 'Kueue' : 'Channel'}
                             </Badge>
                         </CardTitle>
+                        <CardDescription>
                             Namespace: {cluster.Namespace} | Queue: {cluster.QueueLength} | Concurrency: {cluster.Concurrency}
+                        </CardDescription>
                     </CardHeader>
                     <CardContent>
                         <PoolTable clusterName={clusterName} pools={cluster.Pools} />

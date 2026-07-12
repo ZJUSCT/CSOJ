@@ -1,13 +1,20 @@
 package admin
 
 import (
+	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/ZJUSCT/CSOJ/internal/database"
 	"github.com/ZJUSCT/CSOJ/internal/database/models"
 	"github.com/ZJUSCT/CSOJ/internal/util"
 	"github.com/gin-gonic/gin"
 )
+
+type clusterMutationResponse struct {
+	models.Cluster
+	Warnings []string `json:"warnings"`
+}
 
 func (h *Handler) getClusterStatus(c *gin.Context) {
 	states := h.scheduler.GetClusterStates()
@@ -115,12 +122,14 @@ func (h *Handler) listClusters(c *gin.Context) {
 		Namespace    string `json:"namespace"`
 		Concurrency  int    `json:"concurrency"`
 		HeartbeatTTL int    `json:"heartbeat_ttl"`
+		QueueMode    string `json:"queue_mode"`
 	}
 	out := make([]clusterSummary, 0, len(rows))
 	for _, r := range rows {
 		out = append(out, clusterSummary{
 			Name: r.Name, Context: r.Context, Namespace: r.Namespace,
 			Concurrency: r.Concurrency, HeartbeatTTL: r.HeartbeatTTL,
+			QueueMode: normalizedQueueMode(r.QueueMode),
 		})
 	}
 	util.Success(c, out, "Clusters retrieved")
@@ -133,11 +142,22 @@ func (h *Handler) createCluster(c *gin.Context) {
 		util.Error(c, http.StatusBadRequest, err)
 		return
 	}
+	queueMode, err := validateQueueMode(cl.QueueMode)
+	if err != nil {
+		util.Error(c, http.StatusBadRequest, err)
+		return
+	}
+	cl.QueueMode = queueMode
 	if err := database.UpsertCluster(h.db, &cl); err != nil {
 		util.Error(c, http.StatusInternalServerError, err)
 		return
 	}
-	util.Success(c, cl, "Cluster created")
+	warnings, err := h.scheduler.ReloadClusters()
+	if err != nil {
+		util.Error(c, http.StatusInternalServerError, fmt.Errorf("cluster saved but scheduler reload failed: %w", err))
+		return
+	}
+	util.Success(c, clusterMutationResponse{Cluster: cl, Warnings: warnings}, "Cluster created")
 }
 
 // updateCluster updates an existing cluster row by name (including kubeconfig).
@@ -152,11 +172,49 @@ func (h *Handler) updateCluster(c *gin.Context) {
 		util.Error(c, http.StatusBadRequest, "cluster name in path does not match body")
 		return
 	}
+	queueMode, err := validateQueueMode(cl.QueueMode)
+	if err != nil {
+		util.Error(c, http.StatusBadRequest, err)
+		return
+	}
+	cl.QueueMode = queueMode
+	existing, err := database.GetCluster(h.db, name)
+	if err != nil {
+		util.Error(c, http.StatusNotFound, "cluster not found")
+		return
+	}
+	// Cluster summaries deliberately omit kubeconfig secrets. Preserve the
+	// stored kubeconfig when the edit form submits an empty value.
+	if strings.TrimSpace(cl.Kubeconfig) == "" {
+		cl.Kubeconfig = existing.Kubeconfig
+	}
+	cl.CreatedAt = existing.CreatedAt
 	if err := database.UpsertCluster(h.db, &cl); err != nil {
 		util.Error(c, http.StatusInternalServerError, err)
 		return
 	}
-	util.Success(c, cl, "Cluster updated")
+	warnings, err := h.scheduler.ReloadClusters()
+	if err != nil {
+		util.Error(c, http.StatusInternalServerError, fmt.Errorf("cluster saved but scheduler reload failed: %w", err))
+		return
+	}
+	util.Success(c, clusterMutationResponse{Cluster: cl, Warnings: warnings}, "Cluster updated")
+}
+
+func normalizedQueueMode(mode string) string {
+	mode = strings.ToLower(strings.TrimSpace(mode))
+	if mode == "" {
+		return "channel"
+	}
+	return mode
+}
+
+func validateQueueMode(mode string) (string, error) {
+	mode = normalizedQueueMode(mode)
+	if mode != "channel" && mode != "kueue" {
+		return "", fmt.Errorf("queue_mode must be 'channel' or 'kueue'")
+	}
+	return mode, nil
 }
 
 // deleteCluster deletes a cluster row by name.

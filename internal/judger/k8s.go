@@ -38,17 +38,18 @@ func probeMPIOperator(cs kubernetes.Interface, ns string) bool {
 	return false
 }
 
-// probeKueue checks whether the Kueue CRD (Workload kind in kueue.x-k8s.io/v1)
-// is installed in the cluster. Used to validate the cluster's queue_mode=kueue
-// config at startup and on reload.
+// probeKueue checks whether a supported Kueue Workload CRD is installed in the
+// cluster. Kueue releases may serve either v1 or v1beta1.
 func probeKueue(cs kubernetes.Interface) bool {
-	apiRes, err := cs.Discovery().ServerResourcesForGroupVersion("kueue.x-k8s.io/v1")
-	if err != nil {
-		return false
-	}
-	for _, r := range apiRes.APIResources {
-		if r.Kind == "Workload" {
-			return true
+	for _, groupVersion := range []string{"kueue.x-k8s.io/v1", "kueue.x-k8s.io/v1beta1"} {
+		apiRes, err := cs.Discovery().ServerResourcesForGroupVersion(groupVersion)
+		if err != nil {
+			continue
+		}
+		for _, r := range apiRes.APIResources {
+			if r.Kind == "Workload" {
+				return true
+			}
 		}
 	}
 	return false
